@@ -47,7 +47,8 @@ def commitRecord(ip):
                 "content": ip["ip"],
                 "proxied": c["proxied"]
             }
-            list = cf_api("zones/" + c['zone_id'] + "/dns_records&per_page=100?type=" + ip["type"], "GET", c)
+            list = cf_api(
+                "zones/" + c['zone_id'] + "/dns_records&per_page=100?type=" + ip["type"], "GET", c)
             full_subdomain = subdomain + "." + base_domain_name
             dns_id = ""
             for r in list["result"]:
@@ -71,7 +72,8 @@ def commitRecord(ip):
     # Delete duplicate, stale records
     for identifier in stale_record_ids:
         print("Deleting stale record " + str(identifier))
-        response = cf_api("zones/" + c['zone_id'] + "/dns_records/" + identifier, "DELETE", c)
+        response = cf_api(
+            "zones/" + c['zone_id'] + "/dns_records/" + identifier, "DELETE", c)
 
     return True
 

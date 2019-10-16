@@ -5,8 +5,8 @@
       "account_email": "your_email_here",
       "zone_id": "your_zone_id_here",
       "subdomains": [
-        "one.example.com",
-        "two.example.com"
+        "",
+        "subdomain"
       ],
       "proxied": false
     }
