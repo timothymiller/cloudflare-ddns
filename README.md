@@ -16,7 +16,7 @@ Values explained:
 "api_key": "Your cloudflare API Key",
 "account_email": "The email address you use to sign in to cloudflare",
 "zone_id": "The ID of the zone that will get the records. From your dashboard click into the zone. Under the overview tab, scroll down and the zone ID is listed in the right rail",
-"subdomains": "Array of subdomains you want to assign the IP(s) to (e.g. foo or an empty string to update the base domain)",
+"subdomains": "Array of subdomains you want to update the A & where applicable, AAAA records. IMPORTANT! Only write subdomain name. Do not include the base domain name. (e.g. foo or an empty string to update the base domain)",
 "proxied": false (defaults to false. Make it true if you want CDN/SSL benefits from cloudflare. This usually disables SSH)
 ```
 
