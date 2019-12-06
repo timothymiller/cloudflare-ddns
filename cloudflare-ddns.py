@@ -49,7 +49,11 @@ def commitRecord(ip):
             }
             list = cf_api(
                 "zones/" + c['zone_id'] + "/dns_records&per_page=100?type=" + ip["type"], "GET", c)
-            full_subdomain = subdomain + "." + base_domain_name
+            
+            full_subdomain = base_domain_name
+            if subdomain:
+                full_subdomain = subdomain + "." + full_subdomain
+            
             dns_id = ""
             for r in list["result"]:
                 if (r["name"] == full_subdomain):
