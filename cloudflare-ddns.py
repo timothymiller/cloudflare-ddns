@@ -48,7 +48,7 @@ def commitRecord(ip):
                 "proxied": c["proxied"]
             }
             list = cf_api(
-                "zones/" + c['zone_id'] + "/dns_records&per_page=100?type=" + ip["type"], "GET", c)
+                "zones/" + c['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], "GET", c)
             
             full_subdomain = base_domain_name
             if subdomain:
