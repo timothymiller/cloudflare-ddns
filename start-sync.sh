@@ -7,4 +7,4 @@ source ./venv/bin/activate
 pip install requests
 
 cd $DIR
-python cloudflare-ddns.py
+python3 cloudflare-ddns.py
