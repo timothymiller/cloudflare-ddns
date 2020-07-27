@@ -86,7 +86,7 @@ def cf_api(endpoint, method, config, headers={}, data=False):
     api_token = config['authentication']['api_token']
     if api_token != '' and api_token != 'api_token_here':
         headers = {
-            "Authorization": "Bearer " + config['authentication']['api_token'],
+            "Authorization": "Bearer " + api_token,
             **headers
         }
     else:
