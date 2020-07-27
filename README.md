@@ -16,7 +16,7 @@ cp config-example.json config.json
 
 Edit `config.json` and replace the values with your own.
 
-- Authentication methods: 
+### Authentication methods
 
 You can choose to use either the newer API tokens, or the traditional API keys
 
@@ -34,7 +34,7 @@ Alternatively, you can use the traditional API keys by setting appropriate value
     "account_email": "The email address you use to sign in to cloudflare",
 ```
 
-- Other values explained:
+### Other values explained
 
 ```json
 "zone_id": "The ID of the zone that will get the records. From your dashboard click into the zone. Under the overview tab, scroll down and the zone ID is listed in the right rail",
