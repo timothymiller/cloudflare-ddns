@@ -47,7 +47,7 @@ You can save yourself some trouble when hosting multiple domains pointing to the
 
 ## :running: Running
 
-This script requires Python 3.5+, which comes preinstalled on the latest version of Raspbian. Download/clone this repo and execute `./sync`, which will set up a virtualenv, pull in any dependencies, and fire the script.
+This script requires Python 3.5+, which comes preinstalled on the latest version of Raspbian. Download/clone this repo and give permission to the project's bash script by running `chmod +x ./start-sync.sh`. Now you can execute `./start-sync.sh`, which will set up a virtualenv, pull in any dependencies, and fire the script.
 
 ## :alarm_clock: Scheduling
 
@@ -66,7 +66,7 @@ crontab -e
 3. Add the following lines to sync your DNS records every 15 minutes
 
 ```bash
-*/15 * * * * /home/your_username_here/cloudflare-ddns/sync
+*/15 * * * * /home/your_username_here/cloudflare-ddns/start-sync.sh
 ```
 
 ## License
