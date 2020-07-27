@@ -8,13 +8,35 @@ This script was written for the Raspberry Pi platform to enable low cost, simple
 
 ## :vertical_traffic_light: Getting Started
 
-Edit config.json and replace the values with your own.
+First copy the example configuration file into the real one.
 
-Values explained:
+``bash
+cp config-example.json config.json
+```
+
+Edit `config.json` and replace the values with your own.
+
+- Authentication methods: 
+
+You can choose to use either the newer API tokens, or the traditional API keys
+
+To generate a new API tokens, go to https://dash.cloudflare.com/profile/api-tokens and create a token capable of **Edit DNS**. Then replace the value in
+```json
+"authentication":
+  "api_token": "Your cloudflare API token, including the capability of **Edit DNS**"
+```
+
+Alternatively, you can use the traditional API keys by setting appropriate values for: 
+```json
+"authentication":
+  "api_key":
+    "api_key": "Your cloudflare API Key",
+    "account_email": "The email address you use to sign in to cloudflare",
+```
+
+- Other values explained:
 
 ```json
-"api_key": "Your cloudflare API Key",
-"account_email": "The email address you use to sign in to cloudflare",
 "zone_id": "The ID of the zone that will get the records. From your dashboard click into the zone. Under the overview tab, scroll down and the zone ID is listed in the right rail",
 "subdomains": "Array of subdomains you want to update the A & where applicable, AAAA records. IMPORTANT! Only write subdomain name. Do not include the base domain name. (e.g. foo or an empty string to update the base domain)",
 "proxied": false (defaults to false. Make it true if you want CDN/SSL benefits from cloudflare. This usually disables SSH)

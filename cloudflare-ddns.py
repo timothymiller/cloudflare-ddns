@@ -83,11 +83,17 @@ def commitRecord(ip):
 
 
 def cf_api(endpoint, method, config, headers={}, data=False):
-    headers = {
-        "X-Auth-Email": config['account_email'],
-        "X-Auth-Key": config['api_key'],
-        **headers
-    }
+    api_token = config['authentication']['api_token']
+    if api_token != '' and api_token != 'api_token_here':
+        headers = {
+            "Authorization": "Bearer " + config['authentication']['api_token'],
+            **headers
+        }
+    else:
+        headers = {
+            "X-Auth-Email": config['authentication']['api_key']['account_email'],
+            "X-Auth-Key": config['authentication']['api_key']['api_key'],        
+        }
 
     if(data == False):
         response = requests.request(
@@ -97,7 +103,6 @@ def cf_api(endpoint, method, config, headers={}, data=False):
             method, "https://api.cloudflare.com/client/v4/" + endpoint, headers=headers, json=data)
 
     return response.json()
-
 
 for ip in getIPs():
     print("Checking " + ip["type"] + " records")
