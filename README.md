@@ -10,7 +10,7 @@ This script was written for the Raspberry Pi platform to enable low cost, simple
 
 First copy the example configuration file into the real one.
 
-``bash
+```bash
 cp config-example.json config.json
 ```
 
