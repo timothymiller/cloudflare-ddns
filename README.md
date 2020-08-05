@@ -55,10 +55,6 @@ chmod +x ./build-docker-image.sh
 docker run -d timothymiller/cloudflare_ddns:latest
 ```
 
-### :running: (legacy) Running
-
-This script requires Python 3.5+, which comes preinstalled on the latest version of Raspbian. Download/clone this repo and give permission to the project's bash script by running `chmod +x ./start-sync.sh`. Now you can execute `./start-sync.sh`, which will set up a virtualenv, pull in any dependencies, and fire the script.
-
 ## :penguin: (legacy) Linux + cron instructions (all distros)
 
 1. Upload the cloudflare-ddns folder to your home directory /home/your_username_here/
@@ -74,6 +70,10 @@ crontab -e
 ```bash
 */15 * * * * /home/your_username_here/cloudflare-ddns/start-sync.sh
 ```
+
+### :running: (legacy) Running
+
+This script requires Python 3.5+, which comes preinstalled on the latest version of Raspbian. Download/clone this repo and give permission to the project's bash script by running `chmod +x ./start-sync.sh`. Now you can execute `./start-sync.sh`, which will set up a virtualenv, pull in any dependencies, and fire the script.
 
 ## License
 
