@@ -12,7 +12,10 @@
         "build-docker-image.sh": true,
         ".gitignore": true,
         "Dockerfile": false,
-        "start-sync.sh": false
+        "start-sync.sh": false,
+        "venv": true
     },
-    "explorerExclude.backup": null
+    "explorerExclude.backup": null,
+    "python.linting.pylintEnabled": true,
+    "python.linting.enabled": true
 }
