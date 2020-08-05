@@ -1,0 +1,1 @@
+docker build -t timothymiller/cloudflare-ddns:latest .
