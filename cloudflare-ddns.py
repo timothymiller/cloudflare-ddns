@@ -1,7 +1,5 @@
-import requests
-import json
-import sys
-import os
+import requests, json, sys, os
+import time, traceback
 
 PATH = os.getcwd() + "/"
 version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
@@ -103,9 +101,6 @@ def cf_api(endpoint, method, config, headers={}, data=False):
             method, "https://api.cloudflare.com/client/v4/" + endpoint, headers=headers, json=data)
 
     return response.json()
-
-# Scheduling
-import time, traceback
 
 def every(delay, task):
   next_time = time.time() + delay

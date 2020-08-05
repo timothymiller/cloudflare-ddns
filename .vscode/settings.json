@@ -9,7 +9,7 @@
         ".vscode": true,
         "LICENSE": true,
         "requirements.txt": true,
-        "build-docker-image.sh": true,
+        "build-docker-image.sh": false,
         ".gitignore": true,
         "Dockerfile": false,
         "start-sync.sh": false,

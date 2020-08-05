@@ -1,0 +1,13 @@
+version: "3.7"
+services:
+  cloudflare-ddns:
+    image: timothymiller/cloudflare-ddns:latest
+    container_name: cloudflare-ddns
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      - /EDIT/YOUR/PATH/HERE/config.json:/config.json
+    restart: unless-stopped
