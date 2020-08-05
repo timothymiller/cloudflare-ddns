@@ -45,7 +45,17 @@ Alternatively, you can use the traditional API keys by setting appropriate value
 ## :fax: Hosting multiple domains on the same IP?
 You can save yourself some trouble when hosting multiple domains pointing to the same IP address (in the case of Traefik) by defining one A & AAAA record  'ddns.example.com' pointing to the IP of the server that will be updated by this DDNS script. For each subdomain, create a CNAME record pointing to 'ddns.example.com'. Now you don't have to manually modify the script config every time you add a new subdomain to your site!
 
-## :running: Running
+## Deploy to Docker
+
+Create a config.json file with your production credentials and run the build-docker-image script.
+
+```bash
+chmod +x ./build-docker-image.sh
+./build-docker-image.sh
+docker run -d timothymiller/cloudflare_ddns:latest
+```
+
+## (Legacy) :running: Running
 
 This script requires Python 3.5+, which comes preinstalled on the latest version of Raspbian. Download/clone this repo and give permission to the project's bash script by running `chmod +x ./start-sync.sh`. Now you can execute `./start-sync.sh`, which will set up a virtualenv, pull in any dependencies, and fire the script.
 

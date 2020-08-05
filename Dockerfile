@@ -15,4 +15,4 @@ FROM dependencies AS release
 WORKDIR /
 COPY cloudflare-ddns.py .
 COPY config.json .
-CMD ["python", "/cloudflare-ddns.py"]
+CMD ["python", "/cloudflare-ddns.py", "--repeat"]

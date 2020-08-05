@@ -125,6 +125,8 @@ def updateIPs():
         print("Checking " + ip["type"] + " records")
         commitRecord(ip)
 
+if(len(sys.argv) > 1):
+    if(sys.argv[1] == "--repeat"):
+        import threading
+        threading.Thread(target=lambda: every(60*15, updateIPs)).start()
 updateIPs()
-import threading
-threading.Thread(target=lambda: every(60*15, updateIPs)).start()
