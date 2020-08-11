@@ -55,7 +55,7 @@ Modify the host file path of config.json inside the volumes section of docker-co
 version: "3.7"
 services:
   cloudflare-ddns:
-    image: timothymiller/cloudflare-ddns:latest
+    image: timothyjmiller/cloudflare-ddns:latest
     container_name: cloudflare-ddns
     security_opt:
       - no-new-privileges:true
