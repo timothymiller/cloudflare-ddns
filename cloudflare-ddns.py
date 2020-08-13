@@ -1,5 +1,5 @@
 import requests, json, sys, os
-import time, traceback
+import time
 
 PATH = os.getcwd() + "/"
 version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
@@ -9,7 +9,6 @@ if(version < 3.5):
 
 with open(PATH + "config.json") as config_file:
     config = json.loads(config_file.read())
-
 
 def getIPs():
     a = requests.get("https://api.ipify.org?format=json").json().get("ip")
@@ -27,6 +26,8 @@ def getIPs():
             "type": "AAAA",
             "ip": aaaa
         })
+    else:
+        print("Warning: IPv6 not detected.")
 
     return ips
 
@@ -102,26 +103,21 @@ def cf_api(endpoint, method, config, headers={}, data=False):
 
     return response.json()
 
-def every(delay, task):
-  next_time = time.time() + delay
-  while True:
-    time.sleep(max(0, next_time - time.time()))
-    try:
-      task()
-    except Exception:
-      traceback.print_exc()
-      # in production code you might want to have this instead of course:
-      # logger.exception("Problem while executing repetitive task.")
-    # skip tasks if we are behind schedule:
-    next_time += (time.time() - next_time) // delay * delay + delay
-
 def updateIPs():
     for ip in getIPs():
-        print("Checking " + ip["type"] + " records")
         commitRecord(ip)
 
 if(len(sys.argv) > 1):
     if(sys.argv[1] == "--repeat"):
-        import threading
-        threading.Thread(target=lambda: every(60*15, updateIPs)).start()
-updateIPs()
+        print("Updating A & AAAA records every 15 minutes")
+        updateIPs()
+        delay = 15*60 # 15 minutes
+        next_time = time.time() + delay
+        while True:
+            time.sleep(max(0, next_time - time.time()))
+            updateIPs()
+            next_time += (time.time() - next_time) // delay * delay + delay
+    else:
+        print("Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
+else:
+    updateIPs()

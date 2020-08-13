@@ -9,13 +9,14 @@
         ".vscode": true,
         "LICENSE": true,
         "requirements.txt": true,
-        "build-docker-image.sh": false,
+        "build-docker-image.sh": true,
         ".gitignore": true,
-        "Dockerfile": false,
-        "start-sync.sh": false,
+        "Dockerfile": true,
+        "start-sync.sh": true,
         "venv": true
     },
     "explorerExclude.backup": null,
     "python.linting.pylintEnabled": true,
-    "python.linting.enabled": true
+    "python.linting.enabled": true,
+    "python.pythonPath": "venv/bin/python"
 }

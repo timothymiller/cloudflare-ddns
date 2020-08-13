@@ -11,7 +11,7 @@ RUN pip install -r requirements.txt
 #
 # ---- Release ----
 FROM dependencies AS release
-# copy project file(s)
+# copy project source file(s)
 WORKDIR /
 COPY cloudflare-ddns.py .
-CMD ["python", "/cloudflare-ddns.py", "--repeat"]
+CMD ["python", "-u", "/cloudflare-ddns.py", "--repeat"]
