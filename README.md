@@ -59,11 +59,12 @@ services:
     container_name: cloudflare-ddns
     security_opt:
       - no-new-privileges:true
+    network_mode: "host"
     environment:
       - PUID=1000
       - PGID=1000
     volumes:
-      - /EDIT/YOUR/PATH/HERE/config.json:/config.json
+      - /YOUR/PATH/HERE/config.json:/config.json
     restart: unless-stopped
 ```
 
@@ -75,7 +76,7 @@ From the project root directory
 docker-compose up -d
 ```
 
-### Building from source
+## Building from source
 
 Create a config.json file with your production credentials.
 
