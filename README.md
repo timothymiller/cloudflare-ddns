@@ -68,6 +68,9 @@ services:
     restart: unless-stopped
 ```
 
+#### :warning: IPv6
+Docker requires network_mode be set to host in order to access the IPv6 public address.
+
 ### :running: Running
 
 From the project root directory
