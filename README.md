@@ -132,5 +132,3 @@ Timothy Miller
 GitHub: https://github.com/timothymiller 💡
 
 Website: https://timknowsbest.com 💻
-
-Donation: https://timknowsbest.com/donate 💸
