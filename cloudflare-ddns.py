@@ -11,7 +11,7 @@ with open(PATH + "config.json") as config_file:
     config = json.loads(config_file.read())
 
 def getIPs():
-    a = requests.get("https://api.ipify.org?format=json").json().get("ip")
+    a = requests.get("https://dns.timknowsbest.com/api/ipv4").text
     aaaa = requests.get("https://api6.ipify.org?format=json").json().get("ip")
     ips = []
 
@@ -20,6 +20,8 @@ def getIPs():
             "type": "A",
             "ip": a
         })
+    else:
+        print("Warning: IPv4 not detected.")
 
     if(aaaa.find(":") > -1):
         ips.append({
@@ -109,9 +111,9 @@ def updateIPs():
 
 if(len(sys.argv) > 1):
     if(sys.argv[1] == "--repeat"):
-        print("Updating A & AAAA records every 15 minutes")
+        print("Updating A & AAAA records every 10 minutes")
         updateIPs()
-        delay = 15*60 # 15 minutes
+        delay = 10*60 # 10 minutes
         next_time = time.time() + delay
         while True:
             time.sleep(max(0, next_time - time.time()))
