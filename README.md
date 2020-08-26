@@ -1,12 +1,12 @@
-# :rocket: Cloudflare DDNS
+# 🚀 Cloudflare DDNS
 
 Dynamic DNS service based on Cloudflare! Access your home network remotely via a custom domain name without a static IP!
 
-## :us: Origin
+## 🇺🇸 Origin
 
 This script was written for the Raspberry Pi platform to enable low cost, simple self hosting to promote a more decentralized internet. On execution, the script fetches public IPv4 and IPv6 addresses and creates/updates DNS records for the subdomains in Cloudflare. Stale, duplicate DNS records are removed for housekeeping.
 
-## :vertical_traffic_light: Getting Started
+## 🚦 Getting Started
 
 First copy the example configuration file into the real one.
 
@@ -42,10 +42,10 @@ Alternatively, you can use the traditional API keys by setting appropriate value
 "proxied": false (defaults to false. Make it true if you want CDN/SSL benefits from cloudflare. This usually disables SSH)
 ```
 
-## :fax: Hosting multiple domains on the same IP?
+## 📠 Hosting multiple domains on the same IP?
 You can save yourself some trouble when hosting multiple domains pointing to the same IP address (in the case of Traefik) by defining one A & AAAA record  'ddns.example.com' pointing to the IP of the server that will be updated by this DDNS script. For each subdomain, create a CNAME record pointing to 'ddns.example.com'. Now you don't have to manually modify the script config every time you add a new subdomain to your site!
 
-## :whale: Deploy with Docker Compose
+## 🐳 Deploy with Docker Compose
 
 Precompiled images are available via the official docker container [on DockerHub](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns).
 
@@ -68,10 +68,10 @@ services:
     restart: unless-stopped
 ```
 
-#### :warning: IPv6
+#### ⚠️ IPv6
 Docker requires network_mode be set to host in order to access the IPv6 public address.
 
-### :running: Running
+### 🏃‍♂️ Running
 
 From the project root directory
 
@@ -101,9 +101,9 @@ At project root, run the build-docker-image.sh script.
 docker run -d timothyjmiller/cloudflare_ddns:latest
 ```
 
-## :penguin: (legacy) Linux + cron instructions (all distros)
+## 🐧 (legacy) Linux + cron instructions (all distros)
 
-### :running: Running
+### 🏃 Running
 
 This script requires Python 3.5+, which comes preinstalled on the latest version of Raspbian. Download/clone this repo and give permission to the project's bash script by running `chmod +x ./start-sync.sh`. Now you can execute `./start-sync.sh`, which will set up a virtualenv, pull in any dependencies, and fire the script.
 
