@@ -20,7 +20,7 @@ Edit `config.json` and replace the values with your own.
 
 You can choose to use either the newer API tokens, or the traditional API keys
 
-To generate a new API tokens, go to https://dash.cloudflare.com/profile/api-tokens and create a token capable of **Edit DNS**. Then replace the value in
+To generate a new API tokens, go to your [Cloudflare Profile](https://dash.cloudflare.com/profile/api-tokens) and create a token capable of **Edit DNS**. Then replace the value in
 ```json
 "authentication":
   "api_token": "Your cloudflare API token, including the capability of **Edit DNS**"
@@ -123,12 +123,12 @@ crontab -e
 
 ## License
 
-This Template is licensed under the GNU General Public License, version 3 (GPLv3) and is distributed free of charge.
+This Template is licensed under the GNU General Public License, version 3 (GPLv3).
 
 ## Author
 
 Timothy Miller
 
-GitHub: https://github.com/timothymiller 💡
+[View my GitHub profile 💡](https://github.com/timothymiller)
 
-Website: https://timknowsbest.com 💻
+[View my personal website 💻](https://timknowsbest.com)
