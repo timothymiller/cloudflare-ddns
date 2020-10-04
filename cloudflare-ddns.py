@@ -12,7 +12,7 @@ with open(PATH + "config.json") as config_file:
 
 def getIPs():
     a = requests.get("https://dns.timknowsbest.com/api/ipv4").text
-    aaaa = requests.get("https://api6.ipify.org?format=json").json().get("ip")
+    aaaa = requests.get("https://api64.ipify.org?format=json").json().get("ip")
     ips = []
 
     if(a.find(".") > -1):
