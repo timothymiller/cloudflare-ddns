@@ -11,8 +11,16 @@ with open(PATH + "config.json") as config_file:
     config = json.loads(config_file.read())
 
 def getIPs():
-    a = requests.get("https://dns.timknowsbest.com/api/ipv4").text
-    aaaa = requests.get("https://api6.ipify.org?format=json").json().get("ip")
+    a = ""
+    aaaa = ""
+    try:
+        a = requests.get("https://dns.timknowsbest.com/api/ipv4").text
+    except Exception:
+        print("Warning: IPv4 not detected.")
+    try:
+        aaaa = requests.get("https://api6.ipify.org?format=json").json().get("ip")
+    except Exception:
+        print("Warning: IPv6 not detected.")
     ips = []
 
     if(a.find(".") > -1):
