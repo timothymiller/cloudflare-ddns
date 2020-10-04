@@ -11,8 +11,16 @@ with open(PATH + "config.json") as config_file:
     config = json.loads(config_file.read())
 
 def getIPs():
-    a = requests.get("https://dns.timknowsbest.com/api/ipv4").text
-    aaaa = requests.get("https://api6.ipify.org?format=json").json().get("ip")
+    a = ""
+    aaaa = ""
+    try:
+        a = requests.get("https://dns.timknowsbest.com/api/ipv4").text
+    except Exception:
+        print("Warning: IPv4 not detected.")
+    try:
+        aaaa = requests.get("https://api6.ipify.org?format=json").json().get("ip")
+    except Exception:
+        print("Warning: IPv4 not detected.")
     ips = []
 
     if(a.find(".") > -1):
@@ -50,11 +58,11 @@ def commitRecord(ip):
             }
             list = cf_api(
                 "zones/" + c['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], "GET", c)
-            
+
             full_subdomain = base_domain_name
             if subdomain:
                 full_subdomain = subdomain + "." + full_subdomain
-            
+
             dns_id = ""
             for r in list["result"]:
                 if (r["name"] == full_subdomain):
@@ -93,7 +101,7 @@ def cf_api(endpoint, method, config, headers={}, data=False):
     else:
         headers = {
             "X-Auth-Email": config['authentication']['api_key']['account_email'],
-            "X-Auth-Key": config['authentication']['api_key']['api_key'],        
+            "X-Auth-Key": config['authentication']['api_key']['api_key'],
         }
 
     if(data == False):
