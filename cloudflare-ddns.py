@@ -14,11 +14,11 @@ def getIPs():
     a = ""
     aaaa = ""
     try:
-        a = requests.get("https://dns.timknowsbest.com/api/ipv4").text
+        a = requests.get("https://v4.ident.me/").text
     except Exception:
         print("Warning: IPv4 not detected.")
     try:
-        aaaa = requests.get("https://api6.ipify.org?format=json").json().get("ip")
+        aaaa = requests.get("https://v6.ident.me/").text
     except Exception:
         print("Warning: IPv6 not detected.")
     ips = []
