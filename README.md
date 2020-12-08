@@ -4,7 +4,7 @@ A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Dock
 
 | Size  | Downloads | Discord |
 | ------------- | ------------- | ------------- |
-| [![cloudflare-ddns docker image size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square)](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square "cloudflare-ddns docker image size")  | [![Total DockerHub pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square)](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square "Total DockerHub pulls")  | [![Official Discord Server](https://img.shields.io/discord/785778163887112192?style=flat-square)](https://img.shields.io/discord/785778163887112192?style=flat-square "Official Discord Server")
+| [![cloudflare-ddns docker image size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/repository/docker/timothyjmiller/cloudflare-ddns "cloudflare-ddns docker image size")  | [![Total DockerHub pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/repository/docker/timothyjmiller/cloudflare-ddns "Total DockerHub pulls")  | [![Official Discord Server](https://img.shields.io/discord/785778163887112192?style=flat-square)](https://discord.gg/UgGmwMvNxm "Official Discord Server")
 
 ## ⁉️ How Private & Secure?
 
