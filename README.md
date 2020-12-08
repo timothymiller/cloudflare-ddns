@@ -1,6 +1,21 @@
 # 🚀 Cloudflare DDNS
 
-Dynamic DNS service based on Cloudflare! Access your home network remotely via a custom domain name without a static IP!
+A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Docker image for self hosting projects.
+
+[![cloudflare-ddns docker image size](https://images.microbadger.com/badges/image/timothyjmiller/cloudflare-ddns.svg)](https://microbadger.com/images/timothyjmiller/cloudflare-ddns "cloudflare-ddns docker image size")
+
+## ⁉️ How Private & Secure?
+
+1. Uses zero-log external IPv4 & IPv6 providers
+2. Alpine Linux base image
+3. HTTPS only via Python Software Foundation requests module
+4. Docker runtime
+5. Open source for open audits
+6. Regular updates
+
+## 💼 Use Case
+
+Access your home network remotely via a custom domain name without a static IP!
 
 ## 🇺🇸 Origin
 
@@ -16,17 +31,19 @@ cp config-example.json config.json
 
 Edit `config.json` and replace the values with your own.
 
-### Authentication methods
+### 🔑 Authentication methods
 
 You can choose to use either the newer API tokens, or the traditional API keys
 
 To generate a new API tokens, go to your [Cloudflare Profile](https://dash.cloudflare.com/profile/api-tokens) and create a token capable of **Edit DNS**. Then replace the value in
+
 ```json
 "authentication":
   "api_token": "Your cloudflare API token, including the capability of **Edit DNS**"
 ```
 
-Alternatively, you can use the traditional API keys by setting appropriate values for: 
+Alternatively, you can use the traditional API keys by setting appropriate values for:
+
 ```json
 "authentication":
   "api_key":
@@ -43,6 +60,7 @@ Alternatively, you can use the traditional API keys by setting appropriate value
 ```
 
 ## 📠 Hosting multiple domains on the same IP?
+
 You can save yourself some trouble when hosting multiple domains pointing to the same IP address (in the case of Traefik) by defining one A & AAAA record  'ddns.example.com' pointing to the IP of the server that will be updated by this DDNS script. For each subdomain, create a CNAME record pointing to 'ddns.example.com'. Now you don't have to manually modify the script config every time you add a new subdomain to your site!
 
 ## 🐳 Deploy with Docker Compose
@@ -68,7 +86,8 @@ services:
     restart: unless-stopped
 ```
 
-#### ⚠️ IPv6
+### ⚠️ IPv6
+
 Docker requires network_mode be set to host in order to access the IPv6 public address.
 
 ### 🏃‍♂️ Running
@@ -95,7 +114,7 @@ At project root, run the build-docker-image.sh script.
 ./build-docker-image.sh
 ```
 
-#### Run the locally compiled version
+### Run the locally compiled version
 
 ```bash
 docker run -d timothyjmiller/cloudflare_ddns:latest
