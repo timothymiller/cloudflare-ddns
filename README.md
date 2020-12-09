@@ -1,6 +1,14 @@
 # 🚀 Cloudflare DDNS
 
+Access your home network remotely via a custom domain name without a static IP!
+
 A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Docker image for self hosting projects.
+
+## 🇺🇸 Origin
+
+This script was written for the Raspberry Pi platform to enable low cost, simple self hosting to promote a more decentralized internet. On execution, the script fetches public IPv4 and IPv6 addresses and creates/updates DNS records for the subdomains in Cloudflare. Stale, duplicate DNS records are removed for housekeeping.
+
+## 📊 Stats
 
 | Size  | Downloads | Discord |
 | ------------- | ------------- | ------------- |
@@ -14,14 +22,6 @@ A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Dock
 4. Docker runtime
 5. Open source for open audits
 6. Regular updates
-
-## 💼 Use Case
-
-Access your home network remotely via a custom domain name without a static IP!
-
-## 🇺🇸 Origin
-
-This script was written for the Raspberry Pi platform to enable low cost, simple self hosting to promote a more decentralized internet. On execution, the script fetches public IPv4 and IPv6 addresses and creates/updates DNS records for the subdomains in Cloudflare. Stale, duplicate DNS records are removed for housekeeping.
 
 ## 🚦 Getting Started
 
