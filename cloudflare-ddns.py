@@ -50,11 +50,15 @@ def commitRecord(ip):
         base_domain_name = response["result"]["name"]
         for subdomain in subdomains:
             exists = False
+            ttl = 120
+            if "ttl" in c:
+                ttl=c["ttl"]
             record = {
                 "type": ip["type"],
                 "name": subdomain,
                 "content": ip["ip"],
-                "proxied": c["proxied"]
+                "proxied": c["proxied"],
+                "ttl": ttl
             }
             list = cf_api(
                 "zones/" + c['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], "GET", c)
