@@ -48,13 +48,17 @@ def commitRecord(ip):
         subdomains = c["subdomains"]
         response = cf_api("zones/" + c['zone_id'], "GET", c)
         base_domain_name = response["result"]["name"]
+        ttl = 120
+        if "ttl" in c:
+            ttl=c["ttl"]
         for subdomain in subdomains:
             exists = False
             record = {
                 "type": ip["type"],
                 "name": subdomain,
                 "content": ip["ip"],
-                "proxied": c["proxied"]
+                "proxied": c["proxied"],
+                "ttl": ttl
             }
             list = cf_api(
                 "zones/" + c['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], "GET", c)

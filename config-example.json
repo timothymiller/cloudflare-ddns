@@ -13,7 +13,8 @@
         "",
         "subdomain"
       ],
-      "proxied": false
+      "proxied": false,
+      "ttl": 120
     }
   ]
 }
