@@ -106,16 +106,40 @@ docker-compose up -d
 
 Create a config.json file with your production credentials.
 
-Give build-docker-image.sh permission to execute.
+### 💖 Please Note
+
+The optional `docker-build-all.sh` script requires Docker experimental support to be enabled.
+
+Docker Hub has experimental support for multi-architecture builds. Their official blog post specifies easy instructions for building with [Mac and Windows versions of Docker Desktop](https://docs.docker.com/docker-for-mac/multi-arch/).
+
+1. Choose build platform
+
+- Multi-architecture (experimental)  `docker-build-all.sh`
+
+- Linux/amd64 by default  `docker-build.sh`
+
+Give your bash script permission to execute.
 
 ```bash
-sudo chmod +x ./build-docker-image.sh
+sudo chmod +x ./docker-build.sh
 ```
 
-At project root, run the build-docker-image.sh script.
+```bash
+sudo chmod +x ./docker-build-all.sh
+```
+
+At project root, run the `docker-build.sh` script.
+
+Recommended for local development
 
 ```bash
-./build-docker-image.sh
+./docker-build.sh
+```
+
+Recommended for production
+
+```bash
+./docker-build-all.sh
 ```
 
 ### Run the locally compiled version
