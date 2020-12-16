@@ -118,7 +118,7 @@ Docker Hub has experimental support for multi-architecture builds. Their officia
 
 - Linux/amd64 by default  `docker-build.sh`
 
-Give your bash script permission to execute.
+2. Give your bash script permission to execute.
 
 ```bash
 sudo chmod +x ./docker-build.sh
@@ -128,7 +128,7 @@ sudo chmod +x ./docker-build.sh
 sudo chmod +x ./docker-build-all.sh
 ```
 
-At project root, run the `docker-build.sh` script.
+3. At project root, run the `docker-build.sh` script.
 
 Recommended for local development
 
