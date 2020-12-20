@@ -56,6 +56,7 @@ def commitRecord(ip):
         if "ttl" in c:
             ttl=c["ttl"]
         for subdomain in subdomains:
+            subdomain = subdomain.lower()
             exists = False
             record = {
                 "type": ip["type"],
