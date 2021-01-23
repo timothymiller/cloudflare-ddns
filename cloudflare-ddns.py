@@ -1,4 +1,4 @@
-import requests, json, sys, os
+import requests, json, sys, signal, os
 import time
 
 PATH = os.getcwd() + "/"
@@ -6,6 +6,12 @@ version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
 
 if(version < 3.5):
     raise Exception("This script requires Python 3.5+")
+
+def sigtermHandler(sig_no, stack_frame):
+    print("Caught SIGTERM, shutting down...")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, sigtermHandler)
 
 with open(PATH + "config.json") as config_file:
     config = json.loads(config_file.read())
@@ -67,11 +73,11 @@ def commitRecord(ip):
             }
             list = cf_api(
                 "zones/" + c['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], "GET", c)
-            
+
             full_subdomain = base_domain_name
             if subdomain:
                 full_subdomain = subdomain + "." + full_subdomain
-            
+
             dns_id = ""
             for r in list["result"]:
                 if (r["name"] == full_subdomain):
@@ -110,7 +116,7 @@ def cf_api(endpoint, method, config, headers={}, data=False):
     else:
         headers = {
             "X-Auth-Email": config['authentication']['api_key']['account_email'],
-            "X-Auth-Key": config['authentication']['api_key']['api_key'],        
+            "X-Auth-Key": config['authentication']['api_key']['api_key'],
         }
 
     if(data == False):
@@ -126,17 +132,20 @@ def updateIPs():
     for ip in getIPs():
         commitRecord(ip)
 
-if(len(sys.argv) > 1):
-    if(sys.argv[1] == "--repeat"):
-        print("Updating A & AAAA records every 10 minutes")
-        updateIPs()
-        delay = 10*60 # 10 minutes
-        next_time = time.time() + delay
-        while True:
-            time.sleep(max(0, next_time - time.time()))
+try:
+    if(len(sys.argv) > 1):
+        if(sys.argv[1] == "--repeat"):
+            print("Updating A & AAAA records every 10 minutes")
             updateIPs()
-            next_time += (time.time() - next_time) // delay * delay + delay
+            delay = 10*60 # 10 minutes
+            next_time = time.time() + delay
+            while True:
+                time.sleep(max(0, next_time - time.time()))
+                updateIPs()
+                next_time += (time.time() - next_time) // delay * delay + delay
+        else:
+            print("Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
     else:
-        print("Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
-else:
-    updateIPs()
+        updateIPs()
+except SystemExit:
+    print("Goodbye!")
