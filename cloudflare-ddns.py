@@ -79,6 +79,7 @@ def commitRecord(ip):
                 full_subdomain = subdomain + "." + full_subdomain
 
             dns_id = ""
+            matches = False
             for r in list["result"]:
                 if (r["name"] == full_subdomain):
                     exists = True
@@ -87,15 +88,22 @@ def commitRecord(ip):
                             dns_id = r["id"]
                         else:
                             stale_record_ids.append(r["id"])
-            if(exists == False):
-                print("Adding new record " + str(record))
+                    else:
+                        matches = True
+            if(matches == True):
+                print("The %s Record for '%s' is already up to date: %s"
+                %(record["type"], record["name"], record["content"]))
+            elif(exists == False):
                 response = cf_api(
                     "zones/" + c['zone_id'] + "/dns_records", "POST", c, {}, record)
+                print("The %s Record for '%s' was just added: %s"
+                %(record["type"], record["name"], record["content"]))
             elif(dns_id != ""):
                 # Only update if the record content is different
-                print("Updating record " + str(record))
                 response = cf_api(
                     "zones/" + c['zone_id'] + "/dns_records/" + dns_id, "PUT", c, {}, record)
+                print("The %s Record for '%s' was just updated: %s"
+                %(record["type"], record["name"], record["content"]))
 
     # Delete duplicate, stale records
     for identifier in stale_record_ids:
