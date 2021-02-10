@@ -1,5 +1,6 @@
 import requests, json, sys, signal, os
 import time
+from collections.abc import Mapping
 
 PATH = os.getcwd() + "/"
 version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
@@ -13,8 +14,44 @@ def sigtermHandler(sig_no, stack_frame):
 
 signal.signal(signal.SIGTERM, sigtermHandler)
 
+def nestedGet(dic, keys):
+    try:
+        for key in keys:
+            if(not isinstance(dic, Mapping)):
+                return None
+            dic = dic[key]
+        return dic
+    except KeyError:
+        return None
+
+def nestedSet(dic, keys, value):
+    for key in keys[:-1]:
+        dic = dic.setdefault(key, {})
+    dic[keys[-1]] = value
+
 with open(PATH + "config.json") as config_file:
     config = json.loads(config_file.read())
+
+secret_configs = [
+    ['zone_id'],
+    ['authentication', 'api_token'],
+    ['authentication', 'api_key', 'api_key'],
+    ['authentication', 'api_key', 'account_email'],
+]
+
+for c in config['cloudflare']:
+    for sc in secret_configs:
+        sc_file = sc + ["file"]
+        if (nestedGet(c, sc_file) != None):
+            print('Reading config value for ' + str(sc) + ' from file')
+            value = open(nestedGet(c, sc_file), "r").read().strip()
+            nestedSet(c, sc, value)
+
+        sc_env = sc + ["env"]
+        if (nestedGet(c, sc_env) != None):
+            print('Reading config value for ' + str(sc) + ' from env')
+            value = os.environ[nestedGet(c, sc_env)]
+            nestedSet(c, sc, value)
 
 def getIPs():
     a = ""

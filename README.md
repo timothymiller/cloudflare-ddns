@@ -12,9 +12,9 @@ This script was written for the Raspberry Pi platform to enable low cost, simple
 
 ## 📊 Stats
 
-| Size  | Downloads | Discord |
-| ------------- | ------------- | ------------- |
-| [![cloudflare-ddns docker image size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns "cloudflare-ddns docker image size")  | [![Total DockerHub pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns "Total DockerHub pulls")  | [![Official Discord Server](https://img.shields.io/discord/785778163887112192?style=flat-square)](https://discord.gg/UgGmwMvNxm "Official Discord Server")
+| Size                                                                                                                                                                                                                           | Downloads                                                                                                                                                                                         | Discord                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![cloudflare-ddns docker image size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns "cloudflare-ddns docker image size") | [![Total DockerHub pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns "Total DockerHub pulls") | [![Official Discord Server](https://img.shields.io/discord/785778163887112192?style=flat-square)](https://discord.gg/UgGmwMvNxm "Official Discord Server") |
 
 ## ⁉️ How Private & Secure?
 
@@ -63,9 +63,28 @@ Alternatively, you can use the traditional API keys by setting appropriate value
 "proxied": false (defaults to false. Make it true if you want CDN/SSL benefits from cloudflare. This usually disables SSH)
 ```
 
+### Value Substitution
+
+Some configuration values can also be provided indirectly by instructing Cloudflare DDNS to read them from environment variables or files, rather than directly from `config.json`. To do this, replace the value with an nested object containing the key `file` or `env` where the value is the file/environment variable to read from. For example:
+
+```json
+"authentication":
+  "api_token":
+    "file": "/path/to/your/file"
+"zone_id":
+  "env": "ENV_VAR_NAME"
+```
+
+This substitution works for the following configuration values:
+
+- `authentication.api_token`
+- `authentication.api_key.api_key`
+- `authentication.api_key.account_email`
+- `zone_id`
+
 ## 📠 Hosting multiple domains on the same IP?
 
-You can save yourself some trouble when hosting multiple domains pointing to the same IP address (in the case of Traefik) by defining one A & AAAA record  'ddns.example.com' pointing to the IP of the server that will be updated by this DDNS script. For each subdomain, create a CNAME record pointing to 'ddns.example.com'. Now you don't have to manually modify the script config every time you add a new subdomain to your site!
+You can save yourself some trouble when hosting multiple domains pointing to the same IP address (in the case of Traefik) by defining one A & AAAA record 'ddns.example.com' pointing to the IP of the server that will be updated by this DDNS script. For each subdomain, create a CNAME record pointing to 'ddns.example.com'. Now you don't have to manually modify the script config every time you add a new subdomain to your site!
 
 ## 🐳 Deploy with Docker Compose
 
@@ -114,9 +133,9 @@ Docker Hub has experimental support for multi-architecture builds. Their officia
 
 1. Choose build platform
 
-- Multi-architecture (experimental)  `docker-build-all.sh`
+- Multi-architecture (experimental) `docker-build-all.sh`
 
-- Linux/amd64 by default  `docker-build.sh`
+- Linux/amd64 by default `docker-build.sh`
 
 2. Give your bash script permission to execute.
 
