@@ -42,13 +42,13 @@ secret_configs = [
 for c in config['cloudflare']:
     for sc in secret_configs:
         sc_file = sc + ["file"]
-        if (nestedGet(c, sc_file) != None):
+        if(nestedGet(c, sc_file) != None):
             print('Reading config value for ' + str(sc) + ' from file')
             value = open(nestedGet(c, sc_file), "r").read().strip()
             nestedSet(c, sc, value)
 
         sc_env = sc + ["env"]
-        if (nestedGet(c, sc_env) != None):
+        if(nestedGet(c, sc_env) != None):
             print('Reading config value for ' + str(sc) + ' from env')
             value = os.environ[nestedGet(c, sc_env)]
             nestedSet(c, sc, value)
