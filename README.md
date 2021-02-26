@@ -18,7 +18,7 @@ This script was written for the Raspberry Pi platform to enable low cost, simple
 
 ## ⁉️ How Private & Secure?
 
-1. Uses zero-log external IPv4 & IPv6 providers
+1. Uses zero-log external IPv4 & IPv6 provider ([cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace))
 2. Alpine Linux base image
 3. HTTPS only via Python Software Foundation requests module
 4. Docker runtime
@@ -63,13 +63,54 @@ Alternatively, you can use the traditional API keys by setting appropriate value
 "proxied": false (defaults to false. Make it true if you want CDN/SSL benefits from cloudflare. This usually disables SSH)
 ```
 
-## 📠 Hosting multiple domains on the same IP?
+## 📠 Hosting multiple subdomains on the same IP?
 
 You can save yourself some trouble when hosting multiple domains pointing to the same IP address (in the case of Traefik) by defining one A & AAAA record  'ddns.example.com' pointing to the IP of the server that will be updated by this DDNS script. For each subdomain, create a CNAME record pointing to 'ddns.example.com'. Now you don't have to manually modify the script config every time you add a new subdomain to your site!
 
+## Hosting multiple zones on the same IP?
+
+You can handle ddns for multiple domains (cloudflare zones) using the same docker container by separating your configs inside ```config.json``` like below:
+
+```bash
+{
+  "cloudflare": [
+    {
+      "authentication": {
+          "api_token": "api_token_here", 
+          "api_key": {
+              "api_key": "api_key_here",
+              "account_email": "your_email_here"
+	        }
+      },
+      "zone_id": "your_zone_id_here",
+      "subdomains": [
+        "",
+        "subdomain"
+      ],
+      "proxied": true
+    },
+    {
+      "authentication": {
+          "api_token": "api_token_here", 
+          "api_key": {
+              "api_key": "api_key_here",
+              "account_email": "your_email_here"
+	        }
+      },
+      "zone_id": "your_zone_id_here",
+      "subdomains": [
+        "",
+        "subdomain"
+      ],
+      "proxied": true
+    }
+  ]
+}
+```
+
 ## 🐳 Deploy with Docker Compose
 
-Precompiled images are available via the official docker container [on DockerHub](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns).
+Pre-compiled images are available via the official docker container [on DockerHub](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns).
 
 Modify the host file path of config.json inside the volumes section of docker-compose.yml.
 

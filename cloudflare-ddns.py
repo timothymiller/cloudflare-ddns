@@ -1,5 +1,4 @@
-import requests, json, sys, signal, os
-import time
+import requests, json, sys, signal, os, time
 
 PATH = os.getcwd() + "/"
 version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
@@ -7,63 +6,79 @@ version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
 if(version < 3.5):
     raise Exception("This script requires Python 3.5+")
 
-def sigtermHandler(sig_no, stack_frame):
-    print("Caught SIGTERM, shutting down...")
-    sys.exit(0)
+class GracefulExit:
+  kill_now = False
+  signals = {
+    signal.SIGINT: 'SIGINT',
+    signal.SIGTERM: 'SIGTERM'
+  }
 
-signal.signal(signal.SIGTERM, sigtermHandler)
+  def __init__(self):
+    signal.signal(signal.SIGINT, self.exit_gracefully)
+    signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+  def exit_gracefully(self, signum, frame):
+    print("\nReceived {} signal".format(self.signals[signum]))
+    print("Cleaning up resources. End of the program")
+    self.kill_now = True
 
 with open(PATH + "config.json") as config_file:
     config = json.loads(config_file.read())
 
+def deleteEntries(type):
+    # Helper function for deleting A or AAAA records
+    # in the case of no IPv4 or IPv6 connection, yet
+    # existing A or AAAA records are found.
+    try:
+        for c in config["cloudflare"]:
+            answer = cf_api(
+                "zones/" + c['zone_id'] + "/dns_records?per_page=100&type=" + type, "GET", c)
+            for r in answer["result"]:
+                identifier = str(r["id"])
+                response = cf_api(
+                    "zones/" + c['zone_id'] + "/dns_records/" + identifier, "DELETE", c)
+                print("Deleted stale record " + identifier)
+    except Exception:
+        print("Error deleting " + type + " record(s)")
+
 def getIPs():
-    a = ""
-    aaaa = ""
+    a = None
+    aaaa = None
     try:
         a = requests.get("https://1.1.1.1/cdn-cgi/trace").text.split("\n")
         a.pop()
         a = dict(s.split("=") for s in a)["ip"]
     except Exception:
         print("Warning: IPv4 not detected.")
+        deleteEntries("A")
     try:
         aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
         aaaa.pop()
         aaaa = dict(s.split("=") for s in aaaa)["ip"]
     except Exception:
         print("Warning: IPv6 not detected.")
+        deleteEntries("AAAA")
     ips = []
-
-    if(a.find(".") > -1):
+    if(a is not None):
         ips.append({
             "type": "A",
             "ip": a
         })
-    else:
-        print("Warning: IPv4 not detected.")
-
-    if(aaaa.find(":") > -1):
+    if(aaaa is not None):
         ips.append({
             "type": "AAAA",
             "ip": aaaa
         })
-    else:
-        print("Warning: IPv6 not detected.")
-
     return ips
 
-
 def commitRecord(ip):
-    stale_record_ids = []
     for c in config["cloudflare"]:
         subdomains = c["subdomains"]
         response = cf_api("zones/" + c['zone_id'], "GET", c)
         base_domain_name = response["result"]["name"]
-        ttl = 120
-        if "ttl" in c:
-            ttl=c["ttl"]
+        ttl = 300 # default Cloudflare TTL
         for subdomain in subdomains:
             subdomain = subdomain.lower()
-            exists = False
             record = {
                 "type": ip["type"],
                 "name": subdomain,
@@ -71,40 +86,41 @@ def commitRecord(ip):
                 "proxied": c["proxied"],
                 "ttl": ttl
             }
-            list = cf_api(
+            dns_records = cf_api(
                 "zones/" + c['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], "GET", c)
-
-            full_subdomain = base_domain_name
+            fqdn = base_domain_name
             if subdomain:
-                full_subdomain = subdomain + "." + full_subdomain
-
-            dns_id = ""
-            for r in list["result"]:
-                if (r["name"] == full_subdomain):
-                    exists = True
-                    if (r["content"] != ip["ip"]):
-                        if (dns_id == ""):
-                            dns_id = r["id"]
+                fqdn = subdomain + "." + base_domain_name
+            identifier = None
+            modified = False
+            duplicate_ids = []
+            for r in dns_records["result"]:
+                if (r["name"] == fqdn):
+                    if identifier:
+                        if r["content"] == ip["ip"]:
+                            duplicate_ids.append(identifier)
+                            identifier = r["id"]
                         else:
-                            stale_record_ids.append(r["id"])
-            if(exists == False):
+                            duplicate_ids.append(r["id"])
+                    else:
+                        identifier = r["id"]
+                        if r['content'] != record['content'] or r['proxied'] != record['proxied']:
+                            modified = True
+            if identifier:
+                if modified:
+                    print("Updating record " + str(record))
+                    response = cf_api(
+                        "zones/" + c['zone_id'] + "/dns_records/" + identifier, "PUT", c, {}, record)
+            else:
                 print("Adding new record " + str(record))
                 response = cf_api(
                     "zones/" + c['zone_id'] + "/dns_records", "POST", c, {}, record)
-            elif(dns_id != ""):
-                # Only update if the record content is different
-                print("Updating record " + str(record))
+            for identifier in duplicate_ids:
+                identifier = str(identifier)
+                print("Deleting stale record " + identifier)
                 response = cf_api(
-                    "zones/" + c['zone_id'] + "/dns_records/" + dns_id, "PUT", c, {}, record)
-
-    # Delete duplicate, stale records
-    for identifier in stale_record_ids:
-        print("Deleting stale record " + str(identifier))
-        response = cf_api(
-            "zones/" + c['zone_id'] + "/dns_records/" + identifier, "DELETE", c)
-
+                    "zones/" + c['zone_id'] + "/dns_records/" + identifier, "DELETE", c)
     return True
-
 
 def cf_api(endpoint, method, config, headers={}, data=False):
     api_token = config['authentication']['api_token']
@@ -132,14 +148,14 @@ def updateIPs():
     for ip in getIPs():
         commitRecord(ip)
 
-try:
+if __name__ == '__main__':
     if(len(sys.argv) > 1):
         if(sys.argv[1] == "--repeat"):
-            print("Updating A & AAAA records every 10 minutes")
-            updateIPs()
-            delay = 10*60 # 10 minutes
-            next_time = time.time() + delay
-            while True:
+            delay = 5*60 # 5 minutes
+            print("Updating A & AAAA records every " + delay + " seconds")
+            next_time = time.time()
+            killer = GracefulExit()
+            while not killer.kill_now:
                 time.sleep(max(0, next_time - time.time()))
                 updateIPs()
                 next_time += (time.time() - next_time) // delay * delay + delay
@@ -147,5 +163,4 @@ try:
             print("Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
     else:
         updateIPs()
-except SystemExit:
-    print("Goodbye!")
+
