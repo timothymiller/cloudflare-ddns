@@ -152,7 +152,7 @@ if __name__ == '__main__':
     if(len(sys.argv) > 1):
         if(sys.argv[1] == "--repeat"):
             delay = 5*60 # 5 minutes
-            print("Updating A & AAAA records every " + delay + " seconds")
+            print("Updating A & AAAA records every " + str(delay) + " seconds")
             next_time = time.time()
             killer = GracefulExit()
             while not killer.kill_now:
