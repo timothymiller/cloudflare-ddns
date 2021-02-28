@@ -1,4 +1,4 @@
-name: build our image
+name: Building cloudflare-ddns Docker image
 
 on:
   push:
@@ -11,13 +11,24 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v2
       # https://github.com/docker/setup-qemu-action
-      - name: Set up QEMU
+      - name: Setting up QEMU
         uses: docker/setup-qemu-action@v1
       # https://github.com/docker/setup-buildx-action
-      - name: Set up Docker Buildx
+      - name: Setting up Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - name: build the image
+      - name: Building the image
         run: |
           docker buildx build \
             --tag timothyjmiller/cloudflare-ddns:latest \
             --platform linux/ppc64le,linux/s390x,linux/386,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/amd64 .
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      # Reusing the cache, push the images
+      - name: Run Buildx
+        run: |
+          docker buildx build \
+            --platform linux/ppc64le,linux/s390x,linux/386,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/amd64 \
+            -t timothyjmiller/cloudflare-ddns:latest \
+            . \
+            --push
