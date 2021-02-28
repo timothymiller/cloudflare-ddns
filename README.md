@@ -8,11 +8,11 @@ A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Dock
 
 ## 🇺🇸 Origin
 
-This script was written for the Raspberry Pi platform to enable low cost self hosting that just works to promote a more decentralized internet.
+This script was written for the Raspberry Pi platform to enable low cost self hosting to promote a more decentralized internet.
 
 ## 🧹 More than just DDNS
 
-`cloudflare-ddns` handles the busy work for you, so deploying your web apps is less of a clickfest. On execution, the script fetches public IPv4 and IPv6 addresses and creates/updates DNS records for the subdomains in Cloudflare. Stale, duplicate DNS records are removed for housekeeping.
+`cloudflare-ddns` handles the busy work for you, so deploying web apps is less of a clickfest. Every 5 minutes, the script fetches public IPv4 and IPv6 addresses and then creates/updates DNS records for each subdomain in Cloudflare. Stale, duplicate DNS records are removed for housekeeping.
 
 ## 📊 Stats
 
