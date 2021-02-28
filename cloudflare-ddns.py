@@ -1,4 +1,4 @@
-import requests, json, sys, signal, os, time
+import argparse, requests, json, sys, signal, os, time
 
 PATH = os.getcwd() + "/"
 version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
@@ -156,17 +156,18 @@ def updateIPs():
         commitRecord(ip)
 
 if __name__ == '__main__':
-    if(len(sys.argv) > 1):
-        if(sys.argv[1] == "--repeat"):
-            delay = 15*60
-            print("⏲️ Updating IPv4 (A) & IPv6 (AAAA) records every 15 minutes")
-            next_time = time.time()
-            killer = GracefulExit()
-            while not killer.kill_now:
-                time.sleep(max(0, next_time - time.time()))
-                updateIPs()
-                next_time += (time.time() - next_time) // delay * delay + delay
-        else:
-            print("😡 Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repeat", action="store_true")
+    args = parser.parse_args()
+
+    if args.repeat:
+        delay = 15*60
+        print("⏲️ Updating IPv4 (A) & IPv6 (AAAA) records every 15 minutes")
+        next_time = time.time()
+        killer = GracefulExit()
+        while not killer.kill_now:
+            time.sleep(max(0, next_time - time.time()))
+            updateIPs()
+            next_time += (time.time() - next_time) // delay * delay + delay
     else:
         updateIPs()
