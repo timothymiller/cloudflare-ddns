@@ -114,7 +114,7 @@ You can handle ddns for multiple domains (cloudflare zones) using the same docke
 
 ## 🐳 Deploy with Docker Compose
 
-Pre-compiled images are available via the official docker container [on DockerHub](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns).
+Pre-compiled images are available via [the official docker container on DockerHub](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns).
 
 Modify the host file path of config.json inside the volumes section of docker-compose.yml.
 
