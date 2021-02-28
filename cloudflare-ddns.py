@@ -18,8 +18,7 @@ class GracefulExit:
     signal.signal(signal.SIGTERM, self.exit_gracefully)
 
   def exit_gracefully(self, signum, frame):
-    print("\nReceived {} signal".format(self.signals[signum]))
-    print("Cleaning up resources. End of the program")
+    print("🛑 Stopping main thread...")
     self.kill_now = True
 
 with open(PATH + "config.json") as config_file:
@@ -49,14 +48,14 @@ def getIPs():
         a.pop()
         a = dict(s.split("=") for s in a)["ip"]
     except Exception:
-        print("Warning: IPv4 not detected.")
+        print("⚠️ Warning: IPv4 not detected.")
         deleteEntries("A")
     try:
         aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
         aaaa.pop()
         aaaa = dict(s.split("=") for s in aaaa)["ip"]
     except Exception:
-        print("Warning: IPv6 not detected.")
+        print("⚠️ Warning: IPv6 not detected.")
         deleteEntries("AAAA")
     ips = []
     if(a is not None):
@@ -78,7 +77,7 @@ def commitRecord(ip):
         base_domain_name = response["result"]["name"]
         ttl = 300 # default Cloudflare TTL
         for subdomain in subdomains:
-            subdomain = subdomain.lower()
+            subdomain = subdomain.lower().strip()
             record = {
                 "type": ip["type"],
                 "name": subdomain,
@@ -108,16 +107,16 @@ def commitRecord(ip):
                             modified = True
             if identifier:
                 if modified:
-                    print("Updating record " + str(record))
+                    print("📡 Updating record " + str(record))
                     response = cf_api(
                         "zones/" + c['zone_id'] + "/dns_records/" + identifier, "PUT", c, {}, record)
             else:
-                print("Adding new record " + str(record))
+                print("➕ Adding new record " + str(record))
                 response = cf_api(
                     "zones/" + c['zone_id'] + "/dns_records", "POST", c, {}, record)
             for identifier in duplicate_ids:
                 identifier = str(identifier)
-                print("Deleting stale record " + identifier)
+                print("🗑️ Deleting stale record " + identifier)
                 response = cf_api(
                     "zones/" + c['zone_id'] + "/dns_records/" + identifier, "DELETE", c)
     return True
@@ -151,8 +150,8 @@ def updateIPs():
 if __name__ == '__main__':
     if(len(sys.argv) > 1):
         if(sys.argv[1] == "--repeat"):
-            delay = 5*60 # 5 minutes
-            print("Updating A & AAAA records every " + str(delay) + " seconds")
+            delay = 5*60
+            print("⏲️ Updating IPv4 (A) & IPv6 (AAAA) records every 5 minutes")
             next_time = time.time()
             killer = GracefulExit()
             while not killer.kill_now:
@@ -160,7 +159,7 @@ if __name__ == '__main__':
                 updateIPs()
                 next_time += (time.time() - next_time) // delay * delay + delay
         else:
-            print("Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
+            print("😡 Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
     else:
         updateIPs()
 

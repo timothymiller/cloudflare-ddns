@@ -8,7 +8,11 @@ A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Dock
 
 ## 🇺🇸 Origin
 
-This script was written for the Raspberry Pi platform to enable low cost, simple self hosting to promote a more decentralized internet. On execution, the script fetches public IPv4 and IPv6 addresses and creates/updates DNS records for the subdomains in Cloudflare. Stale, duplicate DNS records are removed for housekeeping.
+This script was written for the Raspberry Pi platform to enable low cost self hosting that just works to promote a more decentralized internet.
+
+## 🧹 More than just DDNS
+
+`cloudflare-ddns` handles the busy work for you, so deploying your web apps is less of a clickfest. On execution, the script fetches public IPv4 and IPv6 addresses and creates/updates DNS records for the subdomains in Cloudflare. Stale, duplicate DNS records are removed for housekeeping.
 
 ## 📊 Stats
 
@@ -80,7 +84,7 @@ You can handle ddns for multiple domains (cloudflare zones) using the same docke
           "api_key": {
               "api_key": "api_key_here",
               "account_email": "your_email_here"
-	        }
+          }
       },
       "zone_id": "your_zone_id_here",
       "subdomains": [
@@ -95,7 +99,7 @@ You can handle ddns for multiple domains (cloudflare zones) using the same docke
           "api_key": {
               "api_key": "api_key_here",
               "account_email": "your_email_here"
-	        }
+          }
       },
       "zone_id": "your_zone_id_here",
       "subdomains": [
@@ -143,6 +147,26 @@ From the project root directory
 docker-compose up -d
 ```
 
+## 🐧 Deploy with Linux + Cron
+
+### 🏃 Running (all distros)
+
+This script requires Python 3.5+, which comes preinstalled on the latest version of Raspbian. Download/clone this repo and give permission to the project's bash script by running `chmod +x ./start-sync.sh`. Now you can execute `./start-sync.sh`, which will set up a virtualenv, pull in any dependencies, and fire the script.
+
+1. Upload the cloudflare-ddns folder to your home directory /home/your_username_here/
+
+2. Run the following code in terminal
+
+```bash
+crontab -e
+```
+
+3. Add the following lines to sync your DNS records every 15 minutes
+
+```bash
+*/15 * * * * /home/your_username_here/cloudflare-ddns/start-sync.sh
+```
+
 ## Building from source
 
 Create a config.json file with your production credentials.
@@ -187,26 +211,6 @@ Recommended for production
 
 ```bash
 docker run -d timothyjmiller/cloudflare_ddns:latest
-```
-
-## 🐧 (legacy) Linux + cron instructions (all distros)
-
-### 🏃 Running
-
-This script requires Python 3.5+, which comes preinstalled on the latest version of Raspbian. Download/clone this repo and give permission to the project's bash script by running `chmod +x ./start-sync.sh`. Now you can execute `./start-sync.sh`, which will set up a virtualenv, pull in any dependencies, and fire the script.
-
-1. Upload the cloudflare-ddns folder to your home directory /home/your_username_here/
-
-2. Run the following code in terminal
-
-```bash
-crontab -e
-```
-
-3. Add the following lines to sync your DNS records every 15 minutes
-
-```bash
-*/15 * * * * /home/your_username_here/cloudflare-ddns/start-sync.sh
 ```
 
 ## License
