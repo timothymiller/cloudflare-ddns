@@ -16,17 +16,10 @@ jobs:
       # https://github.com/docker/setup-buildx-action
       - name: Setting up Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - name: Build the image
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+      - name: Build & Publish to DockerHub
         run: |
           docker buildx build \
             --tag timothyjmiller/cloudflare-ddns:latest \
-            --platform linux/ppc64le,linux/s390x,linux/386,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/amd64 .
-      - name: Login to DockerHub
-        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-      - name: Publish to DockerHub
-        run: |
-          docker buildx build \
-            --platform linux/ppc64le,linux/s390x,linux/386,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/amd64 \
-            -t timothyjmiller/cloudflare-ddns:latest \
-            . \
-            --push
+            --platform linux/ppc64le,linux/s390x,linux/386,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/amd64 . --push
