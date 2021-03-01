@@ -89,7 +89,7 @@ You can handle ddns for multiple domains (cloudflare zones) using the same docke
       "zone_id": "your_zone_id_here",
       "subdomains": [
         "",
-        "subdomain"
+        "remove_or_replace_with_your_subdomain"
       ],
       "proxied": true
     },
@@ -104,7 +104,7 @@ You can handle ddns for multiple domains (cloudflare zones) using the same docke
       "zone_id": "your_zone_id_here",
       "subdomains": [
         "",
-        "subdomain"
+        "remove_or_replace_with_your_subdomain"
       ],
       "proxied": true
     }
