@@ -2,6 +2,8 @@ import requests, json, sys, signal, os, time
 
 PATH = os.getcwd() + "/"
 version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
+shown_ipv4_warning = False
+shown_ipv6_warning = False
 
 if(version < 3.5):
     raise Exception("This script requires Python 3.5+")
@@ -36,9 +38,9 @@ def deleteEntries(type):
                 identifier = str(r["id"])
                 response = cf_api(
                     "zones/" + c['zone_id'] + "/dns_records/" + identifier, "DELETE", c)
-                print("Deleted stale record " + identifier)
+                print("🗑️ Deleted stale record " + identifier)
     except Exception:
-        print("Error deleting " + type + " record(s)")
+        print("😡 Error deleting " + type + " record(s)")
 
 def getIPs():
     a = None
@@ -48,14 +50,18 @@ def getIPs():
         a.pop()
         a = dict(s.split("=") for s in a)["ip"]
     except Exception:
-        print("⚠️ Warning: IPv4 not detected.")
+        if not shown_ipv4_warning:
+            shown_ipv4_warning = True
+            print("😨 Warning: IPv4 not detected.")
         deleteEntries("A")
     try:
         aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
         aaaa.pop()
         aaaa = dict(s.split("=") for s in aaaa)["ip"]
     except Exception:
-        print("⚠️ Warning: IPv6 not detected.")
+        if not shown_ipv6_warning:
+            shown_ipv6_warning = True
+            print("😨 Warning: IPv6 not detected.")
         deleteEntries("AAAA")
     ips = []
     if(a is not None):
