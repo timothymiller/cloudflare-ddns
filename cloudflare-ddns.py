@@ -54,7 +54,7 @@ def getIPs():
     except Exception:
         if not shown_ipv4_warning:
             shown_ipv4_warning = True
-            print("😨 Warning: IPv4 not detected.")
+            print("😨 Warning: IPv4 not detected")
         deleteEntries("A")
     try:
         aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
@@ -63,7 +63,7 @@ def getIPs():
     except Exception:
         if not shown_ipv6_warning:
             shown_ipv6_warning = True
-            print("😨 Warning: IPv6 not detected.")
+            print("😨 Warning: IPv6 not detected")
         deleteEntries("AAAA")
     ips = []
     if(a is not None):
