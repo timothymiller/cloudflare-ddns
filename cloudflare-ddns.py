@@ -43,6 +43,8 @@ def deleteEntries(type):
         print("😡 Error deleting " + type + " record(s)")
 
 def getIPs():
+    global shown_ipv4_warning
+    global shown_ipv6_warning
     a = None
     aaaa = None
     try:
