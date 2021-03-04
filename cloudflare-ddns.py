@@ -1,4 +1,4 @@
-import requests, json, sys, signal, os, time
+import argparse, requests, json, sys, signal, os, time
 
 PATH = os.getcwd() + "/"
 version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
@@ -22,9 +22,6 @@ class GracefulExit:
   def exit_gracefully(self, signum, frame):
     print("🛑 Stopping main thread...")
     self.kill_now = True
-
-with open(PATH + "config.json") as config_file:
-    config = json.loads(config_file.read())
 
 def deleteEntries(type):
     # Helper function for deleting A or AAAA records
@@ -78,7 +75,7 @@ def getIPs():
         })
     return ips
 
-def commitRecord(ip):
+def commitRecord(ip, config):
     for c in config["cloudflare"]:
         subdomains = c["subdomains"]
         response = cf_api("zones/" + c['zone_id'], "GET", c)
@@ -151,23 +148,25 @@ def cf_api(endpoint, method, config, headers={}, data=False):
 
     return response.json()
 
-def updateIPs():
+def updateIPs(config):
     for ip in getIPs():
-        commitRecord(ip)
+        commitRecord(ip, config)
 
 if __name__ == '__main__':
-    if(len(sys.argv) > 1):
-        if(sys.argv[1] == "--repeat"):
-            delay = 5*60
-            print("⏲️ Updating IPv4 (A) & IPv6 (AAAA) records every 5 minutes")
-            next_time = time.time()
-            killer = GracefulExit()
-            while not killer.kill_now:
-                time.sleep(max(0, next_time - time.time()))
-                updateIPs()
-                next_time += (time.time() - next_time) // delay * delay + delay
-        else:
-            print("😡 Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repeat", type=bool)
+    parser.add_argument("--config-path", dest="config", type=open, default=os.path.join(PATH, "config.json"))
+    args = parser.parse_args()
+
+    if args.repeat:
+        delay = 5*60
+        print("⏲️ Updating IPv4 (A) & IPv6 (AAAA) records every 5 minutes")
+        next_time = time.time()
+        killer = GracefulExit()
+        while not killer.kill_now:
+            time.sleep(max(0, next_time - time.time()))
+            updateIPs(json.load(args.config))
+            next_time += (time.time() - next_time) // delay * delay + delay
     else:
-        updateIPs()
+        updateIPs(json.load(args.config))
 
