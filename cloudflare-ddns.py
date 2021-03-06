@@ -158,8 +158,8 @@ def updateIPs():
 if __name__ == '__main__':
     if(len(sys.argv) > 1):
         if(sys.argv[1] == "--repeat"):
-            delay = 5*60
-            print("⏲️ Updating IPv4 (A) & IPv6 (AAAA) records every 5 minutes")
+            delay = 15*60
+            print("⏲️ Updating IPv4 (A) & IPv6 (AAAA) records every 15 minutes")
             next_time = time.time()
             killer = GracefulExit()
             while not killer.kill_now:
