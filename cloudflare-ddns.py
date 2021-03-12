@@ -9,7 +9,6 @@ if(version < 3.5):
     raise Exception("This script requires Python 3.5+")
 
 class GracefulExit:
-
   def __init__(self):
     self.kill_now = threading.Event()
     signal.signal(signal.SIGINT, self.exit_gracefully)
@@ -19,8 +18,13 @@ class GracefulExit:
     print("🛑 Stopping main thread...")
     self.kill_now.set()
 
-with open(PATH + "config.json") as config_file:
-    config = json.loads(config_file.read())
+config = None
+try:
+    with open(PATH + "config.json") as config_file:
+        config = json.loads(config_file.read())
+except:
+    print("😡 Error reading config.json")
+    time.sleep(60) # wait 60 seconds to prevent excessive logging on docker auto restart
 
 def deleteEntries(type):
     # Helper function for deleting A or AAAA records
@@ -36,7 +40,7 @@ def deleteEntries(type):
                     "zones/" + c['zone_id'] + "/dns_records/" + identifier, "DELETE", c)
                 print("🗑️ Deleted stale record " + identifier)
     except Exception:
-        print("😡 Error deleting " + type + " record(s)")
+        print("🤷 No " + type + " record(s) found")
 
 def getIPs():
     global shown_ipv4_warning
@@ -151,7 +155,7 @@ def updateIPs(ips):
     for ip in ips.values():
         commitRecord(ip)
 
-if __name__ == '__main__':
+if __name__ == '__main__' and config is not None:
     if(len(sys.argv) > 1):
         if(sys.argv[1] == "--repeat"):
             delay = 60
@@ -162,10 +166,8 @@ if __name__ == '__main__':
             while True:
                 if killer.kill_now.wait(delay):
                     break
-                ips = getIPs()
-                if ips != prev_ips:
-                    updateIPs(ips)
+                updateIPs(getIPs())
         else:
-            print("😡 Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
+            print("❓ Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
     else:
         updateIPs(getIPs())
