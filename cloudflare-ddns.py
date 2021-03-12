@@ -1,4 +1,4 @@
-import requests, json, sys, signal, os, time
+import requests, json, sys, signal, os, time, threading
 
 PATH = os.getcwd() + "/"
 version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
@@ -9,19 +9,15 @@ if(version < 3.5):
     raise Exception("This script requires Python 3.5+")
 
 class GracefulExit:
-  kill_now = False
-  signals = {
-    signal.SIGINT: 'SIGINT',
-    signal.SIGTERM: 'SIGTERM'
-  }
 
   def __init__(self):
+    self.kill_now = threading.Event()
     signal.signal(signal.SIGINT, self.exit_gracefully)
     signal.signal(signal.SIGTERM, self.exit_gracefully)
 
   def exit_gracefully(self, signum, frame):
     print("🛑 Stopping main thread...")
-    self.kill_now = True
+    self.kill_now.set()
 
 with open(PATH + "config.json") as config_file:
     config = json.loads(config_file.read())
@@ -65,17 +61,17 @@ def getIPs():
             shown_ipv6_warning = True
             print("😨 Warning: IPv6 not detected")
         deleteEntries("AAAA")
-    ips = []
+    ips = {}
     if(a is not None):
-        ips.append({
+        ips["ipv4"] = {
             "type": "A",
             "ip": a
-        })
+        }
     if(aaaa is not None):
-        ips.append({
+        ips["ipv6"] = {
             "type": "AAAA",
             "ip": aaaa
-        })
+        }
     return ips
 
 def commitRecord(ip):
@@ -151,22 +147,25 @@ def cf_api(endpoint, method, config, headers={}, data=False):
 
     return response.json()
 
-def updateIPs():
-    for ip in getIPs():
+def updateIPs(ips):
+    for ip in ips.values():
         commitRecord(ip)
 
 if __name__ == '__main__':
     if(len(sys.argv) > 1):
         if(sys.argv[1] == "--repeat"):
-            delay = 15*60
-            print("⏲️ Updating IPv4 (A) & IPv6 (AAAA) records every 15 minutes")
+            delay = 60
+            print("⏲️ Updating IPv4 (A) & IPv6 (AAAA) records every minute")
             next_time = time.time()
             killer = GracefulExit()
-            while not killer.kill_now:
-                time.sleep(max(0, next_time - time.time()))
-                updateIPs()
-                next_time += (time.time() - next_time) // delay * delay + delay
+            prev_ips = None
+            while True:
+                if killer.kill_now.wait(delay):
+                    break
+                ips = getIPs()
+                if ips != prev_ips:
+                    updateIPs(ips)
         else:
             print("😡 Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
     else:
-        updateIPs()
+        updateIPs(getIPs())
