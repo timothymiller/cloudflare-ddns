@@ -6,7 +6,7 @@ shown_ipv4_warning = False
 shown_ipv6_warning = False
 
 if(version < 3.5):
-    raise Exception("This script requires Python 3.5+")
+    raise Exception("🐍 This script requires Python 3.5+")
 
 class GracefulExit:
   def __init__(self):
@@ -30,17 +30,16 @@ def deleteEntries(type):
     # Helper function for deleting A or AAAA records
     # in the case of no IPv4 or IPv6 connection, yet
     # existing A or AAAA records are found.
-    try:
-        for c in config["cloudflare"]:
-            answer = cf_api(
-                "zones/" + c['zone_id'] + "/dns_records?per_page=100&type=" + type, "GET", c)
-            for r in answer["result"]:
-                identifier = str(r["id"])
-                response = cf_api(
-                    "zones/" + c['zone_id'] + "/dns_records/" + identifier, "DELETE", c)
-                print("🗑️ Deleted stale record " + identifier)
-    except Exception:
-        print("🤷 No " + type + " record(s) found")
+    for option in config["cloudflare"]:
+        answer = cf_api(
+            "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + type,
+            "GET", option)
+        for record in answer["result"]:
+            identifier = str(record["id"])
+            cf_api(
+                "zones/" + option['zone_id'] + "/dns_records/" + identifier, 
+                "DELETE", option)
+            print("🗑️ Deleted stale record " + identifier)
 
 def getIPs():
     global shown_ipv4_warning
@@ -54,7 +53,7 @@ def getIPs():
     except Exception:
         if not shown_ipv4_warning:
             shown_ipv4_warning = True
-            print("😨 Warning: IPv4 not detected")
+            print("🧩 IPv4 not detected")
         deleteEntries("A")
     try:
         aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
@@ -63,7 +62,7 @@ def getIPs():
     except Exception:
         if not shown_ipv6_warning:
             shown_ipv6_warning = True
-            print("😨 Warning: IPv6 not detected")
+            print("🧩 IPv6 not detected")
         deleteEntries("AAAA")
     ips = {}
     if(a is not None):
@@ -79,9 +78,9 @@ def getIPs():
     return ips
 
 def commitRecord(ip):
-    for c in config["cloudflare"]:
-        subdomains = c["subdomains"]
-        response = cf_api("zones/" + c['zone_id'], "GET", c)
+    for option in config["cloudflare"]:
+        subdomains = option["subdomains"]
+        response = cf_api("zones/" + option['zone_id'], "GET", option)
         base_domain_name = response["result"]["name"]
         ttl = 300 # default Cloudflare TTL
         for subdomain in subdomains:
@@ -90,43 +89,47 @@ def commitRecord(ip):
                 "type": ip["type"],
                 "name": subdomain,
                 "content": ip["ip"],
-                "proxied": c["proxied"],
+                "proxied": option["proxied"],
                 "ttl": ttl
             }
             dns_records = cf_api(
-                "zones/" + c['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], "GET", c)
+                "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], 
+                "GET", option)
             fqdn = base_domain_name
             if subdomain:
                 fqdn = subdomain + "." + base_domain_name
             identifier = None
             modified = False
             duplicate_ids = []
-            for r in dns_records["result"]:
-                if (r["name"] == fqdn):
-                    if identifier:
-                        if r["content"] == ip["ip"]:
-                            duplicate_ids.append(identifier)
-                            identifier = r["id"]
+            if dns_records is not None:
+                for r in dns_records["result"]:
+                    if (r["name"] == fqdn):
+                        if identifier:
+                            if r["content"] == ip["ip"]:
+                                duplicate_ids.append(identifier)
+                                identifier = r["id"]
+                            else:
+                                duplicate_ids.append(r["id"])
                         else:
-                            duplicate_ids.append(r["id"])
-                    else:
-                        identifier = r["id"]
-                        if r['content'] != record['content'] or r['proxied'] != record['proxied']:
-                            modified = True
+                            identifier = r["id"]
+                            if r['content'] != record['content'] or r['proxied'] != record['proxied']:
+                                modified = True
             if identifier:
                 if modified:
                     print("📡 Updating record " + str(record))
                     response = cf_api(
-                        "zones/" + c['zone_id'] + "/dns_records/" + identifier, "PUT", c, {}, record)
+                        "zones/" + option['zone_id'] + "/dns_records/" + identifier,
+                        "PUT", option, {}, record)
             else:
                 print("➕ Adding new record " + str(record))
                 response = cf_api(
-                    "zones/" + c['zone_id'] + "/dns_records", "POST", c, {}, record)
+                    "zones/" + option['zone_id'] + "/dns_records", "POST", option, {}, record)
             for identifier in duplicate_ids:
                 identifier = str(identifier)
                 print("🗑️ Deleting stale record " + identifier)
                 response = cf_api(
-                    "zones/" + c['zone_id'] + "/dns_records/" + identifier, "DELETE", c)
+                    "zones/" + option['zone_id'] + "/dns_records/" + identifier,
+                    "DELETE", option)
     return True
 
 def cf_api(endpoint, method, config, headers={}, data=False):
@@ -147,9 +150,14 @@ def cf_api(endpoint, method, config, headers={}, data=False):
             method, "https://api.cloudflare.com/client/v4/" + endpoint, headers=headers)
     else:
         response = requests.request(
-            method, "https://api.cloudflare.com/client/v4/" + endpoint, headers=headers, json=data)
+            method, "https://api.cloudflare.com/client/v4/" + endpoint,
+            headers=headers, json=data)
 
-    return response.json()
+    if response.ok:
+        return response.json()
+    else:
+        print("📈 Rate limit exceeded")
+        return None
 
 def updateIPs(ips):
     for ip in ips.values():
@@ -159,7 +167,7 @@ if __name__ == '__main__' and config is not None:
     if(len(sys.argv) > 1):
         if(sys.argv[1] == "--repeat"):
             delay = 60
-            print("⏲️ Updating IPv4 (A) & IPv6 (AAAA) records every minute")
+            print("🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every minute")
             next_time = time.time()
             killer = GracefulExit()
             prev_ips = None
