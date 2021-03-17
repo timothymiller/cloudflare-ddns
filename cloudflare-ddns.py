@@ -36,12 +36,15 @@ def deleteEntries(type):
         answer = cf_api(
             "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + type,
             "GET", option)
-        for record in answer["result"]:
-            identifier = str(record["id"])
-            cf_api(
-                "zones/" + option['zone_id'] + "/dns_records/" + identifier, 
-                "DELETE", option)
-            print("🗑️ Deleted stale record " + identifier)
+    if answer is None or answer["result"] is None:
+        time.sleep(5)
+        return
+    for record in answer["result"]:
+        identifier = str(record["id"])
+        cf_api(
+            "zones/" + option['zone_id'] + "/dns_records/" + identifier, 
+            "DELETE", option)
+        print("🗑️ Deleted stale record " + identifier)
 
 def getIPs():
     a = None
@@ -83,6 +86,9 @@ def commitRecord(ip):
     for option in config["cloudflare"]:
         subdomains = option["subdomains"]
         response = cf_api("zones/" + option['zone_id'], "GET", option)
+        if response is None or response["result"]["name"] is None:
+            time.sleep(5)
+            return
         base_domain_name = response["result"]["name"]
         ttl = 300 # default Cloudflare TTL
         for subdomain in subdomains:
