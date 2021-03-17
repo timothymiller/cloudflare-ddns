@@ -4,6 +4,8 @@ PATH = os.getcwd() + "/"
 version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
 shown_ipv4_warning = False
 shown_ipv6_warning = False
+ipv4_enabled = True
+ipv6_enabled = True
 
 if(version < 3.5):
     raise Exception("🐍 This script requires Python 3.5+")
@@ -42,28 +44,28 @@ def deleteEntries(type):
             print("🗑️ Deleted stale record " + identifier)
 
 def getIPs():
-    global shown_ipv4_warning
-    global shown_ipv6_warning
     a = None
     aaaa = None
-    try:
-        a = requests.get("https://1.1.1.1/cdn-cgi/trace").text.split("\n")
-        a.pop()
-        a = dict(s.split("=") for s in a)["ip"]
-    except Exception:
-        if not shown_ipv4_warning:
-            shown_ipv4_warning = True
-            print("🧩 IPv4 not detected")
-        deleteEntries("A")
-    try:
-        aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
-        aaaa.pop()
-        aaaa = dict(s.split("=") for s in aaaa)["ip"]
-    except Exception:
-        if not shown_ipv6_warning:
-            shown_ipv6_warning = True
-            print("🧩 IPv6 not detected")
-        deleteEntries("AAAA")
+    if ipv6_enabled:
+        try:
+            a = requests.get("https://1.1.1.1/cdn-cgi/trace").text.split("\n")
+            a.pop()
+            a = dict(s.split("=") for s in a)["ip"]
+        except Exception:
+            if not shown_ipv4_warning:
+                shown_ipv4_warning = True
+                print("🧩 IPv4 not detected")
+            deleteEntries("A")
+    if ipv4_enabled:
+        try:
+            aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
+            aaaa.pop()
+            aaaa = dict(s.split("=") for s in aaaa)["ip"]
+        except Exception:
+            if not shown_ipv6_warning:
+                shown_ipv6_warning = True
+                print("🧩 IPv6 not detected")
+            deleteEntries("AAAA")
     ips = {}
     if(a is not None):
         ips["ipv4"] = {
@@ -164,10 +166,22 @@ def updateIPs(ips):
         commitRecord(ip)
 
 if __name__ == '__main__' and config is not None:
+    try:
+        ipv4_enabled = config["a"]
+        ipv6_enabled = config["aaaa"]
+    except:
+        ipv4_enabled = True
+        ipv6_enabled = True
+        print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
     if(len(sys.argv) > 1):
         if(sys.argv[1] == "--repeat"):
             delay = 60
-            print("🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every minute")
+            if ipv4_enabled and ipv6_enabled:
+                print("🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every minute")
+            elif ipv4_enabled and not ipv6_enabled:
+                print("🕰️ Updating IPv4 (A) records every minute")
+            elif ipv6_enabled and not ipv4_enabled:
+                print("🕰️ Updating IPv6 (AAAA) records every minute")
             next_time = time.time()
             killer = GracefulExit()
             prev_ips = None

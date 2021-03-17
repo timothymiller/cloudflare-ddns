@@ -59,6 +59,15 @@ Alternatively, you can use the traditional API keys by setting appropriate value
     "account_email": "The email address you use to sign in to cloudflare",
 ```
 
+### Enable or disable IPv4 or IPv6
+
+Some ISP provided modems only allow port forwarding over IPv4 or IPv6. In this case, you would want to disable any interface not accessible via port forward.
+
+```json
+"a": true,
+"aaaa": true
+```
+
 ### Other values explained
 
 ```json

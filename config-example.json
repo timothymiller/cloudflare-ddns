@@ -15,5 +15,7 @@
       ],
       "proxied": false
     }
-  ]
+  ],
+  "a": true,
+  "aaaa": true
 }
