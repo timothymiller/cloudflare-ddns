@@ -1,15 +1,5 @@
 import requests, json, sys, signal, os, time, threading
 
-PATH = os.getcwd() + "/"
-version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
-shown_ipv4_warning = False
-shown_ipv6_warning = False
-ipv4_enabled = True
-ipv6_enabled = True
-
-if(version < 3.5):
-    raise Exception("🐍 This script requires Python 3.5+")
-
 class GracefulExit:
   def __init__(self):
     self.kill_now = threading.Event()
@@ -19,14 +9,6 @@ class GracefulExit:
   def exit_gracefully(self, signum, frame):
     print("🛑 Stopping main thread...")
     self.kill_now.set()
-
-config = None
-try:
-    with open(PATH + "config.json") as config_file:
-        config = json.loads(config_file.read())
-except:
-    print("😡 Error reading config.json")
-    time.sleep(60) # wait 60 seconds to prevent excessive logging on docker auto restart
 
 def deleteEntries(type):
     # Helper function for deleting A or AAAA records
@@ -49,22 +31,26 @@ def deleteEntries(type):
 def getIPs():
     a = None
     aaaa = None
-    if ipv6_enabled:
+    global ipv4_enabled
+    global ipv6_enabled
+    if ipv4_enabled:
         try:
             a = requests.get("https://1.1.1.1/cdn-cgi/trace").text.split("\n")
             a.pop()
             a = dict(s.split("=") for s in a)["ip"]
         except Exception:
+            global shown_ipv4_warning
             if not shown_ipv4_warning:
                 shown_ipv4_warning = True
                 print("🧩 IPv4 not detected")
             deleteEntries("A")
-    if ipv4_enabled:
+    if ipv6_enabled:
         try:
             aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
             aaaa.pop()
             aaaa = dict(s.split("=") for s in aaaa)["ip"]
         except Exception:
+            global shown_ipv6_warning
             if not shown_ipv6_warning:
                 shown_ipv6_warning = True
                 print("🧩 IPv6 not detected")
@@ -171,31 +157,50 @@ def updateIPs(ips):
     for ip in ips.values():
         commitRecord(ip)
 
-if __name__ == '__main__' and config is not None:
+if __name__ == '__main__':
+    PATH = os.getcwd() + "/"
+    version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
+    shown_ipv4_warning = False
+    shown_ipv6_warning = False
+    ipv4_enabled = True
+    ipv6_enabled = True
+
+    if(version < 3.5):
+        raise Exception("🐍 This script requires Python 3.5+")
+
+    config = None
     try:
-        ipv4_enabled = config["a"]
-        ipv6_enabled = config["aaaa"]
+        with open(PATH + "config.json") as config_file:
+            config = json.loads(config_file.read())
     except:
-        ipv4_enabled = True
-        ipv6_enabled = True
-        print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
-    if(len(sys.argv) > 1):
-        if(sys.argv[1] == "--repeat"):
-            delay = 60
-            if ipv4_enabled and ipv6_enabled:
-                print("🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every minute")
-            elif ipv4_enabled and not ipv6_enabled:
-                print("🕰️ Updating IPv4 (A) records every minute")
-            elif ipv6_enabled and not ipv4_enabled:
-                print("🕰️ Updating IPv6 (AAAA) records every minute")
-            next_time = time.time()
-            killer = GracefulExit()
-            prev_ips = None
-            while True:
-                if killer.kill_now.wait(delay):
-                    break
-                updateIPs(getIPs())
+        print("😡 Error reading config.json")
+        time.sleep(60) # wait 60 seconds to prevent excessive logging on docker auto restart
+
+    if config is not None:
+        try:
+            ipv4_enabled = config["a"]
+            ipv6_enabled = config["aaaa"]
+        except:
+            ipv4_enabled = True
+            ipv6_enabled = True
+            print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
+        if(len(sys.argv) > 1):
+            if(sys.argv[1] == "--repeat"):
+                delay = 60
+                if ipv4_enabled and ipv6_enabled:
+                    print("🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every minute")
+                elif ipv4_enabled and not ipv6_enabled:
+                    print("🕰️ Updating IPv4 (A) records every minute")
+                elif ipv6_enabled and not ipv4_enabled:
+                    print("🕰️ Updating IPv6 (AAAA) records every minute")
+                next_time = time.time()
+                killer = GracefulExit()
+                prev_ips = None
+                while True:
+                    if killer.kill_now.wait(delay):
+                        break
+                    updateIPs(getIPs())
+            else:
+                print("❓ Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
         else:
-            print("❓ Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
-    else:
-        updateIPs(getIPs())
+            updateIPs(getIPs())
