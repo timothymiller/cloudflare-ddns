@@ -150,7 +150,8 @@ def cf_api(endpoint, method, config, headers={}, data=False):
     if response.ok:
         return response.json()
     else:
-        print("📈 Rate limit exceeded")
+        print("📈 Error sending '" + method + "' request to '" + response.url + "':")
+        print(response.text)
         return None
 
 def updateIPs(ips):
