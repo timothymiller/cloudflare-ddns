@@ -187,13 +187,13 @@ if __name__ == '__main__':
             print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
         if(len(sys.argv) > 1):
             if(sys.argv[1] == "--repeat"):
-                delay = 60
+                delay = 5*60
                 if ipv4_enabled and ipv6_enabled:
-                    print("🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every minute")
+                    print("🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every 5 minutes")
                 elif ipv4_enabled and not ipv6_enabled:
-                    print("🕰️ Updating IPv4 (A) records every minute")
+                    print("🕰️ Updating IPv4 (A) records every 5 minutes")
                 elif ipv6_enabled and not ipv4_enabled:
-                    print("🕰️ Updating IPv6 (AAAA) records every minute")
+                    print("🕰️ Updating IPv6 (AAAA) records every 5 minutes")
                 next_time = time.time()
                 killer = GracefulExit()
                 prev_ips = None
