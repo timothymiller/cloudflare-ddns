@@ -197,10 +197,10 @@ if __name__ == '__main__':
                 next_time = time.time()
                 killer = GracefulExit()
                 prev_ips = None
-                while True:
+                while True:     
+                    updateIPs(getIPs())
                     if killer.kill_now.wait(delay):
                         break
-                    updateIPs(getIPs())
             else:
                 print("❓ Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
         else:
