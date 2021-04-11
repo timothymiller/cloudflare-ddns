@@ -10,24 +10,6 @@ class GracefulExit:
     print("🛑 Stopping main thread...")
     self.kill_now.set()
 
-def deleteEntries(type):
-    # Helper function for deleting A or AAAA records
-    # in the case of no IPv4 or IPv6 connection, yet
-    # existing A or AAAA records are found.
-    for option in config["cloudflare"]:
-        answer = cf_api(
-            "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + type,
-            "GET", option)
-    if answer is None or answer["result"] is None:
-        time.sleep(5)
-        return
-    for record in answer["result"]:
-        identifier = str(record["id"])
-        cf_api(
-            "zones/" + option['zone_id'] + "/dns_records/" + identifier, 
-            "DELETE", option)
-        print("🗑️ Deleted stale record " + identifier)
-
 def getIPs():
     a = None
     aaaa = None
@@ -43,7 +25,6 @@ def getIPs():
             if not shown_ipv4_warning:
                 shown_ipv4_warning = True
                 print("🧩 IPv4 not detected")
-            deleteEntries("A")
     if ipv6_enabled:
         try:
             aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
@@ -54,7 +35,6 @@ def getIPs():
             if not shown_ipv6_warning:
                 shown_ipv6_warning = True
                 print("🧩 IPv6 not detected")
-            deleteEntries("AAAA")
     ips = {}
     if(a is not None):
         ips["ipv4"] = {
