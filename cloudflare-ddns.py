@@ -196,6 +196,7 @@ if __name__ == '__main__':
             print("⚙️ No config detected for 'delete_stale_records' - default to False")
         if(len(sys.argv) > 1):
             if(sys.argv[1] == "--repeat"):
+                updateIPs(getIPs())
                 delay = 5*60
                 if ipv4_enabled and ipv6_enabled:
                     print("🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every 5 minutes")
