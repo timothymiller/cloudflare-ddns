@@ -43,7 +43,8 @@ def getIPs():
             if not shown_ipv4_warning:
                 shown_ipv4_warning = True
                 print("🧩 IPv4 not detected")
-            deleteEntries("A")
+            if delete_stale_records:
+                deleteEntries("A")
     if ipv6_enabled:
         try:
             aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
@@ -54,7 +55,8 @@ def getIPs():
             if not shown_ipv6_warning:
                 shown_ipv6_warning = True
                 print("🧩 IPv6 not detected")
-            deleteEntries("AAAA")
+            if delete_stale_records:
+                deleteEntries("AAAA")
     ips = {}
     if(a is not None):
         ips["ipv4"] = {
@@ -118,12 +120,13 @@ def commitRecord(ip):
                 print("➕ Adding new record " + str(record))
                 response = cf_api(
                     "zones/" + option['zone_id'] + "/dns_records", "POST", option, {}, record)
-            for identifier in duplicate_ids:
-                identifier = str(identifier)
-                print("🗑️ Deleting stale record " + identifier)
-                response = cf_api(
-                    "zones/" + option['zone_id'] + "/dns_records/" + identifier,
-                    "DELETE", option)
+            if delete_stale_records:
+                for identifier in duplicate_ids:
+                    identifier = str(identifier)
+                    print("🗑️ Deleting stale record " + identifier)
+                    response = cf_api(
+                        "zones/" + option['zone_id'] + "/dns_records/" + identifier,
+                        "DELETE", option)
     return True
 
 def cf_api(endpoint, method, config, headers={}, data=False):
@@ -165,6 +168,7 @@ if __name__ == '__main__':
     shown_ipv6_warning = False
     ipv4_enabled = True
     ipv6_enabled = True
+    delete_stale_records = False
 
     if(version < 3.5):
         raise Exception("🐍 This script requires Python 3.5+")
@@ -185,6 +189,11 @@ if __name__ == '__main__':
             ipv4_enabled = True
             ipv6_enabled = True
             print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
+        try:
+            delete_stale_records = config["delete_stale_records"]
+        except:
+            delete_stale_records = False
+            print("⚙️ No config detected for 'delete_stale_records' - default to False")
         if(len(sys.argv) > 1):
             if(sys.argv[1] == "--repeat"):
                 delay = 5*60
