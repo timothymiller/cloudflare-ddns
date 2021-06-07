@@ -21,5 +21,5 @@ jobs:
       - name: Build & Publish to DockerHub
         run: |
           docker buildx build \
-            --tag timothyjmiller/cloudflare-ddns:latest \
+            --tag davidcasado/cloudflare-ddns:latest \
             --platform linux/ppc64le,linux/s390x,linux/386,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/amd64 . --push
