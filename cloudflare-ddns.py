@@ -68,6 +68,7 @@ def getIPs():
             "type": "AAAA",
             "ip": aaaa
         }
+    print("IPs found: " + str(ips))
     return ips
 
 def commitRecord(ip):
@@ -109,6 +110,7 @@ def commitRecord(ip):
                         else:
                             identifier = r["id"]
                             if r['content'] != record['content'] or r['proxied'] != record['proxied']:
+                                print("Current IP does not match Clouflare IP for subdomain " + str(record["name"]))
                                 modified = True
             if identifier:
                 if modified:
@@ -210,6 +212,7 @@ if __name__ == '__main__':
                 while True:
                     if killer.kill_now.wait(delay):
                         break
+                    print("Checking for IP changes")
                     updateIPs(getIPs())
             else:
                 print("❓ Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
