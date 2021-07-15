@@ -15,7 +15,8 @@ spec:
     spec:
       containers:
       - name: cloudflate-ddns
-        image: quay.io/arpagon/cloudflare-ddns:v1.0.0
+        image: timothyjmiller/cloudflare-ddns:latest
+        #image: quay.io/arpagon/cloudflare-ddns:v1.0.0
         resources:
           limits:
             memory: "32Mi"
