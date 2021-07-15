@@ -1,4 +1,22 @@
-import requests, json, sys, signal, os, time, threading
+#!/usr/bin/env python
+#   cloudflare-ddns.py
+#   Summary: Access your home network remotely via a custom domain name without a static IP!
+#   Description: Access your home network remotely via a custom domain
+#                Access your home network remotely via a custom domain
+#                A small, 🕵️ privacy centric, and ⚡ 
+#                lightning fast multi-architecture Docker image for self hosting projects.
+
+__version__ = "1.0.1"
+
+import json
+import os
+import signal
+import sys
+import threading
+import time
+import requests
+
+CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd() + "/")
 
 class GracefulExit:
   def __init__(self):
@@ -159,7 +177,6 @@ def updateIPs(ips):
         commitRecord(ip)
 
 if __name__ == '__main__':
-    PATH = os.getcwd() + "/"
     version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
     shown_ipv4_warning = False
     shown_ipv6_warning = False
@@ -171,7 +188,7 @@ if __name__ == '__main__':
 
     config = None
     try:
-        with open(PATH + "config.json") as config_file:
+        with open(CONFIG_PATH + "config.json") as config_file:
             config = json.loads(config_file.read())
     except:
         print("😡 Error reading config.json")
