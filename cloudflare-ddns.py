@@ -163,6 +163,12 @@ def updateIPs(ips):
     for ip in ips.values():
         commitRecord(ip)
 
+def pingHealthchecks(healthchecks_ping_url):
+    try:
+        requests.get(healthchecks_ping_url, timeout=10)
+    except requests.RequestException as e:
+        print("Ping to healthchecks failed: %s" % e)
+
 if __name__ == '__main__':
     PATH = os.getcwd() + "/"
     version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
@@ -196,6 +202,11 @@ if __name__ == '__main__':
         except:
             delete_stale_records = False
             print("⚙️ No config detected for 'delete_stale_records' - default to False")
+        try:
+            healthchecks_ping_url = config["healthchecks_ping_url"]
+        except:
+            healthchecks_ping_url = None
+            print("⚙️ No config detected for 'healthchecks_ping_url' - default to None")
         if(len(sys.argv) > 1):
             if(sys.argv[1] == "--repeat"):
                 updateIPs(getIPs())
@@ -214,6 +225,8 @@ if __name__ == '__main__':
                         break
                     print("Checking for IP changes")
                     updateIPs(getIPs())
+                    if healthchecks_ping_url != None:
+                        pingHealthchecks(healthchecks_ping_url)
             else:
                 print("❓ Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
         else:

@@ -18,5 +18,6 @@
   ],
   "a": true,
   "aaaa": true,
-  "delete_stale_records": false
+  "delete_stale_records": false,
+  "healthchecks_ping_url": null
 }
