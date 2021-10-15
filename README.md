@@ -1,26 +1,16 @@
-<p align="center"><a href="https://timknowsbest.com/free-dynamic-dns" target="_blank" rel="noopener noreferrer"><img width="1024" src="feature-graphic.jpg" alt="Cloudflare DDNS"/></a></p>
+Forked from [cloudflare-ddns](https://github.com/timothymiller/cloudflare-ddns) to add some features.
 
-# 🚀 Cloudflare DDNS
+# Cloudflare DDNS
 
 Access your home network remotely via a custom domain name without a static IP!
 
-A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Docker image for self hosting projects.
+A small, privacy centric, and lightning fast multi-architecture Docker image for self hosting projects.
 
-## 🇺🇸 Origin
+## More than just DDNS
 
-This script was written for the Raspberry Pi platform to enable low cost self hosting to promote a more decentralized internet.
+Every 5 minutes, the script fetches public IPv4 and IPv6 addresses and then creates/updates DNS records for each subdomain in Cloudflare. Stale, duplicate DNS records are removed for housekeeping.
 
-## 🧹 More than just DDNS
-
-`cloudflare-ddns` handles the busy work for you, so deploying web apps is less of a clickfest. Every 5 minutes, the script fetches public IPv4 and IPv6 addresses and then creates/updates DNS records for each subdomain in Cloudflare. Stale, duplicate DNS records are removed for housekeeping.
-
-## 📊 Stats
-
-| Size  | Downloads | Discord |
-| ------------- | ------------- | ------------- |
-| [![cloudflare-ddns docker image size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns "cloudflare-ddns docker image size")  | [![Total DockerHub pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns "Total DockerHub pulls")  | [![Official Discord Server](https://img.shields.io/discord/785778163887112192?style=flat-square)](https://discord.gg/UgGmwMvNxm "Official Discord Server")
-
-## ⁉️ How Private & Secure?
+## How Private & Secure?
 
 1. Uses zero-log external IPv4 & IPv6 provider ([cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace))
 2. Alpine Linux base image
@@ -29,7 +19,7 @@ This script was written for the Raspberry Pi platform to enable low cost self ho
 5. Open source for open audits
 6. Regular updates
 
-## 🚦 Getting Started
+## Getting Started
 
 First copy the example configuration file into the real one.
 
@@ -39,7 +29,7 @@ cp config-example.json config.json
 
 Edit `config.json` and replace the values with your own.
 
-### 🔑 Authentication methods
+### Authentication methods
 
 You can choose to use either the newer API tokens, or the traditional API keys
 
@@ -76,11 +66,11 @@ Some ISP provided modems only allow port forwarding over IPv4 or IPv6. In this c
 "proxied": false (defaults to false. Make it true if you want CDN/SSL benefits from cloudflare. This usually disables SSH)
 ```
 
-## 📠 Hosting multiple subdomains on the same IP?
+## Hosting multiple subdomains on the same IP?
 
 You can save yourself some trouble when hosting multiple domains pointing to the same IP address (in the case of Traefik) by defining one A & AAAA record  'ddns.example.com' pointing to the IP of the server that will be updated by this DDNS script. For each subdomain, create a CNAME record pointing to 'ddns.example.com'. Now you don't have to manually modify the script config every time you add a new subdomain to your site!
 
-## 🌐 Hosting multiple domains (zones) on the same IP?
+## Hosting multiple domains (zones) on the same IP?
 
 You can handle ddns for multiple domains (cloudflare zones) using the same docker container by separating your configs inside ```config.json``` like below:
 
@@ -121,9 +111,9 @@ You can handle ddns for multiple domains (cloudflare zones) using the same docke
 }
 ```
 
-## 🐳 Deploy with Docker Compose
+## Deploy with Docker Compose
 
-Pre-compiled images are available via [the official docker container on DockerHub](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns).
+Pre-compiled images are available via [docker container on DockerHub](https://hub.docker.com/r/davidcasado/cloudflare-ddns).
 
 Modify the host file path of config.json inside the volumes section of docker-compose.yml.
 
@@ -131,7 +121,7 @@ Modify the host file path of config.json inside the volumes section of docker-co
 version: "3.7"
 services:
   cloudflare-ddns:
-    image: timothyjmiller/cloudflare-ddns:latest
+    image: davidcasado/cloudflare-ddns:latest
     container_name: cloudflare-ddns
     security_opt:
       - no-new-privileges:true
@@ -144,11 +134,11 @@ services:
     restart: unless-stopped
 ```
 
-### ⚠️ IPv6
+### IPv6
 
 Docker requires network_mode be set to host in order to access the IPv6 public address.
 
-### 🏃‍♂️ Running
+### Running
 
 From the project root directory
 
@@ -156,11 +146,11 @@ From the project root directory
 docker-compose up -d
 ```
 
-## 🐧 Deploy with Linux + Cron
+## Deploy with Linux + Cron
 
-### 🏃 Running (all distros)
+### Running (all distros)
 
-This script requires Python 3.5+, which comes preinstalled on the latest version of Raspbian. Download/clone this repo and give permission to the project's bash script by running `chmod +x ./start-sync.sh`. Now you can execute `./start-sync.sh`, which will set up a virtualenv, pull in any dependencies, and fire the script.
+This script requires Python 3.9, which comes preinstalled on the latest version of Raspbian. Download/clone this repo and give permission to the project's bash script by running `chmod +x ./start-sync.sh`. Now you can execute `./start-sync.sh`, which will set up a virtualenv, pull in any dependencies, and fire the script.
 
 1. Upload the cloudflare-ddns folder to your home directory /home/your_username_here/
 
@@ -178,58 +168,18 @@ crontab -e
 
 ## Building from source
 
-Create a config.json file with your production credentials.
+1. Create a `config.json` file with your credentials.
 
-### 💖 Please Note
-
-The optional `docker-build-all.sh` script requires Docker experimental support to be enabled.
-
-Docker Hub has experimental support for multi-architecture builds. Their official blog post specifies easy instructions for building with [Mac and Windows versions of Docker Desktop](https://docs.docker.com/docker-for-mac/multi-arch/).
-
-1. Choose build platform
-
-- Multi-architecture (experimental)  `docker-build-all.sh`
-
-- Linux/amd64 by default  `docker-build.sh`
-
-2. Give your bash script permission to execute.
-
+2. Build Docker image
 ```bash
-sudo chmod +x ./docker-build.sh
+docker build --tag davidcasado/cloudflare-ddns:latest .
 ```
 
+3. Run the locally compiled image
 ```bash
-sudo chmod +x ./docker-build-all.sh
-```
-
-3. At project root, run the `docker-build.sh` script.
-
-Recommended for local development
-
-```bash
-./docker-build.sh
-```
-
-Recommended for production
-
-```bash
-./docker-build-all.sh
-```
-
-### Run the locally compiled version
-
-```bash
-docker run -d timothyjmiller/cloudflare_ddns:latest
+docker run -d --volume ./config.json:/config.json davidcasado/cloudflare_ddns:latest
 ```
 
 ## License
 
 This Template is licensed under the GNU General Public License, version 3 (GPLv3).
-
-## Author
-
-Timothy Miller
-
-[View my GitHub profile 💡](https://github.com/timothymiller)
-
-[View my personal website 💻](https://timknowsbest.com)
