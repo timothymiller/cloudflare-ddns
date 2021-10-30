@@ -1,5 +1,4 @@
 {
-  "purgeUnknownRecords": false,
   "cloudflare": [
     {
       "authentication": {
@@ -18,5 +17,6 @@
     }
   ],
   "a": true,
-  "aaaa": true
+  "aaaa": true,
+  "purgeUnknownRecords": false
 }
