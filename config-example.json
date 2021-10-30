@@ -1,4 +1,5 @@
 {
+  "purgeUnknownRecords": false,
   "cloudflare": [
     {
       "authentication": {
