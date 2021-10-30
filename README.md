@@ -10,9 +10,13 @@ A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Dock
 
 This script was written for the Raspberry Pi platform to enable low cost self hosting to promote a more decentralized internet.
 
-## 🧹 More than just DDNS
+### 🧹 Safe for use with existing records
 
-`cloudflare-ddns` handles the busy work for you, so deploying web apps is less of a clickfest. Every 5 minutes, the script fetches public IPv4 and IPv6 addresses and then creates/updates DNS records for each subdomain in Cloudflare. Stale, duplicate DNS records are removed for housekeeping.
+`cloudflare-ddns` handles the busy work for you, so deploying web apps is less of a clickfest. Every 5 minutes, the script fetches public IPv4 and IPv6 addresses and then creates/updates DNS records for each subdomain in Cloudflare.
+
+#### Optional features
+
+Stale, duplicate DNS records are removed for housekeeping.
 
 ## 📊 Stats
 
@@ -83,6 +87,10 @@ You can save yourself some trouble when hosting multiple domains pointing to the
 ## 🌐 Hosting multiple domains (zones) on the same IP?
 
 You can handle ddns for multiple domains (cloudflare zones) using the same docker container by separating your configs inside ```config.json``` like below:
+
+### ⚠️ Note
+
+Do not include the base domain name in your `subdomains` config. Do not use the [FDQN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name).
 
 ```bash
 {
@@ -155,6 +163,40 @@ From the project root directory
 ```bash
 docker-compose up -d
 ```
+
+## 🐋 Kubernetes
+
+
+Create config File
+
+``` bash
+cp ../../config-example.json config.json
+```
+
+Edit config.jsonon (vim, nvim, nano... )
+``` bash
+${EDITOR} config.json
+```
+
+Create config file as Secret.
+
+``` bash
+kubectl create secret generic config-cloudflare-ddns --from-file=config.json --dry-run=client -oyaml -n ddns > config-cloudflare-ddns-Secret.yaml
+```
+
+apply this secret
+
+``` bash
+kubectl apply -f config-cloudflare-ddns-Secret.yaml
+rm config.json # recomended Just keep de secret on Kubernetes Cluster
+```
+
+apply this Deployment
+
+``` bash
+kubectl apply -f cloudflare-ddns-Deployment.yaml
+```
+
 
 ## 🐧 Deploy with Linux + Cron
 
