@@ -181,14 +181,13 @@ def updateIPs(ips):
         commitRecord(ip)
 
 if __name__ == '__main__':
-    version = int(str(sys.version_info[0]) + str(sys.version_info[1]))
     shown_ipv4_warning = False
     shown_ipv6_warning = False
     ipv4_enabled = True
     ipv6_enabled = True
     purgeUnknownRecords = False
 
-    if(version < 35):
+    if sys.version_info < (3, 5):
         raise Exception("🐍 This script requires Python 3.5+")
 
     config = None
