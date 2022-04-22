@@ -57,11 +57,11 @@ def getIPs():
             a = requests.get("https://1.1.1.1/cdn-cgi/trace").text.split("\n")
             a.pop()
             a = dict(s.split("=") for s in a)["ip"]
-        except Exception:
+        except Exception as ex:
             global shown_ipv4_warning
             if not shown_ipv4_warning:
                 shown_ipv4_warning = True
-                print("🧩 IPv4 not detected")
+                print("🧩 IPv4 not detected: ", ex)
             if purgeUnknownRecords:
                 deleteEntries("A")
     if ipv6_enabled:
@@ -69,11 +69,11 @@ def getIPs():
             aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
             aaaa.pop()
             aaaa = dict(s.split("=") for s in aaaa)["ip"]
-        except Exception:
+        except Exception as ex:
             global shown_ipv6_warning
             if not shown_ipv6_warning:
                 shown_ipv6_warning = True
-                print("🧩 IPv6 not detected")
+                print("🧩 IPv6 not detected: ", ex)
             if purgeUnknownRecords:
                 deleteEntries("AAAA")
     ips = {}
