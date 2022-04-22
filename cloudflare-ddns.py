@@ -185,6 +185,7 @@ if __name__ == '__main__':
     shown_ipv6_warning = False
     ipv4_enabled = True
     ipv6_enabled = True
+    repeat_interval = 300
     purgeUnknownRecords = False
 
     if sys.version_info < (3, 5):
@@ -211,9 +212,12 @@ if __name__ == '__main__':
         except:
             purgeUnknownRecords = False
             print("⚙️ No config detected for 'purgeUnknownRecords' - defaulting to False")
+        try:
+            repeat_interval = config["repeatInterval"]
+        except:
+            print("⚙️ No config detected for 'repeatInterval' - defaulting to 300")
         if(len(sys.argv) > 1):
             if(sys.argv[1] == "--repeat"):
-                delay = 5*60
                 if ipv4_enabled and ipv6_enabled:
                     print("🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every 5 minutes")
                 elif ipv4_enabled and not ipv6_enabled:
@@ -223,9 +227,9 @@ if __name__ == '__main__':
                 next_time = time.time()
                 killer = GracefulExit()
                 prev_ips = None
-                while True:     
+                while True:
                     updateIPs(getIPs())
-                    if killer.kill_now.wait(delay):
+                    if killer.kill_now.wait(repeat_interval):
                         break
             else:
                 print("❓ Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
