@@ -16,7 +16,7 @@ import threading
 import time
 import requests
 
-CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd() + "/")
+CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd())
 
 class GracefulExit:
   def __init__(self):
@@ -192,7 +192,7 @@ if __name__ == '__main__':
 
     config = None
     try:
-        with open(CONFIG_PATH + "config.json") as config_file:
+        with open(os.path.join(CONFIG_PATH, "config.json")) as config_file:
             config = json.loads(config_file.read())
     except:
         print("😡 Error reading config.json")
