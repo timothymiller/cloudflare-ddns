@@ -1,5 +1,5 @@
 name: Build cloudflare-ddns Docker image (multi-arch)
-
+# update docker hub details
 on:
   push:
     branches: master
