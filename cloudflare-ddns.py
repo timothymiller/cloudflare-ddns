@@ -160,21 +160,25 @@ def cf_api(endpoint, method, config, headers={}, data=False):
             "X-Auth-Email": config['authentication']['api_key']['account_email'],
             "X-Auth-Key": config['authentication']['api_key']['api_key'],
         }
+    try:
+        if(data == False):
+            response = requests.request(
+                method, "https://api.cloudflare.com/client/v4/" + endpoint, headers=headers)
+        else:
+            response = requests.request(
+                method, "https://api.cloudflare.com/client/v4/" + endpoint,
+                headers=headers, json=data)
 
-    if(data == False):
-        response = requests.request(
-            method, "https://api.cloudflare.com/client/v4/" + endpoint, headers=headers)
-    else:
-        response = requests.request(
-            method, "https://api.cloudflare.com/client/v4/" + endpoint,
-            headers=headers, json=data)
-
-    if response.ok:
-        return response.json()
-    else:
-        print("📈 Error sending '" + method + "' request to '" + response.url + "':")
-        print(response.text)
+        if response.ok:
+            return response.json()
+        else:
+            print("😡 Error sending '" + method + "' request to '" + response.url + "':")
+            print(response.text)
+            return None
+    except Exception as e:
+        print("😡 An exception occurred while sending '" + method + "' request to '" + endpoint + "': " + str(e))
         return None
+
 
 def updateIPs(ips):
     for ip in ips.values():
