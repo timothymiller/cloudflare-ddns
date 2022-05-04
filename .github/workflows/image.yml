@@ -32,7 +32,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v3
         with:
-          images: hareeshmu/cloudflare-ddns
+          images: timothyjmiller/cloudflare-ddns
           sep-tags: ','
           flavor: |
             latest=false
