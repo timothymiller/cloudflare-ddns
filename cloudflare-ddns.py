@@ -99,20 +99,20 @@ def commitRecord(ip):
         base_domain_name = response["result"]["name"]
         ttl = 300 # default Cloudflare TTL
         for subdomain in subdomains:
-            subdomain = subdomain.lower().strip()
+            name = subdomain["name"].lower().strip()
             record = {
                 "type": ip["type"],
-                "name": subdomain,
+                "name": name,
                 "content": ip["ip"],
-                "proxied": option["proxied"],
+                "proxied": subdomain["proxied"],
                 "ttl": ttl
             }
             dns_records = cf_api(
                 "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], 
                 "GET", option)
             fqdn = base_domain_name
-            if subdomain:
-                fqdn = subdomain + "." + base_domain_name
+            if name:
+                fqdn = name + "." + base_domain_name
             identifier = None
             modified = False
             duplicate_ids = []
