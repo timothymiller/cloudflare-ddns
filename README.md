@@ -105,10 +105,15 @@ Do not include the base domain name in your `subdomains` config. Do not use the 
       },
       "zone_id": "your_zone_id_here",
       "subdomains": [
-        "",
-        "remove_or_replace_with_your_subdomain"
+        {
+          "name": "",
+          "proxied": false
+        },
+        {
+          "name": "remove_or_replace_with_your_subdomain",
+          "proxied": false
+        }
       ],
-      "proxied": true
     },
     {
       "authentication": {
@@ -120,10 +125,15 @@ Do not include the base domain name in your `subdomains` config. Do not use the 
       },
       "zone_id": "your_zone_id_here",
       "subdomains": [
-        "",
-        "remove_or_replace_with_your_subdomain"
+        {
+          "name": "",
+          "proxied": true
+        },
+        {
+          "name": "remove_or_replace_with_your_subdomain",
+          "proxied": true
+        }
       ],
-      "proxied": true
     }
   ]
 }
