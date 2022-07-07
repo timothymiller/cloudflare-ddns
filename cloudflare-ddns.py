@@ -52,6 +52,7 @@ def getIPs():
     global ipv4_enabled
     global ipv6_enabled
     global purgeUnknownRecords
+    global ttl
     if ipv4_enabled:
         try:
             a = requests.get("https://1.1.1.1/cdn-cgi/trace").text.split("\n")
@@ -90,6 +91,7 @@ def getIPs():
     return ips
 
 def commitRecord(ip):
+    global ttl
     for option in config["cloudflare"]:
         subdomains = option["subdomains"]
         response = cf_api("zones/" + option['zone_id'], "GET", option)
@@ -97,7 +99,6 @@ def commitRecord(ip):
             time.sleep(5)
             return
         base_domain_name = response["result"]["name"]
-        ttl = 300 # default Cloudflare TTL
         for subdomain in subdomains:
             subdomain = subdomain.lower().strip()
             record = {
@@ -186,6 +187,7 @@ if __name__ == '__main__':
     ipv4_enabled = True
     ipv6_enabled = True
     purgeUnknownRecords = False
+    ttl = 300
 
     if sys.version_info < (3, 5):
         raise Exception("🐍 This script requires Python 3.5+")
@@ -211,6 +213,15 @@ if __name__ == '__main__':
         except:
             purgeUnknownRecords = False
             print("⚙️ No config detected for 'purgeUnknownRecords' - defaulting to False")
+        try:
+            ttl = int(config["ttl"])
+        except:
+            ttl = 300
+            print("⚙️ No config detected for 'ttl' - defaulting to 300 seconds (5 minutes)")
+        if ttl < 60:
+            ttl = 60
+            print("⚙️ TTL is too low - defaulting to 60 seconds (1 minute)")
+        
         if(len(sys.argv) > 1):
             if(sys.argv[1] == "--repeat"):
                 delay = 5*60
