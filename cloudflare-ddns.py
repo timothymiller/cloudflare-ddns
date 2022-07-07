@@ -52,7 +52,6 @@ def getIPs():
     global ipv4_enabled
     global ipv6_enabled
     global purgeUnknownRecords
-    global ttl
     if ipv4_enabled:
         try:
             a = requests.get("https://1.1.1.1/cdn-cgi/trace").text.split("\n")
