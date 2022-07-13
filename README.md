@@ -90,7 +90,7 @@ You can handle ddns for multiple domains (cloudflare zones) using the same docke
 
 ### ⚠️ Note
 
-Do not include the base domain name in your `subdomains` config. Do not use the [FDQN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name).
+Use `@` in your `subdomains` config if you want to set your base domain name. Do not use the [FDQN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name).
 
 ```bash
 {
@@ -120,7 +120,7 @@ Do not include the base domain name in your `subdomains` config. Do not use the 
       },
       "zone_id": "your_zone_id_here",
       "subdomains": [
-        "",
+        "@",
         "remove_or_replace_with_your_subdomain"
       ],
       "proxied": true
