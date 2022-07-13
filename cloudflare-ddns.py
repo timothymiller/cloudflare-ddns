@@ -112,7 +112,7 @@ def commitRecord(ip):
                 "GET", option)
             fqdn = base_domain_name
             if subdomain:
-                fqdn = subdomain + "." + base_domain_name
+                fqdn = subdomain + "." + base_domain_name if subdomain != "@" else base_domain_name
             identifier = None
             modified = False
             duplicate_ids = []
