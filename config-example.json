@@ -2,21 +2,19 @@
   "cloudflare": [
     {
       "authentication": {
-          "api_token": "api_token_here", 
-          "api_key": {
-              "api_key": "api_key_here",
-              "account_email": "your_email_here"
-	        }
+          "api_token": "api_token_here"
       },
-      "zone_id": "your_zone_id_here",
+      "zone_id": "zone_id_here",
       "subdomains": [
-        "",
-        "remove_or_replace_with_your_subdomain"
+        {"name": "@"},
+        {"name": "www"},
+        {"name": "remove_or_replace_with_your_subdomain", "ttl": 600, "is_proxied": true},
       ],
-      "proxied": false
+      "default_is_proxied": false,
+      "default_ttl": 300
     }
   ],
   "a": true,
-  "aaaa": true,
-  "purgeUnknownRecords": false
+  "aaaa": false,
+  "purge_unknown_records": false
 }
