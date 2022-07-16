@@ -1,39 +1,42 @@
-<p align="center"><a href="https://timknowsbest.com/free-dynamic-dns" target="_blank" rel="noopener noreferrer"><img width="1024" src="feature-graphic.jpg" alt="Cloudflare DDNS"/></a></p>
+# Cloudflare DDNS Enhanced
 
-# 🚀 Cloudflare DDNS
+Fork of [Cloudflare DDNS](https://github.com/timothymiller/cloudflare-ddns/) with some modifications and improvements.
 
 Access your home network remotely via a custom domain name without a static IP!
 
-A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Docker image for self hosting projects.
+#### \# Here are some improvements:
+- More flexibility - for example, you can configure a specific TTL and proxying for each individual (sub)domain. You can also set standard values for each domain zone.
+- Support for command line arguments and environment variables
+- More detailed and customizable logging
+- Some bug fixes
 
-## 🇺🇸 Origin
+<details>
+<summary><b> # (Almost) full list of improvements</b></summary>
 
-This script was written for the Raspberry Pi platform to enable low cost self hosting to promote a more decentralized internet.
+#### >> New features:
+- Ability to set TTL and proxying values for each (sub)domain (if specified, overwrites the standard value for the zone)
+- Ability to set TTL and proxying values for each domain zone
+- Repeat mode settings (command line arguments or section in config - whether enabled; delay)
+- Support for command line arguments and environment variables (command line arguments: path to config, repeat mode, repeat delay, verbose level, "Docker mode"; environment variables: path to config, "Docker mode")
 
-### 🧹 Safe for use with existing records
+#### >> Fixes and improvements:
+- **Fixed issue** [#91](https://github.com/timothymiller/cloudflare-ddns/issues/91) - The root domain record is no longer updated (CF Error 9000: DNS name is invalid).
+- **Fixed issue** [#74](https://github.com/timothymiller/cloudflare-ddns/issues/74) - Script not running with crontab. Thanks to [@Bagus-Septianto](https://github.com/Bagus-Septianto)!
+- **Fix:** due to incorrect tabulation in the deleteEntries function did not work correctly. Stale records were deleted only from the last domain zone.
+- **Improvement:** when updating subdomains, all subdomains of the zone are now requested only once. In the original v1.0.1 version, for some reason they were requested before updating each subdomain, which slowed down the program quite a lot. Personally, I don't see any reason to request them every time before an update.
+- **Improvement:** better exception handling
+- **Improvement:** a more "pythonic" style of writing the code; improved readability
 
-`cloudflare-ddns` handles the busy work for you, so deploying web apps is less of a clickfest. Every 5 minutes, the script fetches public IPv4 and IPv6 addresses and then creates/updates DNS records for each subdomain in Cloudflare.
+</details>
 
-#### Optional features
-
-Stale, duplicate DNS records are removed for housekeeping.
-
-## 📊 Stats
-
-| Size  | Downloads | Discord |
-| ------------- | ------------- | ------------- |
-| [![cloudflare-ddns docker image size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns "cloudflare-ddns docker image size")  | [![Total DockerHub pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns "Total DockerHub pulls")  | [![Official Discord Server](https://img.shields.io/discord/785778163887112192?style=flat-square)](https://discord.gg/UgGmwMvNxm "Official Discord Server")
-
-## ⁉️ How Private & Secure?
+##  How Private & Secure?
 
 1. Uses zero-log external IPv4 & IPv6 provider ([cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace))
-2. Alpine Linux base image
-3. HTTPS only via Python Software Foundation requests module
-4. Docker runtime
-5. Open source for open audits
-6. Regular updates
+2. HTTPS only via Python Software Foundation requests module
+3. Open source for open audits
+4. Regular updates
 
-## 🚦 Getting Started
+## Getting Started
 
 First copy the example configuration file into the real one.
 
@@ -43,7 +46,7 @@ cp config-example.json config.json
 
 Edit `config.json` and replace the values with your own.
 
-### 🔑 Authentication methods
+### Authentication methods
 
 You can choose to use either the newer API tokens, or the traditional API keys
 
@@ -63,148 +66,187 @@ Alternatively, you can use the traditional API keys by setting appropriate value
     "account_email": "The email address you use to sign in to cloudflare",
 ```
 
-### Enable or disable IPv4 or IPv6
+## Configuration
 
-Some ISP provided modems only allow port forwarding over IPv4 or IPv6. In this case, you would want to disable any interface not accessible via port forward.
-
-```json
-"a": true,
-"aaaa": true
-```
-
-### Other values explained
+### \# Config example
 
 ```json
-"zone_id": "The ID of the zone that will get the records. From your dashboard click into the zone. Under the overview tab, scroll down and the zone ID is listed in the right rail",
-"subdomains": "Array of subdomains you want to update the A & where applicable, AAAA records. IMPORTANT! Only write subdomain name. Do not include the base domain name. (e.g. foo or an empty string to update the base domain)",
-"proxied": false (defaults to false. Make it true if you want CDN/SSL benefits from cloudflare. This usually disables SSH)
-```
-
-## 📠 Hosting multiple subdomains on the same IP?
-
-You can save yourself some trouble when hosting multiple domains pointing to the same IP address (in the case of Traefik) by defining one A & AAAA record  'ddns.example.com' pointing to the IP of the server that will be updated by this DDNS script. For each subdomain, create a CNAME record pointing to 'ddns.example.com'. Now you don't have to manually modify the script config every time you add a new subdomain to your site!
-
-## 🌐 Hosting multiple domains (zones) on the same IP?
-
-You can handle ddns for multiple domains (cloudflare zones) using the same docker container by separating your configs inside ```config.json``` like below:
-
-### ⚠️ Note
-
-Do not include the base domain name in your `subdomains` config. Do not use the [FDQN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name).
-
-```bash
 {
   "cloudflare": [
     {
       "authentication": {
-          "api_token": "api_token_here", 
-          "api_key": {
-              "api_key": "api_key_here",
-              "account_email": "your_email_here"
-          }
+          "api_token": "eXampLE-0123456789-LYnXes-are-c0ol-01234"
       },
-      "zone_id": "your_zone_id_here",
+      "zone_id": "1234567890abcdefghijkl0123456789",
       "subdomains": [
-        "",
-        "remove_or_replace_with_your_subdomain"
+        {"name": "@"},
+        {"name": "www"},
+        {"name": "files", "ttl": 1500},
+        {"name": "secure", "is_proxied": true},
       ],
-      "proxied": true
-    },
-    {
-      "authentication": {
-          "api_token": "api_token_here", 
-          "api_key": {
-              "api_key": "api_key_here",
-              "account_email": "your_email_here"
-          }
-      },
-      "zone_id": "your_zone_id_here",
-      "subdomains": [
-        "",
-        "remove_or_replace_with_your_subdomain"
-      ],
-      "proxied": true
+      "default_is_proxied": false,
+      "default_ttl": 300
     }
-  ]
+  ],
+  "a": true,
+  "aaaa": false,
+  "purge_unknown_records": false
 }
 ```
 
-## 🐳 Deploy with Docker Compose
+<details>
+<summary><b> # Configuration variables</b></summary>
 
-Pre-compiled images are available via [the official docker container on DockerHub](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns).
+**Note:** There is no need to specify all the listed variables. It is not necessary to specify variables of the type *Optional[...]* in the config. Specify if you only need to change certain settings.
 
-Modify the host file path of config.json inside the volumes section of docker-compose.yml.
+### Main settings
+| Variable                 | Type           | Example                                   | Description                                             |
+| ------------------------ | -------------- | ----------------------------------------- | ------------------------------------------------------- |
+| cloudflare               | List[Dict]     |                                           | Settings for each zone
+| a                        | bool           | "a": true                                 | Create A (IPv4) records?
+| aaaa                     | bool           | "aaaa": false                             | Create AAAA (IPv6) records?
+| purge_unknown_records    | Optional[bool] | "purge_unknown_records": true             | Purge unknown records?
+| repeat                   | Optional[Dict] | "repeat": {"enabled": true, "delay": 300} | Repeat mode settings
+| logging                  | Optional[Dict] | "logging": {"level": "DEBUG"}             | Logging settings
 
-```yml
-version: "3.7"
-services:
-  cloudflare-ddns:
-    image: timothyjmiller/cloudflare-ddns:latest
-    container_name: cloudflare-ddns
-    security_opt:
-      - no-new-privileges:true
-    network_mode: "host"
-    environment:
-      - PUID=1000
-      - PGID=1000
-    volumes:
-      - /YOUR/PATH/HERE/config.json:/config.json
-    restart: unless-stopped
+
+### Zone settings
+| Variable                 | Type           | Example                                                    | Description                                             |
+| ------------------------ | -------------- | ---------------------------------------------------------- | ------------------------------------------------------- |
+| authentication           | dict           |                                                            | Authentication settings - tokens, mail
+| zone_id                  | int            | "zone_id": "1234567890abcdefghijkl0123456789"              | Domain zone ID
+| subdomains               | List[Dict]     | "subdomains": [{"name": "@"}, {"name": "sub", "ttl": 600}] | Array with settings for each subdomain you want to update
+| default_is_proxied       | Optional[bool] | "default_is_proxied": true                                 | Enable or disable proxying for subdomains default_ttl by default
+| default_ttl              | Optional[bool] | "default_ttl": 900                                         | The TTL value that will be set for each subdomain in this zone by default
+
+### Authentication settings
+| Variable                 | Type           | Example                                                                  | Description                                             |
+| ------------------------ | -------------- | ------------------------------------------------------------------------ | ------------------------------------------------------- |
+| api_token                | Optional[str]  | "api_token": "eXampLE-0123456789-LYnXes-are-c0ol-01234"                  | Your cloudflare API token, including the capability of *Edit DNS*. **Note:** The *api_token* has a higher priority than *api_key*.
+| api_key                  | Optional[dict] | "api_key": {"account_email": "admin@coolsite.example", "api_key": "..."} | Credentials for your account
+
+### Credentials for your account (api_key section)
+| Variable                 | Type           | Example                                               | Description                                             |
+| ------------------------ | -------------- | ----------------------------------------------------- | ------------------------------------------------------- |
+| account_email            | Optional[str]  | "account_email": "admin@coolsite.example"             | Credentials for your account
+| api_key                  | Optional[dict] | "api_key": "eXampLE-0123456789-LYnXes-are-c0ol-01234" | Credentials for your account
+
+### Subdomain settings
+| Variable                 | Type           | Example               | Description                                              |
+| ------------------------ | -------------- | --------------------- | ------------------------------------------------------- |
+| name                     | str            | "name": "ddns"        | Name of subdomain. **IMPORTANT! Only write subdomain name.** Do not include the [FDQN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name). If you also need to update the root record, specify "@".
+| is_proxied               | Optional[bool] | "is_proxied": true    | Enable or disable proxying for this (sub)domain. Overrides *default_is_proxied* from *zone settings*.
+| ttl                      | Optional[bool] | "ttl": 1500           | The TTL value that will be set for this (sub)domain. Overrides *default_ttl* from zone *settings*.
+
+### Repeat settings
+| Variable                 | Type           | Example               | Description                                             |
+| ------------------------ | -------------- | --------------------- | ------------------------------------------------------- |
+| enabled                  | Optional[bool] | "enabled": true       | Enable or disable repeat updates every N-th time interval.
+| delay                    | Optional[int]  | "delay": 300          | Delay between updates in seconds.
+
+### Logging settings
+| Variable                 | Type           | Example                                                  | Description                                             |
+| ------------------------ | -------------- | -------------------------------------------------------- | ------------------------------------------------------- |
+| level                    | Optional[str]  | "level": "DEBUG"                                         | Logging verbosity level. **Note:** The *--verbose* command line argument has a higher priority.
+| formatter                | Optional[str]  | "formatter": "[%(levelname)s] %(asctime)s | %(message)s" | Log formatter. See *"python3 logging formatter"*.
+</details>
+
+<details>
+<summary><b> # Another config example</b></summary>
+
+```json
+{
+  "cloudflare": [
+    {
+      "authentication": {
+        "api_key":
+        {
+          "account_email": "admin@coolsite.example",
+          "api_key": "eXampLE-0123456789-LYnXes-are-c0ol-01234"
+        }
+      },
+      "zone_id": "1234567890abcdefghijkl0123456789",
+      "subdomains": [
+        {"name": "@"},
+        {"name": "www"},
+        {"name": "files", "ttl": 1500},
+        {"name": "proxied", "is_proxied": true}
+      ],
+      "default_is_proxied": false,
+      "default_ttl": 300
+    },
+    {
+      "authentication": {
+          "api_token": "eXampLE-0123456789-A1l-c4ts-ar3-c0ol-012"
+      },
+      "zone_id": "abcdefghijkl12345678900123456789",
+      "subdomains": [
+        {"name": "@"},
+        {"name": "www"},
+        {"name": "mail", "ttl": 300}, 
+        {"name": "notproxied", "is_proxied": false},
+        {"name": "idk", "ttl": 900, "is_proxied": false}
+      ],
+      "default_is_proxied": true,
+      "default_ttl": 600
+    }
+  ],
+  "a": true,
+  "aaaa": false,
+  "purge_unknown_records": false,
+  "repeat": {
+    "enabled": true,
+    "delay": 300
+  },
+  "logging": {
+    "level": "INFO",
+    "formatter": "[%(levelname)s] %(asctime)s | %(message)s"
+  }
+}
 ```
+</details>
 
-### ⚠️ IPv6
+## Command line arguments
 
-Docker requires network_mode be set to host in order to access the IPv6 public address.
+**Note:** Command line arguments have a higher priority than options in the config or environment variables
 
-### 🏃‍♂️ Running
+| Argument       | Aliases        | Type    | Example                         | Description                                             |
+| -------------- | -------------- | ------- | --------------------------------| ------------------------------------------------------- |
+| --config       | -c             | str     | --config /etc/cddns/config.json | Full path to the config, including the config file name
+| --verbose      | -v             | str     | --verbose DEBUG                 | Logging verbose level
+| --repeat       | -r             | bool    | --repeat True                   | Enable or disable repeat updates every N-th time interval.
+| --repeat-delay | -rd            | int     | --repeat-delay 300              | Delay between regular updates (in seconds)
+| --docker       | -d             | bool    | --docker True                   | "Docker mode". Wait 60 seconds before exit to prevent excessive logging on docker auto restart.
 
-From the project root directory
+## Environment variables
 
-```bash
-docker-compose up -d
-```
+| Variable          | Example                                  | Description                                             |
+| ----------------- | ---------------------------------------- | ------------------------------------------------------- |
+| CDDNS_CONFIG_PATH | CDDNS_CONFIG_PATH=/etc/cddns/config.json | Full path to the config, including the config file name
+| CDDNS_DOCKER      | CDDNS_DOCKER=1                           | "Docker mode". Wait 60 seconds before exit to prevent excessive logging on docker auto restart.
 
-## 🐋 Kubernetes
+## Default values
 
+These values will be used if certain parameters in the config or command line arguments are not specified. They can also be changed, but by editing the script.
 
-Create config File
+|                          | Default                                     |    
+| ------------------------ | ------------------------------------------- | 
+| Config path              | $cwd/config.json                            |
+| "Docker mode"            | False                                       |
+| Subdomain is proxied?    | False                                       |
+| Subdomain TTL            | 300                                         |
+| Repeat enabled?          | False                                       |
+| Repeat delay (in seconds)| 300                                         |
+| Logging verbosity level  | INFO                                        |
+| Logging formatter        | "[%(levelname)s] %(asctime)s \| %(message)s"|
 
-``` bash
-cp ../../config-example.json config.json
-```
+## Deploy with Linux + Cron
 
-Edit config.jsonon (vim, nvim, nano... )
-``` bash
-${EDITOR} config.json
-```
-
-Create config file as Secret.
-
-``` bash
-kubectl create secret generic config-cloudflare-ddns --from-file=config.json --dry-run=client -oyaml -n ddns > config-cloudflare-ddns-Secret.yaml
-```
-
-apply this secret
-
-``` bash
-kubectl apply -f config-cloudflare-ddns-Secret.yaml
-rm config.json # recomended Just keep de secret on Kubernetes Cluster
-```
-
-apply this Deployment
-
-``` bash
-kubectl apply -f cloudflare-ddns-Deployment.yaml
-```
-
-
-## 🐧 Deploy with Linux + Cron
-
-### 🏃 Running (all distros)
+### Running (all distros)
 
 This script requires Python 3.5+, which comes preinstalled on the latest version of Raspbian. Download/clone this repo and give permission to the project's bash script by running `chmod +x ./start-sync.sh`. Now you can execute `./start-sync.sh`, which will set up a virtualenv, pull in any dependencies, and fire the script.
 
-1. Upload the cloudflare-ddns folder to your home directory /home/your_username_here/
+1. Upload the cloudflare-ddns folder upload it wherever you want, for example, to your home directory /home/your_username_here/
 
 2. Run the following code in terminal
 
@@ -218,60 +260,32 @@ crontab -e
 */15 * * * * /home/your_username_here/cloudflare-ddns/start-sync.sh
 ```
 
-## Building from source
+## Notes and QA
 
-Create a config.json file with your production credentials.
+**Q1:** I have an error "IPv4 not detected", what should I do?<br>
+**A1:** Try to edit the script a little. Comment out the first TRACE_CGI_IPV4 and try the second option.
 
-### 💖 Please Note
-
-The optional `docker-build-all.sh` script requires Docker experimental support to be enabled.
-
-Docker Hub has experimental support for multi-architecture builds. Their official blog post specifies easy instructions for building with [Mac and Windows versions of Docker Desktop](https://docs.docker.com/docker-for-mac/multi-arch/).
-
-1. Choose build platform
-
-- Multi-architecture (experimental)  `docker-build-all.sh`
-
-- Linux/amd64 by default  `docker-build.sh`
-
-2. Give your bash script permission to execute.
-
-```bash
-sudo chmod +x ./docker-build.sh
+Before:
+```python
+TRACE_CGI_IPV4: str = "https://1.1.1.1/cdn-cgi/trace"
+# TRACE_CGI_IPV4: str = "https://dns.cloudflare.com/cdn-cgi/trace"
 ```
-
-```bash
-sudo chmod +x ./docker-build-all.sh
+After:
+```python
+# TRACE_CGI_IPV4: str = "https://1.1.1.1/cdn-cgi/trace"
+TRACE_CGI_IPV4: str = "https://dns.cloudflare.com/cdn-cgi/trace"
 ```
+I only have IPv4, it helped. However, I don't know how this will work if you have both IPv4 and IPv6.
 
-3. At project root, run the `docker-build.sh` script.
-
-Recommended for local development
-
-```bash
-./docker-build.sh
-```
-
-Recommended for production
-
-```bash
-./docker-build-all.sh
-```
-
-### Run the locally compiled version
-
-```bash
-docker run -d timothyjmiller/cloudflare_ddns:latest
-```
+**Q2:** Where is the Docker version?<br>
+**A2:** I don't know how to create containers for Docker yet. And I don't know if it's necessary at all. Run a 500-line Python script in a separate VM... Isn't it too irrational?
 
 ## License
 
 This Template is licensed under the GNU General Public License, version 3 (GPLv3).
 
-## Author
+## Authors
 
-Timothy Miller
+The author of the original project - Timothy Miller \[[GitHub](https://github.com/timothymiller)\] \[[Site](https://timknowsbest.com)\]
 
-[View my GitHub profile 💡](https://github.com/timothymiller)
-
-[View my personal website 💻](https://timknowsbest.com)
+Fork author - notssh \[[GitHub](https://github.com/notssh)\]
