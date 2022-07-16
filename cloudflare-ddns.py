@@ -36,15 +36,15 @@ def deleteEntries(type):
         answer = cf_api(
             "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + type,
             "GET", option)
-    if answer is None or answer["result"] is None:
-        time.sleep(5)
-        return
-    for record in answer["result"]:
-        identifier = str(record["id"])
-        cf_api(
-            "zones/" + option['zone_id'] + "/dns_records/" + identifier, 
-            "DELETE", option)
-        print("🗑️ Deleted stale record " + identifier)
+        if answer is None or answer["result"] is None:
+            time.sleep(5)
+            return
+        for record in answer["result"]:
+            identifier = str(record["id"])
+            cf_api(
+                "zones/" + option['zone_id'] + "/dns_records/" + identifier,
+                "DELETE", option)
+            print("🗑️ Deleted stale record " + identifier)
 
 def getIPs():
     a = None
