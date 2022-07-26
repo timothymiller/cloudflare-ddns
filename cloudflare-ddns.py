@@ -98,54 +98,64 @@ def commitRecord(ip):
             return
         base_domain_name = response["result"]["name"]
         ttl = 300 # default Cloudflare TTL
-        for subdomain in subdomains:
-            subdomain = subdomain.lower().strip()
-            record = {
-                "type": ip["type"],
-                "name": subdomain,
-                "content": ip["ip"],
-                "proxied": option["proxied"],
-                "ttl": ttl
-            }
-            dns_records = cf_api(
-                "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], 
-                "GET", option)
-            fqdn = base_domain_name
+        dns_records = cf_api(
+            "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], 
+            "GET", option)
+        fqdn = base_domain_name
+        if subdomains:
+          for subdomain in subdomains:
+              subdomain = subdomain.lower().strip()
+              record = {
+                  "type": ip["type"],
+                  "name": subdomain,
+                  "content": ip["ip"],
+                  "proxied": option["proxied"],
+                  "ttl": ttl
+              }
+        else:  
+               record = {
+                  "type": ip["type"],
+                  "name": fqdn,
+                  "content": ip["ip"],
+                  "proxied": option["proxied"],
+                  "ttl": ttl
+              }
+        if subdomains:
             if subdomain:
                 fqdn = subdomain + "." + base_domain_name
-            identifier = None
-            modified = False
-            duplicate_ids = []
-            if dns_records is not None:
-                for r in dns_records["result"]:
-                    if (r["name"] == fqdn):
-                        if identifier:
-                            if r["content"] == ip["ip"]:
-                                duplicate_ids.append(identifier)
-                                identifier = r["id"]
-                            else:
-                                duplicate_ids.append(r["id"])
-                        else:
+        identifier = None
+        modified = False
+        duplicate_ids = []
+        if dns_records is not None:
+            for r in dns_records["result"]:
+                if (r["name"] == fqdn):
+                    if identifier:
+                        if r["content"] == ip["ip"]:
+                            duplicate_ids.append(identifier)
                             identifier = r["id"]
-                            if r['content'] != record['content'] or r['proxied'] != record['proxied']:
-                                modified = True
-            if identifier:
-                if modified:
-                    print("📡 Updating record " + str(record))
-                    response = cf_api(
-                        "zones/" + option['zone_id'] + "/dns_records/" + identifier,
-                        "PUT", option, {}, record)
-            else:
-                print("➕ Adding new record " + str(record))
+                        else:
+                            duplicate_ids.append(r["id"])
+                    else:
+                        identifier = r["id"]
+                        if r['content'] != record['content'] or r['proxied'] != record['proxied']:
+                            modified = True
+        if identifier:
+            if modified:
+                print("📡 Updating record " + str(record))
                 response = cf_api(
-                    "zones/" + option['zone_id'] + "/dns_records", "POST", option, {}, record)
-            if purgeUnknownRecords:
-                for identifier in duplicate_ids:
-                    identifier = str(identifier)
-                    print("🗑️ Deleting stale record " + identifier)
-                    response = cf_api(
-                        "zones/" + option['zone_id'] + "/dns_records/" + identifier,
-                        "DELETE", option)
+                    "zones/" + option['zone_id'] + "/dns_records/" + identifier,
+                    "PUT", option, {}, record)
+        else:
+            print("➕ Adding new record " + str(record))
+            response = cf_api(
+                "zones/" + option['zone_id'] + "/dns_records", "POST", option, {}, record)
+        if purgeUnknownRecords:
+            for identifier in duplicate_ids:
+                identifier = str(identifier)
+                print("🗑️ Deleting stale record " + identifier)
+                response = cf_api(
+                    "zones/" + option['zone_id'] + "/dns_records/" + identifier,
+                    "DELETE", option)
     return True
 
 def cf_api(endpoint, method, config, headers={}, data=False):
