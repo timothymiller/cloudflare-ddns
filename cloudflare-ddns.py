@@ -1,3 +1,4 @@
+from logging.config import valid_ident
 import requests, json, sys, signal, os, time, threading
 
 class GracefulExit:
@@ -10,12 +11,43 @@ class GracefulExit:
     print("🛑 Stopping main thread...")
     self.kill_now.set()
 
-def deleteEntries(type):
+class CloudflareCredentials:
+    def __init__(self, api_token, auth_email, api_key):
+        self.api_token = api_token
+        self.auth_email = auth_email
+        self.api_key = api_key
+        self.killer = GracefulExit()
+
+    def validate_credentials(self):
+        if not self.validate_api_token() and not self.validate_email_creds:
+            print("😡 API token and Auth email/key were both unset. See README.md for info on setting credentials.")
+            self.killer.kill_now.set()
+
+    def validate_email_creds(self):
+        if self.auth_email == '' or self.auth_email == None:
+            return False
+        if self.api_key == '' or self.api_key == None:
+            return False
+        else:
+            return True
+        
+    def validate_api_token(self):
+        if self.api_token == '' or self.api_token == None or self.api_token == 'api_token_here':
+            return False
+        else:
+            return True
+
+    def api_token_used(self):
+        return self.validate_api_token()
+    
+
+def deleteEntries(creds, type):
     # Helper function for deleting A or AAAA records
     # in the case of no IPv4 or IPv6 connection, yet
     # existing A or AAAA records are found.
     for option in config["cloudflare"]:
         answer = cf_api(
+            creds,
             "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + type,
             "GET", option)
     if answer is None or answer["result"] is None:
@@ -24,11 +56,12 @@ def deleteEntries(type):
     for record in answer["result"]:
         identifier = str(record["id"])
         cf_api(
+            creds,
             "zones/" + option['zone_id'] + "/dns_records/" + identifier, 
             "DELETE", option)
         print("🗑️ Deleted stale record " + identifier)
 
-def getIPs():
+def getIPs(creds):
     a = None
     aaaa = None
     global ipv4_enabled
@@ -43,7 +76,7 @@ def getIPs():
             if not shown_ipv4_warning:
                 shown_ipv4_warning = True
                 print("🧩 IPv4 not detected")
-            deleteEntries("A")
+            deleteEntries(creds, "A")
     if ipv6_enabled:
         try:
             aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
@@ -54,7 +87,7 @@ def getIPs():
             if not shown_ipv6_warning:
                 shown_ipv6_warning = True
                 print("🧩 IPv6 not detected")
-            deleteEntries("AAAA")
+            deleteEntries(creds, "AAAA")
     ips = {}
     if(a is not None):
         ips["ipv4"] = {
@@ -68,10 +101,10 @@ def getIPs():
         }
     return ips
 
-def commitRecord(ip):
+def commitRecord(ip, creds):
     for option in config["cloudflare"]:
         subdomains = option["subdomains"]
-        response = cf_api("zones/" + option['zone_id'], "GET", option)
+        response = cf_api(creds, "zones/" + option['zone_id'], "GET", option)
         if response is None or response["result"]["name"] is None:
             time.sleep(5)
             return
@@ -87,6 +120,7 @@ def commitRecord(ip):
                 "ttl": ttl
             }
             dns_records = cf_api(
+                creds,
                 "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], 
                 "GET", option)
             fqdn = base_domain_name
@@ -122,21 +156,21 @@ def commitRecord(ip):
                 identifier = str(identifier)
                 print("🗑️ Deleting stale record " + identifier)
                 response = cf_api(
+                    creds,
                     "zones/" + option['zone_id'] + "/dns_records/" + identifier,
                     "DELETE", option)
     return True
 
-def cf_api(endpoint, method, config, headers={}, data=False):
-    api_token = config['authentication']['api_token']
-    if api_token != '' and api_token != 'api_token_here':
+def cf_api(creds, endpoint, method, config, headers={}, data=False):
+    if creds.api_token_used():
         headers = {
-            "Authorization": "Bearer " + api_token,
+            "Authorization": "Bearer " + creds.api_token,
             **headers
         }
     else:
         headers = {
-            "X-Auth-Email": config['authentication']['api_key']['account_email'],
-            "X-Auth-Key": config['authentication']['api_key']['api_key'],
+            "X-Auth-Email": creds.auth_email,
+            "X-Auth-Key": creds.api_key,
         }
 
     if(data == False):
@@ -154,19 +188,18 @@ def cf_api(endpoint, method, config, headers={}, data=False):
         print(response.text)
         return None
 
-def updateIPs(ips):
+def updateIPs(ips, creds):
     for ip in ips.values():
-        commitRecord(ip)
+        commitRecord(ip, creds)
 
 if __name__ == '__main__':
     PATH = os.getcwd() + "/"
-    version = float(str(sys.version_info[0]) + "." + str(sys.version_info[1]))
     shown_ipv4_warning = False
     shown_ipv6_warning = False
     ipv4_enabled = True
     ipv6_enabled = True
 
-    if(version < 3.5):
+    if(sys.version_info < (3, 5)):
         raise Exception("🐍 This script requires Python 3.5+")
 
     config = None
@@ -185,6 +218,25 @@ if __name__ == '__main__':
             ipv4_enabled = True
             ipv6_enabled = True
             print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
+
+        api_token = None
+        auth_email = None
+        api_key = None
+
+        if 'authentication' in config:
+            if 'api_token' in config['authentication']:
+                api_token = config['authentication']['api_token']
+            else:
+                auth_email = config['authentication']['api_key']['account_email']
+                api_key = config['authentication']['api_key']['api_key']
+        else:
+            api_token = os.getenv('CLOUDFLARE_DDNS_API_TOKEN')
+            auth_email = os.getenv('CLOUDFLARE_DDNS_AUTH_EMAIL')
+            api_key = os.getenv('CLOUDFLARE_DDNS_API_KEY')
+
+        creds = CloudflareCredentials(api_token, auth_email, api_key)
+        creds.validate_credentials()
+        
         if(len(sys.argv) > 1):
             if(sys.argv[1] == "--repeat"):
                 delay = 5*60
@@ -200,8 +252,8 @@ if __name__ == '__main__':
                 while True:
                     if killer.kill_now.wait(delay):
                         break
-                    updateIPs(getIPs())
+                    updateIPs(getIPs(), creds)
             else:
                 print("❓ Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
         else:
-            updateIPs(getIPs())
+            updateIPs(getIPs(), creds)

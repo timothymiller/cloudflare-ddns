@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cloudflare-ddns.fullname" . }}-config
+data:
+  config.json: |-
+    {
+      "cloudflare": [
+        {
+          "authentication": {
+              "api_token": "{{ .Values.cloudflare.apiToken }}", 
+              "api_key": {
+                  "api_key": "{{ .Values.cloudflare.apiKey }}",
+                  "account_email": "{{ .Values.cloudflare.accountEmail }}"
+              }
+          },
+          "zone_id": "{{ .Values.cloudflare.zoneID }}",
+          "subdomains": [
+{{ .Values.cloudflare.subdomains | indent 12}}
+          ],
+          {{- if .Values.cloudflare.proxied }}
+          "proxied": true
+          {{- else }}
+          "proxied": false
+          {{- end }}
+          
+        }
+      ],
+      {{- if .Values.cloudflare.a }}
+      "a": true,
+      {{- else }}
+      "a": false,
+      {{- end }}
+      {{- if .Values.cloudflare.aaaa }}
+      "aaaa": true
+      {{- else }}
+      "aaaa": false
+      {{- end }}
+    }
+    

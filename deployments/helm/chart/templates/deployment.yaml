@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudflare-ddns.fullname" . }}
+  labels:
+    {{- include "cloudflare-ddns.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cloudflare-ddns.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "cloudflare-ddns.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "cloudflare-ddns.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          volumeMounts:
+          - mountPath: "/config.json"
+            name: {{ include "cloudflare-ddns.fullname" . }}-config
+            subPath: config.json
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if or .Values.secrets.apiToken.enabled .Values.secrets.authEmail.enabled }}
+          env:
+            {{- if .Values.secrets.apiToken.enabled }}
+            - name: CLOUDFLARE_DDNS_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.apiToken.name }}
+                  key: {{ .Values.secrets.apiToken.key }}
+                  optional: false
+            {{- end }}
+            {{- if .Values.secrets.authEmail.enabled }}
+            - name: CLOUDFLARE_DDNS_AUTH_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.authEmail.name }}
+                  key: {{ .Values.secrets.authEmail.emailKey }}
+                  optional: false
+            - name: CLOUDFLARE_DDNS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.authEmail.name }}
+                  key: {{ .Values.secrets.authEmail.apiKeyKey }}
+                  optional: false
+            {{- end }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      - name: {{ include "cloudflare-ddns.fullname" . }}-config
+        configMap:
+          defaultMode: 0755
+          name: {{ include "cloudflare-ddns.fullname" . }}-config
+          items:
+          - key: config.json
+            path: config.json
