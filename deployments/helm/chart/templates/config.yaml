@@ -36,5 +36,10 @@ data:
       {{- else }}
       "aaaa": false
       {{- end }}
+      {{- if .Values.cloudflare.purgeUnknownRecords }}
+      "aaaa": true
+      {{- else }}
+      "aaaa": false
+      {{- end }}
     }
     

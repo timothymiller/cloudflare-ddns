@@ -46,6 +46,7 @@ cloudflare:
   proxied: true
   a: true
   aaaa: true
+  purgeUnknownRecords: false
 
 podAnnotations: {}
 
