@@ -32,14 +32,14 @@ data:
       "a": false,
       {{- end }}
       {{- if .Values.cloudflare.aaaa }}
-      "aaaa": true
+      "aaaa": true,
       {{- else }}
-      "aaaa": false
+      "aaaa": false,
       {{- end }}
       {{- if .Values.cloudflare.purgeUnknownRecords }}
       "aaaa": true
       {{- else }}
-      "aaaa": false
+      "purgeUnknownRecords": false
       {{- end }}
     }
     
