@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflate-ddns
+spec:
+  selector:
+    matchLabels:
+      app: cloudflate-ddns
+  
+  template:
+    metadata:
+      labels:
+        app: cloudflate-ddns
+    
+    spec:
+      containers:
+      - name: cloudflate-ddns
+        image: timothyjmiller/cloudflare-ddns:latest
+        #image: quay.io/arpagon/cloudflare-ddns:v1.0.0
+        resources:
+          limits:
+            memory: "32Mi"
+            cpu: "50m"
+        env:
+            - name: CONFIG_PATH
+              value: "/etc/cloudflare-ddns/"
+        volumeMounts:
+          - mountPath: "/etc/cloudflare-ddns"
+            name: config-cloudflare-ddns
+            readOnly: true
+      volumes:
+      - name: config-cloudflare-ddns
+        secret:
+          secretName: config-cloudflare-ddns

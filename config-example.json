@@ -17,5 +17,6 @@
     }
   ],
   "a": true,
-  "aaaa": true
+  "aaaa": true,
+  "purgeUnknownRecords": false
 }

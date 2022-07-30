@@ -1,5 +1,22 @@
-from logging.config import valid_ident
-import requests, json, sys, signal, os, time, threading
+#!/usr/bin/env python
+#   cloudflare-ddns.py
+#   Summary: Access your home network remotely via a custom domain name without a static IP!
+#   Description: Access your home network remotely via a custom domain
+#                Access your home network remotely via a custom domain
+#                A small, 🕵️ privacy centric, and ⚡ 
+#                lightning fast multi-architecture Docker image for self hosting projects.
+
+__version__ = "1.0.1"
+
+import json
+import os
+import signal
+import sys
+import threading
+import time
+import requests
+
+CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd() + "/")
 
 class GracefulExit:
   def __init__(self):
@@ -66,6 +83,7 @@ def getIPs(creds):
     aaaa = None
     global ipv4_enabled
     global ipv6_enabled
+    global purgeUnknownRecords
     if ipv4_enabled:
         try:
             a = requests.get("https://1.1.1.1/cdn-cgi/trace").text.split("\n")
@@ -76,7 +94,8 @@ def getIPs(creds):
             if not shown_ipv4_warning:
                 shown_ipv4_warning = True
                 print("🧩 IPv4 not detected")
-            deleteEntries(creds, "A")
+            if purgeUnknownRecords:
+                deleteEntries(creds, "A")
     if ipv6_enabled:
         try:
             aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
@@ -87,7 +106,8 @@ def getIPs(creds):
             if not shown_ipv6_warning:
                 shown_ipv6_warning = True
                 print("🧩 IPv6 not detected")
-            deleteEntries(creds, "AAAA")
+            if purgeUnknownRecords:
+                deleteEntries(creds, "AAAA")
     ips = {}
     if(a is not None):
         ips["ipv4"] = {
@@ -146,19 +166,22 @@ def commitRecord(ip, creds):
                 if modified:
                     print("📡 Updating record " + str(record))
                     response = cf_api(
+                        creds,
                         "zones/" + option['zone_id'] + "/dns_records/" + identifier,
                         "PUT", option, {}, record)
             else:
                 print("➕ Adding new record " + str(record))
                 response = cf_api(
-                    "zones/" + option['zone_id'] + "/dns_records", "POST", option, {}, record)
-            for identifier in duplicate_ids:
-                identifier = str(identifier)
-                print("🗑️ Deleting stale record " + identifier)
-                response = cf_api(
                     creds,
-                    "zones/" + option['zone_id'] + "/dns_records/" + identifier,
-                    "DELETE", option)
+                    "zones/" + option['zone_id'] + "/dns_records", "POST", option, {}, record)
+            if purgeUnknownRecords:
+                for identifier in duplicate_ids:
+                    identifier = str(identifier)
+                    print("🗑️ Deleting stale record " + identifier)
+                    response = cf_api(
+                        creds,
+                        "zones/" + option['zone_id'] + "/dns_records/" + identifier,
+                        "DELETE", option)
     return True
 
 def cf_api(creds, endpoint, method, config, headers={}, data=False):
@@ -193,18 +216,18 @@ def updateIPs(ips, creds):
         commitRecord(ip, creds)
 
 if __name__ == '__main__':
-    PATH = os.getcwd() + "/"
     shown_ipv4_warning = False
     shown_ipv6_warning = False
     ipv4_enabled = True
     ipv6_enabled = True
+    purgeUnknownRecords = False
 
-    if(sys.version_info < (3, 5)):
+    if sys.version_info < (3, 5):
         raise Exception("🐍 This script requires Python 3.5+")
 
     config = None
     try:
-        with open(PATH + "config.json") as config_file:
+        with open(CONFIG_PATH + "config.json") as config_file:
             config = json.loads(config_file.read())
     except:
         print("😡 Error reading config.json")
@@ -237,6 +260,11 @@ if __name__ == '__main__':
         creds = CloudflareCredentials(api_token, auth_email, api_key)
         creds.validate_credentials()
         
+        try:
+            purgeUnknownRecords = config["purgeUnknownRecords"]
+        except:
+            purgeUnknownRecords = False
+            print("⚙️ No config detected for 'purgeUnknownRecords' - defaulting to False")
         if(len(sys.argv) > 1):
             if(sys.argv[1] == "--repeat"):
                 delay = 5*60
@@ -249,11 +277,11 @@ if __name__ == '__main__':
                 next_time = time.time()
                 killer = GracefulExit()
                 prev_ips = None
-                while True:
+                while True:     
+                    updateIPs(getIPs(creds), creds)
                     if killer.kill_now.wait(delay):
                         break
-                    updateIPs(getIPs(), creds)
             else:
                 print("❓ Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
         else:
-            updateIPs(getIPs(), creds)
+            updateIPs(getIPs(creds), creds)
