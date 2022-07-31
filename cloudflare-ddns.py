@@ -3,7 +3,7 @@
 #   Summary: Access your home network remotely via a custom domain name without a static IP!
 #   Description: Access your home network remotely via a custom domain
 #                Access your home network remotely via a custom domain
-#                A small, 🕵️ privacy centric, and ⚡ 
+#                A small, 🕵️ privacy centric, and ⚡
 #                lightning fast multi-architecture Docker image for self hosting projects.
 
 __version__ = "1.0.1"
@@ -18,15 +18,17 @@ import requests
 
 CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd() + "/")
 
-class GracefulExit:
-  def __init__(self):
-    self.kill_now = threading.Event()
-    signal.signal(signal.SIGINT, self.exit_gracefully)
-    signal.signal(signal.SIGTERM, self.exit_gracefully)
 
-  def exit_gracefully(self, signum, frame):
-    print("🛑 Stopping main thread...")
-    self.kill_now.set()
+class GracefulExit:
+    def __init__(self):
+        self.kill_now = threading.Event()
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+    def exit_gracefully(self, signum, frame):
+        print("🛑 Stopping main thread...")
+        self.kill_now.set()
+
 
 def deleteEntries(type):
     # Helper function for deleting A or AAAA records
@@ -34,17 +36,19 @@ def deleteEntries(type):
     # existing A or AAAA records are found.
     for option in config["cloudflare"]:
         answer = cf_api(
-            "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + type,
+            "zones/" + option['zone_id'] +
+            "/dns_records?per_page=100&type=" + type,
             "GET", option)
-    if answer is None or answer["result"] is None:
-        time.sleep(5)
-        return
-    for record in answer["result"]:
-        identifier = str(record["id"])
-        cf_api(
-            "zones/" + option['zone_id'] + "/dns_records/" + identifier, 
-            "DELETE", option)
-        print("🗑️ Deleted stale record " + identifier)
+        if answer is None or answer["result"] is None:
+            time.sleep(5)
+            return
+        for record in answer["result"]:
+            identifier = str(record["id"])
+            cf_api(
+                "zones/" + option['zone_id'] + "/dns_records/" + identifier,
+                "DELETE", option)
+            print("🗑️ Deleted stale record " + identifier)
+
 
 def getIPs():
     a = None
@@ -66,7 +70,8 @@ def getIPs():
                 deleteEntries("A")
     if ipv6_enabled:
         try:
-            aaaa = requests.get("https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
+            aaaa = requests.get(
+                "https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
             aaaa.pop()
             aaaa = dict(s.split("=") for s in aaaa)["ip"]
         except Exception:
@@ -89,6 +94,7 @@ def getIPs():
         }
     return ips
 
+
 def commitRecord(ip):
     for option in config["cloudflare"]:
         subdomains = option["subdomains"]
@@ -97,7 +103,7 @@ def commitRecord(ip):
             time.sleep(5)
             return
         base_domain_name = response["result"]["name"]
-        ttl = 300 # default Cloudflare TTL
+        ttl = 300  # default Cloudflare TTL
         for subdomain in subdomains:
             subdomain = subdomain.lower().strip()
             record = {
@@ -108,7 +114,8 @@ def commitRecord(ip):
                 "ttl": ttl
             }
             dns_records = cf_api(
-                "zones/" + option['zone_id'] + "/dns_records?per_page=100&type=" + ip["type"], 
+                "zones/" + option['zone_id'] +
+                "/dns_records?per_page=100&type=" + ip["type"],
                 "GET", option)
             fqdn = base_domain_name
             if subdomain:
@@ -133,7 +140,8 @@ def commitRecord(ip):
                 if modified:
                     print("📡 Updating record " + str(record))
                     response = cf_api(
-                        "zones/" + option['zone_id'] + "/dns_records/" + identifier,
+                        "zones/" + option['zone_id'] +
+                        "/dns_records/" + identifier,
                         "PUT", option, {}, record)
             else:
                 print("➕ Adding new record " + str(record))
@@ -144,16 +152,17 @@ def commitRecord(ip):
                     identifier = str(identifier)
                     print("🗑️ Deleting stale record " + identifier)
                     response = cf_api(
-                        "zones/" + option['zone_id'] + "/dns_records/" + identifier,
+                        "zones/" + option['zone_id'] +
+                        "/dns_records/" + identifier,
                         "DELETE", option)
     return True
+
 
 def cf_api(endpoint, method, config, headers={}, data=False):
     api_token = config['authentication']['api_token']
     if api_token != '' and api_token != 'api_token_here':
         headers = {
-            "Authorization": "Bearer " + api_token,
-            **headers
+            "Authorization": "Bearer " + api_token, **headers
         }
     else:
         headers = {
@@ -172,13 +181,16 @@ def cf_api(endpoint, method, config, headers={}, data=False):
     if response.ok:
         return response.json()
     else:
-        print("📈 Error sending '" + method + "' request to '" + response.url + "':")
+        print("📈 Error sending '" + method +
+              "' request to '" + response.url + "':")
         print(response.text)
         return None
+
 
 def updateIPs(ips):
     for ip in ips.values():
         commitRecord(ip)
+
 
 if __name__ == '__main__':
     shown_ipv4_warning = False
@@ -196,7 +208,8 @@ if __name__ == '__main__':
             config = json.loads(config_file.read())
     except:
         print("😡 Error reading config.json")
-        time.sleep(60) # wait 60 seconds to prevent excessive logging on docker auto restart
+        # wait 60 seconds to prevent excessive logging on docker auto restart
+        time.sleep(60)
 
     if config is not None:
         try:
@@ -223,11 +236,12 @@ if __name__ == '__main__':
                 next_time = time.time()
                 killer = GracefulExit()
                 prev_ips = None
-                while True:     
+                while True:
                     updateIPs(getIPs())
                     if killer.kill_now.wait(delay):
                         break
             else:
-                print("❓ Unrecognized parameter '" + sys.argv[1] + "'. Stopping now.")
+                print("❓ Unrecognized parameter '" +
+                      sys.argv[1] + "'. Stopping now.")
         else:
             updateIPs(getIPs())

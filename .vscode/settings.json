@@ -1,19 +1,21 @@
 {
-    "files.exclude": {
-        "**/.git": true,
-        "**/.svn": true,
-        "**/.hg": true,
-        "**/CVS": true,
-        "**/.DS_Store": true,
-        ".github": true,
-        ".gitignore": true,
-        ".vscode": true,
-        "Dockerfile": true,
-        "LICENSE": true,
-        "requirements.txt": true,
-        "venv": true
-    },
-    "explorerExclude.backup": null,
-    "python.linting.pylintEnabled": true,
-    "python.linting.enabled": true
+  "files.exclude": {
+    "**/.git": true,
+    "**/.svn": true,
+    "**/.hg": true,
+    "**/CVS": true,
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true,
+    ".github": true,
+    ".gitignore": true,
+    ".vscode": true,
+    "Dockerfile": true,
+    "LICENSE": true,
+    "requirements.txt": true,
+    "venv": true
+  },
+  "explorerExclude.backup": null,
+  "python.linting.pylintEnabled": true,
+  "python.linting.enabled": true,
+  "python.formatting.provider": "autopep8"
 }
