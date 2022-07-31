@@ -106,9 +106,12 @@ def commitRecord(ip):
         ttl = 300  # default Cloudflare TTL
         for subdomain in subdomains:
             subdomain = subdomain.lower().strip()
+            fqdn = base_domain_name
+            if subdomain != '':
+                fqdn = subdomain + "." + base_domain_name
             record = {
                 "type": ip["type"],
-                "name": subdomain,
+                "name": fqdn,
                 "content": ip["ip"],
                 "proxied": option["proxied"],
                 "ttl": ttl
@@ -117,9 +120,6 @@ def commitRecord(ip):
                 "zones/" + option['zone_id'] +
                 "/dns_records?per_page=100&type=" + ip["type"],
                 "GET", option)
-            fqdn = base_domain_name
-            if subdomain:
-                fqdn = subdomain + "." + base_domain_name
             identifier = None
             modified = False
             duplicate_ids = []
