@@ -106,7 +106,12 @@ def commitRecord(ip):
             return
         base_domain_name = response["result"]["name"]
         for subdomain in subdomains:
-            name = subdomain["name"].lower().strip()
+            try:
+                name = subdomain["name"].lower().strip()
+                proxied = subdomain["proxied"]
+            except:
+                name = subdomain
+                proxied = config["proxied"]
             fqdn = base_domain_name
             # Check if name provided is a reference to the root domain
             if name != '' and name != '*' and name != '@':
@@ -115,7 +120,7 @@ def commitRecord(ip):
                 "type": ip["type"],
                 "name": fqdn,
                 "content": ip["ip"],
-                "proxied": subdomain["proxied"],
+                "proxied": proxied,
                 "ttl": ttl
             }
             dns_records = cf_api(
