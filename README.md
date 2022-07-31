@@ -20,9 +20,9 @@ Stale, duplicate DNS records are removed for housekeeping.
 
 ## 📊 Stats
 
-| Size  | Downloads | Discord |
-| ------------- | ------------- | ------------- |
-| [![cloudflare-ddns docker image size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns "cloudflare-ddns docker image size")  | [![Total DockerHub pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns "Total DockerHub pulls")  | [![Official Discord Server](https://img.shields.io/discord/785778163887112192?style=flat-square)](https://discord.gg/UgGmwMvNxm "Official Discord Server")
+| Size                                                                                                                                                                                                                           | Downloads                                                                                                                                                                                         | Discord                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![cloudflare-ddns docker image size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns 'cloudflare-ddns docker image size') | [![Total DockerHub pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns 'Total DockerHub pulls') | [![Official Discord Server](https://img.shields.io/discord/785778163887112192?style=flat-square)](https://discord.gg/UgGmwMvNxm 'Official Discord Server') |
 
 ## ⁉️ How Private & Secure?
 
@@ -82,11 +82,11 @@ Some ISP provided modems only allow port forwarding over IPv4 or IPv6. In this c
 
 ## 📠 Hosting multiple subdomains on the same IP?
 
-You can save yourself some trouble when hosting multiple domains pointing to the same IP address (in the case of Traefik) by defining one A & AAAA record  'ddns.example.com' pointing to the IP of the server that will be updated by this DDNS script. For each subdomain, create a CNAME record pointing to 'ddns.example.com'. Now you don't have to manually modify the script config every time you add a new subdomain to your site!
+You can save yourself some trouble when hosting multiple domains pointing to the same IP address (in the case of Traefik) by defining one A & AAAA record 'ddns.example.com' pointing to the IP of the server that will be updated by this DDNS script. For each subdomain, create a CNAME record pointing to 'ddns.example.com'. Now you don't have to manually modify the script config every time you add a new subdomain to your site!
 
 ## 🌐 Hosting multiple domains (zones) on the same IP?
 
-You can handle ddns for multiple domains (cloudflare zones) using the same docker container by separating your configs inside ```config.json``` like below:
+You can handle ddns for multiple domains (cloudflare zones) using the same docker container by separating your configs inside `config.json` like below:
 
 ### ⚠️ Note
 
@@ -97,35 +97,28 @@ Do not include the base domain name in your `subdomains` config. Do not use the 
   "cloudflare": [
     {
       "authentication": {
-          "api_token": "api_token_here", 
-          "api_key": {
-              "api_key": "api_key_here",
-              "account_email": "your_email_here"
-          }
+        "api_token": "api_token_here",
+        "api_key": {
+          "api_key": "api_key_here",
+          "account_email": "your_email_here"
+        }
       },
       "zone_id": "your_zone_id_here",
       "subdomains": [
-        "",
-        "remove_or_replace_with_your_subdomain"
-      ],
-      "proxied": true
-    },
-    {
-      "authentication": {
-          "api_token": "api_token_here", 
-          "api_key": {
-              "api_key": "api_key_here",
-              "account_email": "your_email_here"
-          }
-      },
-      "zone_id": "your_zone_id_here",
-      "subdomains": [
-        "",
-        "remove_or_replace_with_your_subdomain"
-      ],
-      "proxied": true
+        {
+          "name": "",
+          "proxied": false
+        },
+        {
+          "name": "remove_or_replace_with_your_subdomain",
+          "proxied": false
+        }
+      ]
     }
-  ]
+  ],
+  "a": true,
+  "aaaa": true,
+  "purgeUnknownRecords": false
 }
 ```
 
@@ -136,14 +129,14 @@ Pre-compiled images are available via [the official docker container on DockerHu
 Modify the host file path of config.json inside the volumes section of docker-compose.yml.
 
 ```yml
-version: "3.7"
+version: '3.7'
 services:
   cloudflare-ddns:
     image: timothyjmiller/cloudflare-ddns:latest
     container_name: cloudflare-ddns
     security_opt:
       - no-new-privileges:true
-    network_mode: "host"
+    network_mode: 'host'
     environment:
       - PUID=1000
       - PGID=1000
@@ -166,37 +159,36 @@ docker-compose up -d
 
 ## 🐋 Kubernetes
 
-
 Create config File
 
-``` bash
+```bash
 cp ../../config-example.json config.json
 ```
 
 Edit config.jsonon (vim, nvim, nano... )
-``` bash
+
+```bash
 ${EDITOR} config.json
 ```
 
 Create config file as Secret.
 
-``` bash
+```bash
 kubectl create secret generic config-cloudflare-ddns --from-file=config.json --dry-run=client -oyaml -n ddns > config-cloudflare-ddns-Secret.yaml
 ```
 
 apply this secret
 
-``` bash
+```bash
 kubectl apply -f config-cloudflare-ddns-Secret.yaml
 rm config.json # recomended Just keep de secret on Kubernetes Cluster
 ```
 
 apply this Deployment
 
-``` bash
+```bash
 kubectl apply -f cloudflare-ddns-Deployment.yaml
 ```
-
 
 ## 🐧 Deploy with Linux + Cron
 
@@ -230,9 +222,9 @@ Docker Hub has experimental support for multi-architecture builds. Their officia
 
 1. Choose build platform
 
-- Multi-architecture (experimental)  `docker-build-all.sh`
+- Multi-architecture (experimental) `docker-build-all.sh`
 
-- Linux/amd64 by default  `docker-build.sh`
+- Linux/amd64 by default `docker-build.sh`
 
 2. Give your bash script permission to execute.
 

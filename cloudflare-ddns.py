@@ -6,7 +6,7 @@
 #                A small, 🕵️ privacy centric, and ⚡
 #                lightning fast multi-architecture Docker image for self hosting projects.
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 import json
 import os
@@ -105,15 +105,16 @@ def commitRecord(ip):
         base_domain_name = response["result"]["name"]
         ttl = 300  # default Cloudflare TTL
         for subdomain in subdomains:
-            subdomain = subdomain.lower().strip()
+            name = subdomain["name"].lower().strip()
             fqdn = base_domain_name
-            if subdomain != '' and subdomain != '*' and subdomain != '@':
-                fqdn = subdomain + "." + base_domain_name
+            # Check if name provided is a reference to the root domain
+            if name != '' and name != '*' and name != '@':
+                fqdn = name + "." + base_domain_name
             record = {
                 "type": ip["type"],
                 "name": fqdn,
                 "content": ip["ip"],
-                "proxied": option["proxied"],
+                "proxied": subdomain["proxied"],
                 "ttl": ttl
             }
             dns_records = cf_api(
