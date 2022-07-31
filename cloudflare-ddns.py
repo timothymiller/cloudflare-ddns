@@ -111,7 +111,7 @@ def commitRecord(ip):
                 proxied = subdomain["proxied"]
             except:
                 name = subdomain
-                proxied = config["proxied"]
+                proxied = option["proxied"]
             fqdn = base_domain_name
             # Check if name provided is a reference to the root domain
             if name != '' and name != '*' and name != '@':
