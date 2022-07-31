@@ -243,12 +243,12 @@ if __name__ == '__main__':
             if(sys.argv[1] == "--repeat"):
                 if ipv4_enabled and ipv6_enabled:
                     print(
-                        "🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every " + ttl + " seconds")
+                        "🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every " + str(ttl) + " seconds")
                 elif ipv4_enabled and not ipv6_enabled:
-                    print("🕰️ Updating IPv4 (A) records every " + ttl + " seconds")
+                    print("🕰️ Updating IPv4 (A) records every " + str(ttl) + " seconds")
                 elif ipv6_enabled and not ipv4_enabled:
                     print("🕰️ Updating IPv6 (AAAA) records every " +
-                          ttl + " seconds")
+                          str(ttl) + " seconds")
                 next_time = time.time()
                 killer = GracefulExit()
                 prev_ips = None
