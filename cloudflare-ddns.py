@@ -107,7 +107,7 @@ def commitRecord(ip):
         for subdomain in subdomains:
             subdomain = subdomain.lower().strip()
             fqdn = base_domain_name
-            if subdomain != '':
+            if subdomain != '' and subdomain != '*' and subdomain != '@':
                 fqdn = subdomain + "." + base_domain_name
             record = {
                 "type": ip["type"],
