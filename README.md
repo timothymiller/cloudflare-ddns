@@ -91,7 +91,7 @@ You can handle ddns for multiple domains (cloudflare zones) using the same docke
 
 ### ⚠️ Note
 
-Do not include the base domain name in your `subdomains` config. Do not use the [FDQN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name).
+Do not include the base domain name in your `subdomains` config. Do not use the [FQDN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name).
 
 ```bash
 {
