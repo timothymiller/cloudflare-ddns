@@ -123,6 +123,10 @@ Do not include the base domain name in your `subdomains` config. Do not use the 
 }
 ```
 
+### 🗣️ Call to action: Docker environment variable support
+
+I am looking for help adding Docker environment variable support to this project. If interested, check out [this comment](https://github.com/timothymiller/cloudflare-ddns/pull/35#issuecomment-974752476) and open a PR.
+
 ## 🐳 Deploy with Docker Compose
 
 Pre-compiled images are available via [the official docker container on DockerHub](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns).
