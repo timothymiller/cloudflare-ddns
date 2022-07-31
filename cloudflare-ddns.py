@@ -96,6 +96,7 @@ def getIPs():
 
 
 def commitRecord(ip):
+    global ttl
     for option in config["cloudflare"]:
         subdomains = option["subdomains"]
         response = cf_api("zones/" + option['zone_id'], "GET", option)
@@ -103,7 +104,6 @@ def commitRecord(ip):
             time.sleep(5)
             return
         base_domain_name = response["result"]["name"]
-        ttl = 300  # default Cloudflare TTL
         for subdomain in subdomains:
             name = subdomain["name"].lower().strip()
             fqdn = base_domain_name
@@ -229,6 +229,15 @@ if __name__ == '__main__':
         except:
             purgeUnknownRecords = False
             print("⚙️ No config detected for 'purgeUnknownRecords' - defaulting to False")
+        try:
+            ttl = int(config["ttl"])
+        except:
+            ttl = 300
+            print(
+                "⚙️ No config detected for 'ttl' - defaulting to 300 seconds (5 minutes)")
+        if ttl < 30:
+            ttl = 30  # default Cloudflare TTL
+            print("⚙️ TTL is too low - defaulting to 60 seconds (1 minute)")
         if(len(sys.argv) > 1):
             if(sys.argv[1] == "--repeat"):
                 delay = 5*60

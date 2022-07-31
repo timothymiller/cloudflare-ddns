@@ -23,5 +23,6 @@
   ],
   "a": true,
   "aaaa": true,
-  "purgeUnknownRecords": false
+  "purgeUnknownRecords": false,
+  "ttl": 300
 }
