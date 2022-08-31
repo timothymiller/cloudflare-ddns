@@ -1,3 +1,13 @@
+# 🏎️ [Porsche Digital](https://app.usebraintrust.com/r/timothy7/) is hiring developers for $120/hour
+
+100% Remote. 40 hours/week. [👉 Click to apply](https://app.usebraintrust.com/r/timothy7/)
+
+- [👉 Senior Frontend Engineer](https://app.usebraintrust.com/r/timothy7/?job_id=4145) - 💵 $120/hour
+
+- [👉 QA Architect](https://app.usebraintrust.com/r/timothy7/?job_id=4146) - 💵 $120/hour
+
+Many more positions available. [📧 Send me an email](mailto:porschejobs@timknowsbest.com) for more information.
+
 <p align="center"><a href="https://timknowsbest.com/free-dynamic-dns" target="_blank" rel="noopener noreferrer"><img width="1024" src="feature-graphic.jpg" alt="Cloudflare DDNS"/></a></p>
 
 # 🚀 Cloudflare DDNS
