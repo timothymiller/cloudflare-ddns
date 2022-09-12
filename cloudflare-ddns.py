@@ -114,7 +114,7 @@ def commitRecord(ip):
                 proxied = option["proxied"]
             fqdn = base_domain_name
             # Check if name provided is a reference to the root domain
-            if name != '' and name != '*' and name != '@':
+            if name != '' and name != '@':
                 fqdn = name + "." + base_domain_name
             record = {
                 "type": ip["type"],
