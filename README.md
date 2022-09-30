@@ -99,6 +99,53 @@ You can save yourself some trouble when hosting multiple domains pointing to the
 
 You can handle ddns for multiple domains (cloudflare zones) using the same docker container by separating your configs inside `config.json` like below:
 
+```bash
+{
+  "cloudflare": [
+    {
+      "authentication": {
+          "api_token": "api_token_here", 
+          "api_key": {
+              "api_key": "api_key_here",
+              "account_email": "your_email_here"
+          }
+      },
+      "zone_id": "your_zone_id_here",
+      "subdomains": [
+        {
+          "name": "",
+          "proxied": false
+        },
+        {
+          "name": "remove_or_replace_with_your_subdomain",
+          "proxied": false
+        }
+      ]
+    },
+    {
+      "authentication": {
+          "api_token": "api_token_here", 
+          "api_key": {
+              "api_key": "api_key_here",
+              "account_email": "your_email_here"
+          }
+      },
+      "zone_id": "your_other_zone_id_here",
+      "subdomains": [
+        {
+          "name": "",
+          "proxied": false
+        },
+        {
+          "name": "remove_or_replace_with_your_subdomain",
+          "proxied": false
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### ⚠️ Note
 
 Do not include the base domain name in your `subdomains` config. Do not use the [FQDN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name).
