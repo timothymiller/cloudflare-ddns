@@ -1,12 +1,8 @@
-# 🏎️ [Porsche Digital](https://app.usebraintrust.com/r/timothy7/) is hiring developers for $120/hour
+# 🏎️ [Find a remote job. Work from anywhere.](http://nfty.sh/SRxfA)
 
-100% Remote. 40 hours/week. [👉 Click to apply](https://app.usebraintrust.com/r/timothy7/)
+100% Remote. 40 hours/week. 10+ positions available.
 
-- [👉 Senior Frontend Engineer](https://app.usebraintrust.com/r/timothy7/?job_id=4145) - 💵 $120/hour
-
-- [👉 QA Architect](https://app.usebraintrust.com/r/timothy7/?job_id=4146) - 💵 $120/hour
-
-Many more positions available. [📧 Send me an email](mailto:porschejobs@timknowsbest.com) for more information.
+[📧 Send me an email](mailto:porschejobs@timknowsbest.com) for more information.
 
 <p align="center"><a href="https://timknowsbest.com/free-dynamic-dns" target="_blank" rel="noopener noreferrer"><img width="1024" src="feature-graphic.jpg" alt="Cloudflare DDNS"/></a></p>
 
@@ -15,6 +11,25 @@ Many more positions available. [📧 Send me an email](mailto:porschejobs@timkno
 Access your home network remotely via a custom domain name without a static IP!
 
 A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Docker image for self hosting projects.
+
+## 📖 Table of Contents
+
+- 🇺🇸 [Origin](https://github.com/timothymiller/cloudflare-ddns#-origin)
+- 📊 [Stats](https://github.com/timothymiller/cloudflare-ddns#-stats)
+- ⁉️ [How Private & Secure Is This?](https://github.com/timothymiller/cloudflare-ddns#%EF%B8%8F-how-private--secure)
+- 🚦 [Getting Started](https://github.com/timothymiller/cloudflare-ddns#-getting-started)
+  - 🧰 [Requirements](https://github.com/timothymiller/cloudflare-ddns#-requirements)
+  - ⚒️ [Equipment](https://github.com/timothymiller/cloudflare-ddns#-equipment)
+  - 🔑 [Authentication methods](https://github.com/timothymiller/cloudflare-ddns#-authentication-methods)
+  - 📠 [Hosting multiple subdomains on the same IP](https://github.com/timothymiller/cloudflare-ddns#-hosting-multiple-subdomains-on-the-same-ip)
+  - 🌐 [Hosting multiple domains (zones) on the same IP](https://github.com/timothymiller/cloudflare-ddns#-hosting-multiple-domains-zones-on-the-same-ip)
+- 🚀 [Deployment](https://github.com/timothymiller/cloudflare-ddns#-deploy-with-docker-compose)
+  - 🐳 [Docker Compose](https://github.com/timothymiller/cloudflare-ddns#-deploy-with-docker-compose)
+  - 🐋 [Kubernetes](https://github.com/timothymiller/cloudflare-ddns#-kubernetes)
+  - 🐧 [Crontab](https://github.com/timothymiller/cloudflare-ddns#-deploy-with-linux--cron)
+- [Building from source](https://github.com/timothymiller/cloudflare-ddns#building-from-source)
+- [License](https://github.com/timothymiller/cloudflare-ddns#license)
+- [Author](https://github.com/timothymiller/cloudflare-ddns#author)
 
 ## 🇺🇸 Origin
 
@@ -34,7 +49,7 @@ Stale, duplicate DNS records are removed for housekeeping.
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [![cloudflare-ddns docker image size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns 'cloudflare-ddns docker image size') | [![Total DockerHub pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns 'Total DockerHub pulls') | [![Official Discord Server](https://img.shields.io/discord/785778163887112192?style=flat-square)](https://discord.gg/UgGmwMvNxm 'Official Discord Server') |
 
-## ⁉️ How Private & Secure?
+## ⁉️ How Private & Secure Is This?
 
 1. Uses zero-log external IPv4 & IPv6 provider ([cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace))
 2. Alpine Linux base image
@@ -42,6 +57,71 @@ Stale, duplicate DNS records are removed for housekeeping.
 4. Docker runtime
 5. Open source for open audits
 6. Regular updates
+
+## 🧰 Requirements
+
+- [Cloudflare account](http://nfty.sh/kiUR9)
+- [Domain name](http://nfty.sh/qnJji)
+
+[👉 Click here to buy a domain name](http://nfty.sh/qnJji) and [get a free Cloudflare account](http://nfty.sh/kiUR9).
+
+### Supported Platforms
+
+- [Docker](https://docs.docker.com/get-docker/)
+- [Docker Compose](https://docs.docker.com/compose/install/) (optional)
+- [Kubernetes](https://kubernetes.io/docs/tasks/tools/) (optional)
+- [Python 3](https://www.python.org/downloads/) (optional)
+
+### Helpful link
+
+- [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens)
+- [Cloudflare zone ID](https://support.cloudflare.com/hc/en-us/articles/200167836-Where-do-I-find-my-Cloudflare-IP-address-)
+- [Cloudflare zone DNS record ID](https://support.cloudflare.com/hc/en-us/articles/360019093151-Managing-DNS-records-in-Cloudflare)
+
+## ⚒️ Equipment
+
+Here is a list of equipment I use to run this script on a Raspberry Pi 4.
+
+### Networking
+
+- [Unifi Dream Machine Pro](https://amzn.to/3Fvq8OM)
+- [Unifi AC Pro](https://amzn.to/3FzhdM6)
+
+#### Network Switches
+
+- [TPLink 8 Port Gigabit Switch](https://amzn.to/3h08Vm4)
+
+#### Network Cables
+
+- [2 Foot Cat 6 Ethernet Cable](https://amzn.to/3NkxyGo)
+- [25 Foot Cat 6 Ethernet Cable](https://amzn.to/3FuFEu9)
+
+#### Storage
+
+- [2TB Samsung 980 PRO PCIe NVMe Gen 4 Gaming SSD](https://amzn.to/3U6tFag)
+- [WD 16TB Elements Desktop External Hard Drive](https://amzn.to/3zplpdB)
+
+#### Battery Backup
+
+- [APC UPS Battery Backup Surge Protector, 425VA Backup Battery Power Supply](https://amzn.to/3U5eVZ2)
+
+### Recommended Setups
+
+Rest assured your money is well spent on any of the following platforms. Each platform provides a robust virtualization solution for running Docker containers.
+
+#### ARM64 - Raspberry Pi 4
+
+- [Raspberry Pi 4](https://amzn.to/3Uc8gg0)
+- [Raspberry Pi 4 case](https://amzn.to/3fooUtN)
+- [Raspberry Pi 4 power supply](https://amzn.to/3fixzxV)
+- [Raspberry Pi 4 128gb microSD card](https://amzn.to/3ztuNwL)
+- [Raspberry Pi 4 heatsink](https://amzn.to/3SOK8Ps)
+- [Raspberry Pi 4 cooling fan](https://amzn.to/3Doa1Qa)
+- [Raspberry Pi 4 USB-C to HDMI adapter](https://amzn.to/3gVks6u)
+
+#### x86_64 - Intel NUC
+
+- [Intel NUC](https://amzn.to/3STMYT4)
 
 ## 🚦 Getting Started
 
