@@ -72,7 +72,7 @@ Stale, duplicate DNS records are removed for housekeeping.
 - [Kubernetes](https://kubernetes.io/docs/tasks/tools/) (optional)
 - [Python 3](https://www.python.org/downloads/) (optional)
 
-### Helpful link
+### Helpful links
 
 - [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens)
 - [Cloudflare zone ID](https://support.cloudflare.com/hc/en-us/articles/200167836-Where-do-I-find-my-Cloudflare-IP-address-)
