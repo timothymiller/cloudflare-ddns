@@ -14,7 +14,7 @@
     "requirements.txt": true,
     "venv": true
   },
-  "explorerExclude.backup": null,
+  "explorerExclude.backup": {},
   "python.linting.pylintEnabled": true,
   "python.linting.enabled": true,
   "python.formatting.provider": "autopep8"
