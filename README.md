@@ -16,10 +16,10 @@ A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Dock
 
 - 🇺🇸 [Origin](https://github.com/timothymiller/cloudflare-ddns#-origin)
 - 📊 [Stats](https://github.com/timothymiller/cloudflare-ddns#-stats)
-- ⁉️ [How Private & Secure Is This?](https://github.com/timothymiller/cloudflare-ddns#%EF%B8%8F-how-private--secure)
+- ⁉️ [How Private & Secure Is This?](https://github.com/timothymiller/cloudflare-ddns#%EF%B8%8F-how-private--secure-is-this)
+- 🧰 [Requirements](https://github.com/timothymiller/cloudflare-ddns#-requirements)
+- ⚒️ [Equipment](https://github.com/timothymiller/cloudflare-ddns#-equipment)
 - 🚦 [Getting Started](https://github.com/timothymiller/cloudflare-ddns#-getting-started)
-  - 🧰 [Requirements](https://github.com/timothymiller/cloudflare-ddns#-requirements)
-  - ⚒️ [Equipment](https://github.com/timothymiller/cloudflare-ddns#-equipment)
   - 🔑 [Authentication methods](https://github.com/timothymiller/cloudflare-ddns#-authentication-methods)
   - 📠 [Hosting multiple subdomains on the same IP](https://github.com/timothymiller/cloudflare-ddns#-hosting-multiple-subdomains-on-the-same-ip)
   - 🌐 [Hosting multiple domains (zones) on the same IP](https://github.com/timothymiller/cloudflare-ddns#-hosting-multiple-domains-zones-on-the-same-ip)
