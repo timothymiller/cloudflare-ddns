@@ -8,6 +8,8 @@
 
 __version__ = "1.0.2"
 
+from string import Template
+
 import json
 import os
 import signal
@@ -17,7 +19,8 @@ import time
 import requests
 
 CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd())
-
+# Read in all environment variables that have the correct prefix
+ENV_VARS = {key: value for (key, value) in os.environ.items() if key.startswith('CF_DDNS_')}
 
 class GracefulExit:
     def __init__(self):
@@ -216,7 +219,7 @@ if __name__ == '__main__':
     config = None
     try:
         with open(os.path.join(CONFIG_PATH, "config.json")) as config_file:
-            config = json.loads(config_file.read())
+            config = json.loads(Template(config_file.read()).safe_substitute(ENV_VARS))
     except:
         print("😡 Error reading config.json")
         # wait 10 seconds to prevent excessive logging on docker auto restart

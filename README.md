@@ -213,9 +213,19 @@ Do not include the base domain name in your `subdomains` config. Do not use the 
 }
 ```
 
-### 🗣️ Call to action: Docker environment variable support
+### Docker environment variable support
 
-I am looking for help adding Docker environment variable support to this project. If interested, check out [this comment](https://github.com/timothymiller/cloudflare-ddns/pull/35#issuecomment-974752476) and open a PR.
+Define environmental variables starts with `CF_DDNS_` and use it in config.json
+
+For ex:
+
+```json
+{
+  "cloudflare": [
+    {
+      "authentication": {
+        "api_token": "${CF_DDNS_API_TOKEN}",
+```
 
 ## 🐳 Deploy with Docker Compose
 
