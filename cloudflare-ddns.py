@@ -165,6 +165,26 @@ def commitRecord(ip):
     return True
 
 
+def updateLoadBalancer(ip):
+
+    for option in config["load_balancer"]:
+        pools = cf_api('user/load_balancers/pools', 'GET', option)
+
+        if pools:
+            idxr = dict((p['id'], i) for i, p in enumerate(pools['result']))
+            idx = idxr.get(option['pool_id'])
+
+            origins = pools['result'][idx]['origins']
+
+            idxr = dict((o['name'], i) for i, o in enumerate(origins))
+            idx = idxr.get(option['origin'])
+
+            origins[idx]['address'] = ip['ip']
+            data = {'origins': origins}
+
+            response = cf_api(f'user/load_balancers/pools/{option["pool_id"]}', 'PATCH', option, {}, data)
+
+
 def cf_api(endpoint, method, config, headers={}, data=False):
     api_token = config['authentication']['api_token']
     if api_token != '' and api_token != 'api_token_here':
@@ -201,6 +221,7 @@ def cf_api(endpoint, method, config, headers={}, data=False):
 def updateIPs(ips):
     for ip in ips.values():
         commitRecord(ip)
+        updateLoadBalancer(ip)
 
 
 if __name__ == '__main__':
