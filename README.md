@@ -13,6 +13,8 @@ Access your home network remotely via a custom domain name without a static IP!
 - 0️⃣ Zero dependencies.
 - 💪 Supports all platforms.
 - 🏠 Enables low cost self hosting to promote a more decentralized internet.
+- 🔒 Zero-log IP provider ([cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace))
+- 👐 GPL-3.0 License. Open source for open audits.
 
 ## 💯 Complete Support of Domain Names, Subdomains, and IPv4 & IPv6
 
@@ -27,15 +29,6 @@ Access your home network remotely via a custom domain name without a static IP!
 | Size                                                                                                                                                                                                                           | Downloads                                                                                                                                                                                         | Discord                                                                                                                                                    |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [![cloudflare-ddns docker image size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns 'cloudflare-ddns docker image size') | [![Total DockerHub pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns 'Total DockerHub pulls') | [![Official Discord Server](https://img.shields.io/discord/785778163887112192?style=flat-square)](https://discord.gg/UgGmwMvNxm 'Official Discord Server') |
-
-## ⁉️ How Private & Secure Is This?
-
-1. Uses zero-log external IPv4 & IPv6 provider ([cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace))
-2. Alpine Linux base image
-3. HTTPS only via Python Software Foundation requests module
-4. Docker runtime
-5. Open source for open audits
-6. Regular updates
 
 ## 🧰 Requirements
 
@@ -344,9 +337,9 @@ docker run -d timothyjmiller/cloudflare_ddns:latest
 ## Supported Platforms
 
 - [Docker](https://docs.docker.com/get-docker/)
-- [Docker Compose](https://docs.docker.com/compose/install/) (optional)
-- [Kubernetes](https://kubernetes.io/docs/tasks/tools/) (optional)
-- [Python 3](https://www.python.org/downloads/) (optional)
+- [Docker Compose](https://docs.docker.com/compose/install/)
+- [Kubernetes](https://kubernetes.io/docs/tasks/tools/)
+- [Python 3](https://www.python.org/downloads/)
 
 ## 📜 Helpful links
 
