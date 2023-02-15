@@ -1,0 +1,13 @@
+[Unit]
+Description=Update DDNS on Cloudflare
+ConditionPathExists=/etc/cloudflare-ddns/config.json
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=CONFIG_PATH=/etc/cloudflare-ddns
+ExecStart=cloudflare-ddns
+
+[Install]
+WantedBy=multi-user.target
