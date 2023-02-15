@@ -187,11 +187,7 @@ If you are using API Tokens, make sure the token used supports editing your zone
 
 ### 🧹 Optional features
 
-`purgeUnknownRecords` removes stale DNS records from Cloudflare. This is useful if you have a dynamic DNS record that you no longer want to use.
-
-### 🗣️ Call to action: Docker environment variable support
-
-I am looking for help adding Docker environment variable support to this project. If interested, check out [this comment](https://github.com/timothymiller/cloudflare-ddns/pull/35#issuecomment-974752476) and open a PR.
+`purgeUnknownRecords` removes stale DNS records from Cloudflare. This is useful if you have a dynamic DNS record that you no longer want to use. If you have a dynamic DNS record that you no longer want to use, you can set `purgeUnknownRecords` to `true` and the script will remove the stale DNS record from Cloudflare.
 
 ## 🐳 Deploy with Docker Compose
 
