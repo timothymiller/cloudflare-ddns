@@ -21,19 +21,6 @@
       ]
     }
   ],
-  "load_balancer": [
-    {
-      "authentication": {
-        "api_token": "api_token_here",
-        "api_key": {
-          "api_key": "api_key_here",
-          "account_email": "your_email_here"
-        }
-      },
-      "pool_id": "your_pool_id_here",
-      "origin": "your_origin_name_here"
-    }
-  ],
   "a": true,
   "aaaa": true,
   "purgeUnknownRecords": false,

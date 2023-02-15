@@ -16,12 +16,13 @@ Access your home network remotely via a custom domain name without a static IP!
 - 🔒 Zero-log IP provider ([cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace))
 - 👐 GPL-3.0 License. Open source for open audits.
 
-## 💯 Complete Support of Domain Names, Subdomains, and IPv4 & IPv6
+## 💯 Complete Support of Domain Names, Subdomains, IPv4 & IPv6, and Load Balancing
 
 - 🌐 Supports multiple domains (zones) on the same IP.
 - 📠 Supports multiple subdomains on the same IP.
 - 📡 IPv4 and IPv6 support.
 - 🌍 Supports all Cloudflare regions.
+- ⚖️ Supports [Cloudflare Load Balancing](https://developers.cloudflare.com/load-balancing/understand-basics/pools/).
 - 🇺🇸 Made in the U.S.A.
 
 ## 📊 Stats
@@ -182,6 +183,83 @@ If you are using API Tokens, make sure the token used supports editing your zone
   "a": true,
   "aaaa": true,
   "purgeUnknownRecords": false
+}
+```
+
+## ⚖️ Load Balancing
+
+If you have multiple IP addresses and want to load balance between them, you can use the `loadBalancing` option. This will create a CNAME record for each subdomain that points to the subdomain with the lowest IP address.
+
+### 📜 Example config to support load balancing
+
+```json
+{
+  "cloudflare": [
+    {
+      "authentication": {
+        "api_token": "api_token_here",
+        "api_key": {
+          "api_key": "api_key_here",
+          "account_email": "your_email_here"
+        }
+      },
+      "zone_id": "your_zone_id_here",
+      "subdomains": [
+        {
+          "name": "",
+          "proxied": false
+        },
+        {
+          "name": "remove_or_replace_with_your_subdomain",
+          "proxied": false
+        }
+      ]
+    }
+  ],{
+  "cloudflare": [
+    {
+      "authentication": {
+        "api_token": "api_token_here",
+        "api_key": {
+          "api_key": "api_key_here",
+          "account_email": "your_email_here"
+        }
+      },
+      "zone_id": "your_zone_id_here",
+      "subdomains": [
+        {
+          "name": "",
+          "proxied": false
+        },
+        {
+          "name": "remove_or_replace_with_your_subdomain",
+          "proxied": false
+        }
+      ]
+    }
+  ],
+  "load_balancer": [
+    {
+      "authentication": {
+        "api_token": "api_token_here",
+        "api_key": {
+          "api_key": "api_key_here",
+          "account_email": "your_email_here"
+        }
+      },
+      "pool_id": "your_pool_id_here",
+      "origin": "your_origin_name_here"
+    }
+  ],
+  "a": true,
+  "aaaa": true,
+  "purgeUnknownRecords": false,
+  "ttl": 300
+}
+  "a": true,
+  "aaaa": true,
+  "purgeUnknownRecords": false,
+  "ttl": 300
 }
 ```
 
