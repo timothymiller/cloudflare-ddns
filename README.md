@@ -30,13 +30,6 @@ Access your home network remotely via a custom domain name without a static IP!
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [![cloudflare-ddns docker image size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns 'cloudflare-ddns docker image size') | [![Total DockerHub pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat-square)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns 'Total DockerHub pulls') | [![Official Discord Server](https://img.shields.io/discord/785778163887112192?style=flat-square)](https://discord.gg/UgGmwMvNxm 'Official Discord Server') |
 
-## 🧰 Requirements
-
-- [Cloudflare account](https://developers.cloudflare.com/fundamentals/account-and-billing/account-setup/create-account/)
-- [Domain name](https://namecheap.pxf.io/e47gjr)
-
-[👉 Click here to buy a domain name](https://namecheap.pxf.io/e47gjr) and [get a free Cloudflare account](https://developers.cloudflare.com/fundamentals/account-and-billing/account-setup/create-account/).
-
 ## 🚦 Getting Started
 
 First copy the example configuration file into the real one.
@@ -67,7 +60,7 @@ Alternatively, you can use the traditional API keys by setting appropriate value
     "account_email": "The email address you use to sign in to cloudflare",
 ```
 
-### Enable or disable IPv4 or IPv6
+### 📍 Enable or disable IPv4 or IPv6
 
 Some ISP provided modems only allow port forwarding over IPv4 or IPv6. In this case, you would want to disable any interface not accessible via port forward.
 
@@ -76,7 +69,7 @@ Some ISP provided modems only allow port forwarding over IPv4 or IPv6. In this c
 "aaaa": true
 ```
 
-### Other values explained
+### 🎛️ Other values explained
 
 ```json
 "zone_id": "The ID of the zone that will get the records. From your dashboard click into the zone. Under the overview tab, scroll down and the zone ID is listed in the right rail",
