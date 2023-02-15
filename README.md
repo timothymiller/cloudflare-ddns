@@ -329,6 +329,7 @@ docker run -d timothyjmiller/cloudflare_ddns:latest
 - [Docker Compose](https://docs.docker.com/compose/install/)
 - [Kubernetes](https://kubernetes.io/docs/tasks/tools/)
 - [Python 3](https://www.python.org/downloads/)
+- [Systemd](https://www.freedesktop.org/wiki/Software/systemd/)
 
 ## 📜 Helpful links
 
