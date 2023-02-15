@@ -1,9 +1,3 @@
-# 🏎️ [Find a remote job. Work from anywhere.](http://nfty.sh/SRxfA)
-
-100% Remote. 40 hours/week. 10+ positions available.
-
-[📧 Send me an email](mailto:porschejobs@timknowsbest.com) for more information.
-
 <p align="center"><a href="https://timknowsbest.com/free-dynamic-dns" target="_blank" rel="noopener noreferrer"><img width="1024" src="feature-graphic.jpg" alt="Cloudflare DDNS"/></a></p>
 
 # 🚀 Cloudflare DDNS
@@ -26,7 +20,7 @@ A small, 🕵️ privacy centric, and ⚡ lightning fast multi-architecture Dock
 - 🚀 [Deployment](https://github.com/timothymiller/cloudflare-ddns#-deploy-with-docker-compose)
   - 🐳 [Docker Compose](https://github.com/timothymiller/cloudflare-ddns#-deploy-with-docker-compose)
   - 🐋 [Kubernetes](https://github.com/timothymiller/cloudflare-ddns#-kubernetes)
-  - 🐧 [Crontab](https://github.com/timothymiller/cloudflare-ddns#-deploy-with-linux--cron)
+  - 🐧 [Bare Metal (Crontab)](https://github.com/timothymiller/cloudflare-ddns#-deploy-with-linux--cron)
 - [Building from source](https://github.com/timothymiller/cloudflare-ddns#building-from-source)
 - [License](https://github.com/timothymiller/cloudflare-ddns#license)
 - [Author](https://github.com/timothymiller/cloudflare-ddns#author)
@@ -60,10 +54,10 @@ Stale, duplicate DNS records are removed for housekeeping.
 
 ## 🧰 Requirements
 
-- [Cloudflare account](http://nfty.sh/kiUR9)
-- [Domain name](http://nfty.sh/qnJji)
+- [Cloudflare account](https://developers.cloudflare.com/fundamentals/account-and-billing/account-setup/create-account/)
+- [Domain name](https://namecheap.pxf.io/e47gjr)
 
-[👉 Click here to buy a domain name](http://nfty.sh/qnJji) and [get a free Cloudflare account](http://nfty.sh/kiUR9).
+[👉 Click here to buy a domain name](https://namecheap.pxf.io/e47gjr) and [get a free Cloudflare account](https://developers.cloudflare.com/fundamentals/account-and-billing/account-setup/create-account/).
 
 ### Supported Platforms
 
@@ -77,51 +71,6 @@ Stale, duplicate DNS records are removed for housekeeping.
 - [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens)
 - [Cloudflare zone ID](https://support.cloudflare.com/hc/en-us/articles/200167836-Where-do-I-find-my-Cloudflare-IP-address-)
 - [Cloudflare zone DNS record ID](https://support.cloudflare.com/hc/en-us/articles/360019093151-Managing-DNS-records-in-Cloudflare)
-
-## ⚒️ Equipment
-
-Here is a list of equipment I use to run this script on a Raspberry Pi 4.
-
-### Networking
-
-- [Unifi Dream Machine Pro](https://amzn.to/3Fvq8OM)
-- [Unifi AC Pro](https://amzn.to/3FzhdM6)
-
-#### Network Switches
-
-- [TPLink 8 Port Gigabit Switch](https://amzn.to/3h08Vm4)
-
-#### Network Cables
-
-- [2 Foot Cat 6 Ethernet Cable](https://amzn.to/3NkxyGo)
-- [25 Foot Cat 6 Ethernet Cable](https://amzn.to/3FuFEu9)
-
-#### Storage
-
-- [2TB Samsung 980 PRO PCIe NVMe Gen 4 Gaming SSD](https://amzn.to/3U6tFag)
-- [WD 16TB Elements Desktop External Hard Drive](https://amzn.to/3zplpdB)
-
-#### Battery Backup
-
-- [APC UPS Battery Backup Surge Protector, 425VA Backup Battery Power Supply](https://amzn.to/3U5eVZ2)
-
-### Recommended Setups
-
-Rest assured your money is well spent on any of the following platforms. Each platform provides a robust virtualization solution for running Docker containers.
-
-#### ARM64 - Raspberry Pi 4
-
-- [Raspberry Pi 4](https://amzn.to/3Uc8gg0)
-- [Raspberry Pi 4 case](https://amzn.to/3fooUtN)
-- [Raspberry Pi 4 power supply](https://amzn.to/3fixzxV)
-- [Raspberry Pi 4 128gb microSD card](https://amzn.to/3ztuNwL)
-- [Raspberry Pi 4 heatsink](https://amzn.to/3SOK8Ps)
-- [Raspberry Pi 4 cooling fan](https://amzn.to/3Doa1Qa)
-- [Raspberry Pi 4 USB-C to HDMI adapter](https://amzn.to/3gVks6u)
-
-#### x86_64 - Intel NUC
-
-- [Intel NUC](https://amzn.to/3STMYT4)
 
 ## 🚦 Getting Started
 
