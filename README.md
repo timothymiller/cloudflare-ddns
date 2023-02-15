@@ -10,12 +10,10 @@ Access your home network remotely via a custom domain name without a static IP!
 - 🔁 The Python runtime will re-use existing HTTP connections.
 - 🗃️ Cloudflare API responses are cached to reduce API usage.
 - 🤏 The Docker image is small and efficient.
-- 0️⃣ Zero weirdo dependencies.
+- 0️⃣ Zero dependencies.
 - 💪 Supports all platforms.
 - 🏠 Enables low cost self hosting to promote a more decentralized internet.
-- 🧑‍🚀 Supports NAT and multiple network interfaces.
-  - 🔒 HTTP [(Zero-log IP provider)](https://www.cloudflare.com/cdn-cgi/trace)
-  - 💻 [Netif](https://pypi.org/project/netifaces/): `ppp0`, `eth0`, `wlan0`, etc.
+- 🔒 Zero-log IP provider ([cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace))
 - 👐 GPL-3.0 License. Open source for open audits.
 
 ## 💯 Complete Support of Domain Names, Subdomains, and IPv4 & IPv6
@@ -69,15 +67,6 @@ Some ISP provided modems only allow port forwarding over IPv4 or IPv6. In this c
 ```json
 "a": true,
 "aaaa": true
-```
-
-### 🧑‍🚀 Method used for getting IP address
-
-If you have multiple network interfaces, or if you are behind nat, you may need to enable alternative way to determine your IP address(es).
-
-```json
-"method": "netif",
-"interface": "ppp0"
 ```
 
 ### 🎛️ Other values explained
@@ -134,9 +123,7 @@ Do not include the base domain name in your `subdomains` config. Do not use the 
   "a": true,
   "aaaa": true,
   "purgeUnknownRecords": false,
-  "ttl": 300,
-  "method": "http",
-  "interface": ""
+  "ttl": 300
 }
 ```
 
@@ -194,10 +181,7 @@ If you are using API Tokens, make sure the token used supports editing your zone
   ],
   "a": true,
   "aaaa": true,
-  "purgeUnknownRecords": false,
-  "ttl": 300,
-  "method": "http",
-  "interface": ""
+  "purgeUnknownRecords": false
 }
 ```
 
