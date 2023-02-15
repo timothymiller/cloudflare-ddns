@@ -24,5 +24,7 @@
   "a": true,
   "aaaa": true,
   "purgeUnknownRecords": false,
-  "ttl": 300
+  "ttl": 300,
+  "method": "http",
+  "interface": ""
 }
