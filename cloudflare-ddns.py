@@ -242,7 +242,7 @@ def cf_api(endpoint, method, config, headers={}, data=False):
 def updateIPs(ips):
     for ip in ips.values():
         commitRecord(ip)
-        updateLoadBalancer(ip)
+        #updateLoadBalancer(ip)
 
 
 if __name__ == '__main__':
