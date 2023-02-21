@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #   cloudflare-ddns.py
 #   Summary: Access your home network remotely via a custom domain name without a static IP!
 #   Description: Access your home network remotely via a custom domain
@@ -69,9 +69,20 @@ def getIPs():
             global shown_ipv4_warning
             if not shown_ipv4_warning:
                 shown_ipv4_warning = True
-                print("🧩 IPv4 not detected")
-            if purgeUnknownRecords:
-                deleteEntries("A")
+                print("🧩 IPv4 not detected via 1.1.1.1, trying 1.0.0.1")
+            # Try secondary IP check
+            try:
+                a = requests.get(
+                    "https://1.0.0.1/cdn-cgi/trace").text.split("\n")
+                a.pop()
+                a = dict(s.split("=") for s in a)["ip"]
+            except Exception:
+                global shown_ipv4_warning_secondary
+                if not shown_ipv4_warning_secondary:
+                    shown_ipv4_warning_secondary = True
+                    print("🧩 IPv4 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                if purgeUnknownRecords:
+                    deleteEntries("A")
     if ipv6_enabled:
         try:
             aaaa = requests.get(
@@ -82,16 +93,26 @@ def getIPs():
             global shown_ipv6_warning
             if not shown_ipv6_warning:
                 shown_ipv6_warning = True
-                print("🧩 IPv6 not detected")
-            if purgeUnknownRecords:
-                deleteEntries("AAAA")
+                print("🧩 IPv6 not detected via 1.1.1.1, trying 1.0.0.1")
+            try:
+                aaaa = requests.get(
+                    "https://[2606:4700:4700::1001]/cdn-cgi/trace").text.split("\n")
+                aaaa.pop()
+                aaaa = dict(s.split("=") for s in aaaa)["ip"]
+            except Exception:
+                global shown_ipv6_warning_secondary
+                if not shown_ipv6_warning_secondary:
+                    shown_ipv6_warning_secondary = True
+                    print("🧩 IPv6 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                if purgeUnknownRecords:
+                    deleteEntries("AAAA")
     ips = {}
-    if(a is not None):
+    if (a is not None):
         ips["ipv4"] = {
             "type": "A",
             "ip": a
         }
-    if(aaaa is not None):
+    if (aaaa is not None):
         ips["ipv6"] = {
             "type": "AAAA",
             "ip": aaaa
@@ -117,7 +138,7 @@ def commitRecord(ip):
                 proxied = option["proxied"]
             fqdn = base_domain_name
             # Check if name provided is a reference to the root domain
-            if name != '' and name != '*' and name != '@':
+            if name != '' and name != '@':
                 fqdn = name + "." + base_domain_name
             record = {
                 "type": ip["type"],
@@ -168,6 +189,26 @@ def commitRecord(ip):
     return True
 
 
+def updateLoadBalancer(ip):
+
+    for option in config["load_balancer"]:
+        pools = cf_api('user/load_balancers/pools', 'GET', option)
+
+        if pools:
+            idxr = dict((p['id'], i) for i, p in enumerate(pools['result']))
+            idx = idxr.get(option['pool_id'])
+
+            origins = pools['result'][idx]['origins']
+
+            idxr = dict((o['name'], i) for i, o in enumerate(origins))
+            idx = idxr.get(option['origin'])
+
+            origins[idx]['address'] = ip['ip']
+            data = {'origins': origins}
+
+            response = cf_api(f'user/load_balancers/pools/{option["pool_id"]}', 'PATCH', option, {}, data)
+
+
 def cf_api(endpoint, method, config, headers={}, data=False):
     api_token = config['authentication']['api_token']
     if api_token != '' and api_token != 'api_token_here':
@@ -180,7 +221,7 @@ def cf_api(endpoint, method, config, headers={}, data=False):
             "X-Auth-Key": config['authentication']['api_key']['api_key'],
         }
     try:
-        if(data == False):
+        if (data == False):
             response = requests.request(
                 method, "https://api.cloudflare.com/client/v4/" + endpoint, headers=headers)
         else:
@@ -204,11 +245,14 @@ def cf_api(endpoint, method, config, headers={}, data=False):
 def updateIPs(ips):
     for ip in ips.values():
         commitRecord(ip)
+        #updateLoadBalancer(ip)
 
 
 if __name__ == '__main__':
     shown_ipv4_warning = False
+    shown_ipv4_warning_secondary = False
     shown_ipv6_warning = False
+    shown_ipv6_warning_secondary = False
     ipv4_enabled = True
     ipv6_enabled = True
     purgeUnknownRecords = False
@@ -247,13 +291,14 @@ if __name__ == '__main__':
         if ttl < 30:
             ttl = 30  #
             print("⚙️ TTL is too low - defaulting to 30 seconds")
-        if(len(sys.argv) > 1):
-            if(sys.argv[1] == "--repeat"):
+        if (len(sys.argv) > 1):
+            if (sys.argv[1] == "--repeat"):
                 if ipv4_enabled and ipv6_enabled:
                     print(
                         "🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every " + str(ttl) + " seconds")
                 elif ipv4_enabled and not ipv6_enabled:
-                    print("🕰️ Updating IPv4 (A) records every " + str(ttl) + " seconds")
+                    print("🕰️ Updating IPv4 (A) records every " +
+                          str(ttl) + " seconds")
                 elif ipv6_enabled and not ipv4_enabled:
                     print("🕰️ Updating IPv6 (AAAA) records every " +
                           str(ttl) + " seconds")

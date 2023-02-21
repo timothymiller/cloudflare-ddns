@@ -1,0 +1,9 @@
+[Unit]
+Description=Update DDNS on Cloudflare every 15 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15m
+
+[Install]
+WantedBy=timers.target

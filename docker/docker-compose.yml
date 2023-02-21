@@ -1,11 +1,11 @@
-version: "3.7"
+version: '3.9'
 services:
   cloudflare-ddns:
     image: timothyjmiller/cloudflare-ddns:latest
     container_name: cloudflare-ddns
     security_opt:
       - no-new-privileges:true
-    network_mode: "host"
+    network_mode: 'host'
     environment:
       - PUID=1000
       - PGID=1000
