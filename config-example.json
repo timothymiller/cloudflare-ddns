@@ -21,8 +21,20 @@
       ]
     }
   ],
-  "a": true,
-  "aaaa": true,
+  "ip": {
+    "a": {
+      "enabled": true,
+      "method": "http", // or "netif" or "script"
+      "interface": "eth0", // interface name to get IPv4 address, used in interface mode
+      "script": "script_v4.sh" // path to script to get IPv4 address
+    },
+    "aaaa": {
+      "enabled": true,
+      "method": "http",
+      "interface": "eth0",
+      "script": "script_v6.sh"
+    }
+  },
   "purgeUnknownRecords": false,
   "ttl": 300
 }
