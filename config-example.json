@@ -8,15 +8,32 @@
           "account_email": "your_email_here"
         }
       },
-      "zone_id": "your_zone_id_here",
-      "subdomains": [
+      "zones": [
         {
-          "name": "",
-          "proxied": false
+          "zone_id": "your_zone_id_1_here",
+          "subdomains": [
+            {
+              "name": "",
+              "proxied": false
+            },
+            {
+              "name": "remove_or_replace_with_your_subdomain",
+              "proxied": false
+            }
+          ]
         },
         {
-          "name": "remove_or_replace_with_your_subdomain",
-          "proxied": false
+          "zone_id": "your_zone_id_2_here",
+          "subdomains": [
+            {
+              "name": "subdomain1",
+              "proxied": true
+            },
+            {
+              "name": "subdomain2",
+              "proxied": false
+            }
+          ]
         }
       ]
     }
