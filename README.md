@@ -256,11 +256,6 @@ If you have multiple IP addresses and want to load balance between them, you can
   "purgeUnknownRecords": false,
   "ttl": 300
 }
-  "a": true,
-  "aaaa": true,
-  "purgeUnknownRecords": false,
-  "ttl": 300
-}
 ```
 
 ### 🧹 Optional features
