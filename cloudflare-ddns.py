@@ -286,8 +286,8 @@ if __name__ == '__main__':
             print(
                 "⚙️ No config detected for 'ttl' - defaulting to 300 seconds (5 minutes)")
         if ttl < 30:
-            ttl = 30  #
-            print("⚙️ TTL is too low - defaulting to 30 seconds")
+            ttl = 1  #
+            print("⚙️ TTL is too low - defaulting to 1 (auto)")
         if (len(sys.argv) > 1):
             if (sys.argv[1] == "--repeat"):
                 if ipv4_enabled and ipv6_enabled:
