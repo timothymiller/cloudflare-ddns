@@ -98,27 +98,30 @@ Do not include the base domain name in your `subdomains` config. Do not use the 
   "cloudflare": [
     {
       "authentication": {
-        "api_token": "api_token_here", // Either api_token or api_key
+        "api_token": "api_token_here",  // Either api_token or api_key
         "api_key": {
           "api_key": "api_key_here",
           "account_email": "your_email_here"
         }
       },
-      "zone_id": "your_zone_id_here",
-      "subdomains": [
+      "zones": [
         {
-          "name": "", // Root domain (example.com)
-          "proxied": true
-        },
-        {
-          "name": "foo", // (foo.example.com)
-          "proxied": true
-        },
-        {
-          "name": "bar", // (bar.example.com)
-          "proxied": true
+          "zone_id": "your_zone_id_here", // Zone ID for example.com
+          "subdomains": [
+            {
+              "name": "", // Root domain (example.com)
+              "proxied": false
+            },
+            {
+              "name": "foo", // (foo.example.com)
+              "proxied": true
+            },
+            {
+              "name": "bar", // (bar.example.com)
+              "proxied": true
+            }
+          ]
         }
-      ]
     }
   ],
   "a": true,
@@ -147,15 +150,32 @@ If you are using API Tokens, make sure the token used supports editing your zone
           "account_email": "your_email_here"
         }
       },
-      "zone_id": "your_first_zone_id_here",
-      "subdomains": [
+      "zones": [
         {
-          "name": "",
-          "proxied": false
+          "zone_id": "your_zone_id_1_here",
+          "subdomains": [
+            {
+              "name": "",
+              "proxied": false
+            },
+            {
+              "name": "remove_or_replace_with_your_subdomain",
+              "proxied": false
+            }
+          ]
         },
         {
-          "name": "remove_or_replace_with_your_subdomain",
-          "proxied": false
+          "zone_id": "your_zone_id_2_here",
+          "subdomains": [
+            {
+              "name": "subdomain1",
+              "proxied": true
+            },
+            {
+              "name": "subdomain2",
+              "proxied": false
+            }
+          ]
         }
       ]
     },
@@ -167,15 +187,32 @@ If you are using API Tokens, make sure the token used supports editing your zone
           "account_email": "your_email_here"
         }
       },
-      "zone_id": "your_second_zone_id_here",
-      "subdomains": [
+      "zones": [
         {
-          "name": "",
-          "proxied": false
+          "zone_id": "your_zone_id_1_here",
+          "subdomains": [
+            {
+              "name": "",
+              "proxied": false
+            },
+            {
+              "name": "remove_or_replace_with_your_subdomain",
+              "proxied": false
+            }
+          ]
         },
         {
-          "name": "remove_or_replace_with_your_subdomain",
-          "proxied": false
+          "zone_id": "your_zone_id_2_here",
+          "subdomains": [
+            {
+              "name": "subdomain1",
+              "proxied": true
+            },
+            {
+              "name": "subdomain2",
+              "proxied": false
+            }
+          ]
         }
       ]
     }
@@ -203,19 +240,36 @@ If you have multiple IP addresses and want to load balance between them, you can
           "account_email": "your_email_here"
         }
       },
-      "zone_id": "your_zone_id_here",
-      "subdomains": [
+      "zones": [
         {
-          "name": "",
-          "proxied": false
+          "zone_id": "your_zone_id_1_here",
+          "subdomains": [
+            {
+              "name": "",
+              "proxied": false
+            },
+            {
+              "name": "remove_or_replace_with_your_subdomain",
+              "proxied": false
+            }
+          ]
         },
         {
-          "name": "remove_or_replace_with_your_subdomain",
-          "proxied": false
+          "zone_id": "your_zone_id_2_here",
+          "subdomains": [
+            {
+              "name": "subdomain1",
+              "proxied": true
+            },
+            {
+              "name": "subdomain2",
+              "proxied": false
+            }
+          ]
         }
       ]
     }
-  ],{
+  ],
   "cloudflare": [
     {
       "authentication": {
@@ -225,15 +279,32 @@ If you have multiple IP addresses and want to load balance between them, you can
           "account_email": "your_email_here"
         }
       },
-      "zone_id": "your_zone_id_here",
-      "subdomains": [
+      "zones": [
         {
-          "name": "",
-          "proxied": false
+          "zone_id": "your_zone_id_1_here",
+          "subdomains": [
+            {
+              "name": "",
+              "proxied": false
+            },
+            {
+              "name": "remove_or_replace_with_your_subdomain",
+              "proxied": false
+            }
+          ]
         },
         {
-          "name": "remove_or_replace_with_your_subdomain",
-          "proxied": false
+          "zone_id": "your_zone_id_2_here",
+          "subdomains": [
+            {
+              "name": "subdomain1",
+              "proxied": true
+            },
+            {
+              "name": "subdomain2",
+              "proxied": false
+            }
+          ]
         }
       ]
     }

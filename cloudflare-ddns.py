@@ -35,19 +35,20 @@ def deleteEntries(type):
     # in the case of no IPv4 or IPv6 connection, yet
     # existing A or AAAA records are found.
     for option in config["cloudflare"]:
-        answer = cf_api(
-            "zones/" + option['zone_id'] +
-            "/dns_records?per_page=100&type=" + type,
-            "GET", option)
-        if answer is None or answer["result"] is None:
-            time.sleep(5)
-            return
-        for record in answer["result"]:
-            identifier = str(record["id"])
-            cf_api(
-                "zones/" + option['zone_id'] + "/dns_records/" + identifier,
-                "DELETE", option)
-            print("🗑️ Deleted stale record " + identifier)
+        for zone in option["zones"]:
+            answer = cf_api(
+                "zones/" + zone['zone_id'] +
+                "/dns_records?per_page=100&type=" + type,
+                "GET", zone)
+            if answer is None or answer["result"] is None:
+                time.sleep(5)
+                return
+            for record in answer["result"]:
+                identifier = str(record["id"])
+                cf_api(
+                    "zones/" + zone['zone_id'] + "/dns_records/" + identifier,
+                    "DELETE", zone)
+                print("🗑️ Deleted stale record " + identifier)
 
 
 def getIPs():
@@ -77,7 +78,8 @@ def getIPs():
                 global shown_ipv4_warning_secondary
                 if not shown_ipv4_warning_secondary:
                     shown_ipv4_warning_secondary = True
-                    print("🧩 IPv4 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                    print(
+                        "🧩 IPv4 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
                 if purgeUnknownRecords:
                     deleteEntries("A")
     if ipv6_enabled:
@@ -100,7 +102,8 @@ def getIPs():
                 global shown_ipv6_warning_secondary
                 if not shown_ipv6_warning_secondary:
                     shown_ipv6_warning_secondary = True
-                    print("🧩 IPv6 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                    print(
+                        "🧩 IPv6 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
                 if purgeUnknownRecords:
                     deleteEntries("AAAA")
     ips = {}
@@ -118,76 +121,82 @@ def getIPs():
 
 
 def commitRecord(ip):
-    global ttl
     for option in config["cloudflare"]:
-        subdomains = option["subdomains"]
-        response = cf_api("zones/" + option['zone_id'], "GET", option)
-        if response is None or response["result"]["name"] is None:
-            time.sleep(5)
-            return
-        base_domain_name = response["result"]["name"]
-        for subdomain in subdomains:
-            try:
-                name = subdomain["name"].lower().strip()
-                proxied = subdomain["proxied"]
-            except:
-                name = subdomain
-                proxied = option["proxied"]
-            fqdn = base_domain_name
-            # Check if name provided is a reference to the root domain
-            if name != '' and name != '@':
-                fqdn = name + "." + base_domain_name
-            record = {
-                "type": ip["type"],
-                "name": fqdn,
-                "content": ip["ip"],
-                "proxied": proxied,
-                "ttl": ttl
-            }
-            dns_records = cf_api(
-                "zones/" + option['zone_id'] +
-                "/dns_records?per_page=100&type=" + ip["type"],
-                "GET", option)
-            identifier = None
-            modified = False
-            duplicate_ids = []
-            if dns_records is not None:
-                for r in dns_records["result"]:
-                    if (r["name"] == fqdn):
-                        if identifier:
-                            if r["content"] == ip["ip"]:
-                                duplicate_ids.append(identifier)
-                                identifier = r["id"]
-                            else:
-                                duplicate_ids.append(r["id"])
-                        else:
-                            identifier = r["id"]
-                            if r['content'] != record['content'] or r['proxied'] != record['proxied']:
-                                modified = True
-            if identifier:
-                if modified:
-                    print("📡 Updating record " + str(record))
-                    response = cf_api(
-                        "zones/" + option['zone_id'] +
-                        "/dns_records/" + identifier,
-                        "PUT", option, {}, record)
-            else:
-                print("➕ Adding new record " + str(record))
-                response = cf_api(
-                    "zones/" + option['zone_id'] + "/dns_records", "POST", option, {}, record)
-            if purgeUnknownRecords:
-                for identifier in duplicate_ids:
-                    identifier = str(identifier)
-                    print("🗑️ Deleting stale record " + identifier)
-                    response = cf_api(
-                        "zones/" + option['zone_id'] +
-                        "/dns_records/" + identifier,
-                        "DELETE", option)
+        for zone in option["zones"]:
+            zone_id = zone["zone_id"]
+            subdomains = zone["subdomains"]
+            response = cf_api("zones/" + zone_id, "GET", option)
+            if response is None or response["result"]["name"] is None:
+                time.sleep(5)
+                return
+            base_domain_name = response["result"]["name"]
+            updateRecordForSubDomains(zone_id, base_domain_name, subdomains, ip, option)
+
     return True
 
 
-def updateLoadBalancer(ip):
+def updateRecordForSubDomains(zone_id, base_domain_name, subdomains, ip, option):
+    global ttl
+    for subdomain in subdomains:
+        try:
+            name = subdomain["name"].lower().strip()
+            proxied = subdomain["proxied"]
+        except:
+            name = subdomain
+            proxied = option["proxied"]
+        fqdn = base_domain_name
+        # Check if name provided is a reference to the root domain
+        if name != '' and name != '@':
+            fqdn = name + "." + base_domain_name
+        record = {
+            "type": ip["type"],
+            "name": fqdn,
+            "content": ip["ip"],
+            "proxied": proxied,
+            "ttl": ttl
+        }
+        dns_records = cf_api(
+            "zones/" + zone_id +
+            "/dns_records?per_page=100&type=" + ip["type"],
+            "GET", option)
+        identifier = None
+        modified = False
+        duplicate_ids = []
+        if dns_records is not None:
+            for r in dns_records["result"]:
+                if (r["name"] == fqdn):
+                    if identifier:
+                        if r["content"] == ip["ip"]:
+                            duplicate_ids.append(identifier)
+                            identifier = r["id"]
+                        else:
+                            duplicate_ids.append(r["id"])
+                    else:
+                        identifier = r["id"]
+                        if r['content'] != record['content'] or r['proxied'] != record['proxied']:
+                            modified = True
+        if identifier:
+            if modified:
+                print("📡 Updating record " + str(record))
+                response = cf_api(
+                    "zones/" + zone_id +
+                    "/dns_records/" + identifier,
+                    "PUT", option, {}, record)
+        else:
+            print("➕ Adding new record " + str(record))
+            response = cf_api(
+                "zones/" + zone_id + "/dns_records", "POST", option, {}, record)
+        if purgeUnknownRecords:
+            for identifier in duplicate_ids:
+                identifier = str(identifier)
+                print("🗑️ Deleting stale record " + identifier)
+                response = cf_api(
+                    "zones/" + zone_id +
+                    "/dns_records/" + identifier,
+                    "DELETE", option)
+    return True
 
+def updateLoadBalancer(ip):
     for option in config["load_balancer"]:
         pools = cf_api('user/load_balancers/pools', 'GET', option)
 
@@ -242,7 +251,7 @@ def cf_api(endpoint, method, config, headers={}, data=False):
 def updateIPs(ips):
     for ip in ips.values():
         commitRecord(ip)
-        #updateLoadBalancer(ip)
+        # updateLoadBalancer(ip)
 
 
 if __name__ == '__main__':
@@ -273,7 +282,8 @@ if __name__ == '__main__':
         except:
             ipv4_enabled = True
             ipv6_enabled = True
-            print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
+            print(
+                "⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
         try:
             purgeUnknownRecords = config["purgeUnknownRecords"]
         except:
