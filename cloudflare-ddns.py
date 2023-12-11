@@ -17,6 +17,7 @@ import time
 import requests
 
 CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd())
+CONFIG_FILE = os.environ.get('CONFIG_FILE', "config.json")
 
 
 class GracefulExit:
@@ -259,10 +260,10 @@ if __name__ == '__main__':
 
     config = None
     try:
-        with open(os.path.join(CONFIG_PATH, "config.json")) as config_file:
+        with open(os.path.join(CONFIG_PATH, CONFIG_FILE)) as config_file:
             config = json.loads(config_file.read())
     except:
-        print("😡 Error reading config.json")
+        print("😡 Error reading " + CONFIG_FILE)
         # wait 10 seconds to prevent excessive logging on docker auto restart
         time.sleep(10)
 
