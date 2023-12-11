@@ -258,6 +258,20 @@ If you have multiple IP addresses and want to load balance between them, you can
 }
 ```
 
+### Docker environment variable support
+
+Define environmental variables starts with `CF_DDNS_` and use it in config.json
+
+For ex:
+
+```json
+{
+  "cloudflare": [
+    {
+      "authentication": {
+        "api_token": "${CF_DDNS_API_TOKEN}",
+```
+
 ### 🧹 Optional features
 
 `purgeUnknownRecords` removes stale DNS records from Cloudflare. This is useful if you have a dynamic DNS record that you no longer want to use. If you have a dynamic DNS record that you no longer want to use, you can set `purgeUnknownRecords` to `true` and the script will remove the stale DNS record from Cloudflare.
