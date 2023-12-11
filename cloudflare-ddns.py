@@ -6,17 +6,58 @@
 #                A small, 🕵️ privacy centric, and ⚡
 #                lightning fast multi-architecture Docker image for self hosting projects.
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
+import fcntl
 import json
 import os
+import platform
+import requests
 import signal
+import socket
+import struct
 import sys
 import threading
 import time
-import requests
 
 CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd())
+shown_ipv4_warning = False
+shown_ipv4_warning_secondary = False
+shown_ipv6_warning = False
+shown_ipv6_warning_secondary = False
+
+
+def get_ip_address(ifname):
+    # helper function for getting the IPv4 address of an interface
+    # credit: https://stackoverflow.com/a/24196955
+    if platform.system() != 'Linux':
+        raise OSError("This method only works on Linux")
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    return socket.inet_ntoa(fcntl.ioctl(
+        s.fileno(),
+        0x8915,  # SIOCGIFADDR
+        struct.pack('256s', bytes(ifname[:15], 'utf-8'))
+    )[20:24])
+
+
+def get_ipv6_address(ifname):
+    # helper function for getting the IPv6 address of an interface
+    # credit: https://stackoverflow.com/questions/20743709 and ChatGPT
+    if platform.system() != 'Linux':
+        raise OSError("This method only works on Linux")
+
+    with open('/proc/net/if_inet6') as f:
+        for line in f:
+            fields = line.split()
+            if_name = fields[-1]
+            # only use the global ipv6 address
+            if if_name == ifname and fields[0].startswith(('2', '3', '4', '5', '6')):
+                if_addr = fields[0]
+                ipv6 = ":".join([if_addr[i:i+4]
+                                for i in range(0, len(if_addr), 4)])
+                return ipv6
+    return None
 
 
 class GracefulExit:
@@ -56,53 +97,80 @@ def getIPs():
     global ipv4_enabled
     global ipv6_enabled
     global purgeUnknownRecords
+    global method
+    global interfaces
+
     if ipv4_enabled:
-        try:
-            a = requests.get(
-                "https://1.1.1.1/cdn-cgi/trace").text.split("\n")
-            a.pop()
-            a = dict(s.split("=") for s in a)["ip"]
-        except Exception:
-            global shown_ipv4_warning
-            if not shown_ipv4_warning:
-                shown_ipv4_warning = True
-                print("🧩 IPv4 not detected via 1.1.1.1, trying 1.0.0.1")
-            # Try secondary IP check
+        if method == 'http':
             try:
                 a = requests.get(
-                    "https://1.0.0.1/cdn-cgi/trace").text.split("\n")
+                    "https://1.1.1.1/cdn-cgi/trace").text.split("\n")
                 a.pop()
                 a = dict(s.split("=") for s in a)["ip"]
             except Exception:
-                global shown_ipv4_warning_secondary
-                if not shown_ipv4_warning_secondary:
-                    shown_ipv4_warning_secondary = True
-                    print("🧩 IPv4 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                global shown_ipv4_warning
+                if not shown_ipv4_warning:
+                    shown_ipv4_warning = True
+                    print("🧩 IPv4 not detected via 1.1.1.1, trying 1.0.0.1")
+                # Try secondary IP check
+                try:
+                    a = requests.get(
+                        "https://1.0.0.1/cdn-cgi/trace").text.split("\n")
+                    a.pop()
+                    a = dict(s.split("=") for s in a)["ip"]
+                except Exception:
+                    global shown_ipv4_warning_secondary
+                    if not shown_ipv4_warning_secondary:
+                        shown_ipv4_warning_secondary = True
+                        print(
+                            "🧩 IPv4 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                    if purgeUnknownRecords:
+                        deleteEntries("A")
+        else:
+            try:
+                a = get_ip_address(interface)
+            except Exception:
+                if not shown_ipv4_warning:
+                    shown_ipv4_warning = True
+                    print("🧩 IPv4 not detected via " + interface +
+                          ". Verify your interface is up and has an IPv4 address.")
                 if purgeUnknownRecords:
                     deleteEntries("A")
+
     if ipv6_enabled:
-        try:
-            aaaa = requests.get(
-                "https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
-            aaaa.pop()
-            aaaa = dict(s.split("=") for s in aaaa)["ip"]
-        except Exception:
-            global shown_ipv6_warning
-            if not shown_ipv6_warning:
-                shown_ipv6_warning = True
-                print("🧩 IPv6 not detected via 1.1.1.1, trying 1.0.0.1")
+        if method == 'http':
             try:
                 aaaa = requests.get(
-                    "https://[2606:4700:4700::1001]/cdn-cgi/trace").text.split("\n")
+                    "https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
                 aaaa.pop()
                 aaaa = dict(s.split("=") for s in aaaa)["ip"]
             except Exception:
-                global shown_ipv6_warning_secondary
-                if not shown_ipv6_warning_secondary:
-                    shown_ipv6_warning_secondary = True
-                    print("🧩 IPv6 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                if not shown_ipv6_warning:
+                    shown_ipv6_warning = True
+                    print("🧩 IPv6 not detected via 1.1.1.1, trying 1.0.0.1")
+                try:
+                    aaaa = requests.get(
+                        "https://[2606:4700:4700::1001]/cdn-cgi/trace").text.split("\n")
+                    aaaa.pop()
+                    aaaa = dict(s.split("=") for s in aaaa)["ip"]
+                except Exception:
+                    if not shown_ipv6_warning_secondary:
+                        shown_ipv6_warning_secondary = True
+                        print(
+                            "🧩 IPv6 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                    if purgeUnknownRecords:
+                        deleteEntries("AAAA")
+        else:
+            try:
+                aaaa = get_ipv6_address(interface)
+            except Exception:
+                if not shown_ipv6_warning:
+                    shown_ipv6_warning = True
+                    print("🧩 IPv6 not detected via " + interface +
+                          ". Verify your interface is up and has an IPv6 address.")
                 if purgeUnknownRecords:
                     deleteEntries("AAAA")
+
     ips = {}
     if (a is not None):
         ips["ipv4"] = {
@@ -203,7 +271,8 @@ def updateLoadBalancer(ip):
             origins[idx]['address'] = ip['ip']
             data = {'origins': origins}
 
-            response = cf_api(f'user/load_balancers/pools/{option["pool_id"]}', 'PATCH', option, {}, data)
+            response = cf_api(
+                f'user/load_balancers/pools/{option["pool_id"]}', 'PATCH', option, {}, data)
 
 
 def cf_api(endpoint, method, config, headers={}, data=False):
@@ -246,13 +315,11 @@ def updateIPs(ips):
 
 
 if __name__ == '__main__':
-    shown_ipv4_warning = False
-    shown_ipv4_warning_secondary = False
-    shown_ipv6_warning = False
-    shown_ipv6_warning_secondary = False
     ipv4_enabled = True
     ipv6_enabled = True
     purgeUnknownRecords = False
+    method = 'http'
+    interface = ''
 
     if sys.version_info < (3, 5):
         raise Exception("🐍 This script requires Python 3.5+")
@@ -274,6 +341,11 @@ if __name__ == '__main__':
             ipv4_enabled = True
             ipv6_enabled = True
             print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
+        try:
+            method = config["method"]
+            interface = config["interface"]
+        except:
+            print("⚙️ No config detected for 'method' - defaulting to 'http'")
         try:
             purgeUnknownRecords = config["purgeUnknownRecords"]
         except:
