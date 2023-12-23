@@ -15,9 +15,14 @@ import sys
 import threading
 import time
 import requests
+import logging
 
 CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd())
+FORMATTER = logging.Formatter("%(asctime)s — %(name)s — %(levelname)s — %(message)s")
 
+def getLogger():
+    logger = logging.getLogger(__name__)
+    return logger
 
 class GracefulExit:
     def __init__(self):
@@ -26,7 +31,7 @@ class GracefulExit:
         signal.signal(signal.SIGTERM, self.exit_gracefully)
 
     def exit_gracefully(self, signum, frame):
-        print("🛑 Stopping main thread...")
+        getLogger().info("🛑 Stopping main thread...")
         self.kill_now.set()
 
 
@@ -47,7 +52,7 @@ def deleteEntries(type):
             cf_api(
                 "zones/" + option['zone_id'] + "/dns_records/" + identifier,
                 "DELETE", option)
-            print("🗑️ Deleted stale record " + identifier)
+            getLogger().info("🗑️ Deleted stale record " + identifier)
 
 
 def getIPs():
@@ -56,51 +61,52 @@ def getIPs():
     global ipv4_enabled
     global ipv6_enabled
     global purgeUnknownRecords
+    global timeout
     if ipv4_enabled:
         try:
             a = requests.get(
-                "https://1.1.1.1/cdn-cgi/trace").text.split("\n")
+                "https://1.1.1.1/cdn-cgi/trace", timeout=timeout).text.split("\n")
             a.pop()
             a = dict(s.split("=") for s in a)["ip"]
         except Exception:
             global shown_ipv4_warning
             if not shown_ipv4_warning:
                 shown_ipv4_warning = True
-                print("🧩 IPv4 not detected via 1.1.1.1, trying 1.0.0.1")
+                getLogger().info("🧩 IPv4 not detected via 1.1.1.1, trying 1.0.0.1")
             # Try secondary IP check
             try:
                 a = requests.get(
-                    "https://1.0.0.1/cdn-cgi/trace").text.split("\n")
+                    "https://1.0.0.1/cdn-cgi/trace", timeout=timeout).text.split("\n")
                 a.pop()
                 a = dict(s.split("=") for s in a)["ip"]
             except Exception:
                 global shown_ipv4_warning_secondary
                 if not shown_ipv4_warning_secondary:
                     shown_ipv4_warning_secondary = True
-                    print("🧩 IPv4 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                    getLogger().info("🧩 IPv4 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
                 if purgeUnknownRecords:
                     deleteEntries("A")
     if ipv6_enabled:
         try:
             aaaa = requests.get(
-                "https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
+                "https://[2606:4700:4700::1111]/cdn-cgi/trace", timeout=timeout).text.split("\n")
             aaaa.pop()
             aaaa = dict(s.split("=") for s in aaaa)["ip"]
         except Exception:
             global shown_ipv6_warning
             if not shown_ipv6_warning:
                 shown_ipv6_warning = True
-                print("🧩 IPv6 not detected via 1.1.1.1, trying 1.0.0.1")
+                getLogger().info("🧩 IPv6 not detected via 1.1.1.1, trying 1.0.0.1")
             try:
                 aaaa = requests.get(
-                    "https://[2606:4700:4700::1001]/cdn-cgi/trace").text.split("\n")
+                    "https://[2606:4700:4700::1001]/cdn-cgi/trace", timeout=timeout).text.split("\n")
                 aaaa.pop()
                 aaaa = dict(s.split("=") for s in aaaa)["ip"]
             except Exception:
                 global shown_ipv6_warning_secondary
                 if not shown_ipv6_warning_secondary:
                     shown_ipv6_warning_secondary = True
-                    print("🧩 IPv6 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                    getLogger().info("🧩 IPv6 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
                 if purgeUnknownRecords:
                     deleteEntries("AAAA")
     ips = {}
@@ -166,23 +172,24 @@ def commitRecord(ip):
                                 modified = True
             if identifier:
                 if modified:
-                    print("📡 Updating record " + str(record))
+                    getLogger().info("📡 Updating record " + str(record))
                     response = cf_api(
                         "zones/" + option['zone_id'] +
                         "/dns_records/" + identifier,
                         "PUT", option, {}, record)
             else:
-                print("➕ Adding new record " + str(record))
+                getLogger().info("➕ Adding new record " + str(record))
                 response = cf_api(
                     "zones/" + option['zone_id'] + "/dns_records", "POST", option, {}, record)
             if purgeUnknownRecords:
                 for identifier in duplicate_ids:
                     identifier = str(identifier)
-                    print("🗑️ Deleting stale record " + identifier)
+                    getLogger().info("🗑️ Deleting stale record " + identifier)
                     response = cf_api(
                         "zones/" + option['zone_id'] +
                         "/dns_records/" + identifier,
                         "DELETE", option)
+    getLogger().debug("📡 Updated ip " + str(ip))
     return True
 
 
@@ -220,21 +227,21 @@ def cf_api(endpoint, method, config, headers={}, data=False):
     try:
         if (data == False):
             response = requests.request(
-                method, "https://api.cloudflare.com/client/v4/" + endpoint, headers=headers)
+                method, "https://api.cloudflare.com/client/v4/" + endpoint, headers=headers, timeout=timeout)
         else:
             response = requests.request(
                 method, "https://api.cloudflare.com/client/v4/" + endpoint,
-                headers=headers, json=data)
+                headers=headers, json=data, timeout=timeout)
 
         if response.ok:
             return response.json()
         else:
-            print("😡 Error sending '" + method +
+            getLogger().info("😡 Error sending '" + method +
                   "' request to '" + response.url + "':")
-            print(response.text)
+            getLogger().info(response.text)
             return None
     except Exception as e:
-        print("😡 An exception occurred while sending '" +
+        getLogger().info("😡 An exception occurred while sending '" +
               method + "' request to '" + endpoint + "': " + str(e))
         return None
 
@@ -253,6 +260,13 @@ if __name__ == '__main__':
     ipv4_enabled = True
     ipv6_enabled = True
     purgeUnknownRecords = False
+    timeout = 15
+    logging_level = 'INFO'
+    logger = getLogger()
+    logging_handler = logging.StreamHandler(sys.stdout)
+    logging_handler.setFormatter(FORMATTER)
+    logger.addHandler(logging_handler)
+    logger.setLevel(logging.getLevelName(logging_level))
 
     if sys.version_info < (3, 5):
         raise Exception("🐍 This script requires Python 3.5+")
@@ -268,36 +282,48 @@ if __name__ == '__main__':
 
     if config is not None:
         try:
+            logging_level = config["logging"]
+            logger.setLevel(logging.getLevelName(logging_level))
+        except:
+            getLogger().info("⚙️ Error config logger - defaulting to INFO")
+            logger.setLevel(logging.INFO)
+        try:
             ipv4_enabled = config["a"]
             ipv6_enabled = config["aaaa"]
         except:
             ipv4_enabled = True
             ipv6_enabled = True
-            print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
+            getLogger().info("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
         try:
             purgeUnknownRecords = config["purgeUnknownRecords"]
         except:
             purgeUnknownRecords = False
-            print("⚙️ No config detected for 'purgeUnknownRecords' - defaulting to False")
+            getLogger().info("⚙️ No config detected for 'purgeUnknownRecords' - defaulting to False")
         try:
             ttl = int(config["ttl"])
         except:
             ttl = 300  # default Cloudflare TTL
-            print(
-                "⚙️ No config detected for 'ttl' - defaulting to 300 seconds (5 minutes)")
+            getLogger().info("⚙️ No config detected for 'ttl' - defaulting to 300 seconds (5 minutes)")
         if ttl < 30:
             ttl = 1  #
-            print("⚙️ TTL is too low - defaulting to 1 (auto)")
+            getLogger().info("⚙️ TTL is too low - defaulting to 1 (auto)")
+        try:
+            timeout = int(config["timeout"])
+        except:
+            timeout = ttl
+            getLogger().info("⚙️ No config detected for 'timeout' - defaulting to %d seconds", timeout)
+        if timeout < 10:
+            timeout = 10
+            getLogger().info("⚙️ Timeout is too low - defaulting to %d seconds", timeout)
         if (len(sys.argv) > 1):
             if (sys.argv[1] == "--repeat"):
                 if ipv4_enabled and ipv6_enabled:
-                    print(
-                        "🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every " + str(ttl) + " seconds")
+                    getLogger().info("🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every " + str(ttl) + " seconds")
                 elif ipv4_enabled and not ipv6_enabled:
-                    print("🕰️ Updating IPv4 (A) records every " +
+                    getLogger().info("🕰️ Updating IPv4 (A) records every " +
                           str(ttl) + " seconds")
                 elif ipv6_enabled and not ipv4_enabled:
-                    print("🕰️ Updating IPv6 (AAAA) records every " +
+                    getLogger().info("🕰️ Updating IPv6 (AAAA) records every " +
                           str(ttl) + " seconds")
                 next_time = time.time()
                 killer = GracefulExit()
@@ -307,7 +333,7 @@ if __name__ == '__main__':
                     if killer.kill_now.wait(ttl):
                         break
             else:
-                print("❓ Unrecognized parameter '" +
+                getLogger().info("❓ Unrecognized parameter '" +
                       sys.argv[1] + "'. Stopping now.")
         else:
             updateIPs(getIPs())
