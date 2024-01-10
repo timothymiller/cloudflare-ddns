@@ -27,6 +27,8 @@ spec:
             - mountPath: '/etc/cloudflare-ddns'
               name: config-cloudflare-ddns
               readOnly: true
+      securityContext:
+        runAsNonRoot: true
       volumes:
         - name: config-cloudflare-ddns
           secret:
