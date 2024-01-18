@@ -16,8 +16,13 @@ import threading
 import time
 import requests
 
+from datetime import datetime
+
+
 CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd())
 
+def print_including_datetime(text):
+    print("%s: %s" % (datetime.now(), text))
 
 class GracefulExit:
     def __init__(self):
@@ -26,9 +31,8 @@ class GracefulExit:
         signal.signal(signal.SIGTERM, self.exit_gracefully)
 
     def exit_gracefully(self, signum, frame):
-        print("🛑 Stopping main thread...")
+        print_including_datetime("🛑 Stopping main thread...")
         self.kill_now.set()
-
 
 def deleteEntries(type):
     # Helper function for deleting A or AAAA records
@@ -47,7 +51,7 @@ def deleteEntries(type):
             cf_api(
                 "zones/" + option['zone_id'] + "/dns_records/" + identifier,
                 "DELETE", option)
-            print("🗑️ Deleted stale record " + identifier)
+            print_including_datetime("🗑️ Deleted stale record " + identifier)
 
 
 def getIPs():
@@ -66,7 +70,7 @@ def getIPs():
             global shown_ipv4_warning
             if not shown_ipv4_warning:
                 shown_ipv4_warning = True
-                print("🧩 IPv4 not detected via 1.1.1.1, trying 1.0.0.1")
+                print_including_datetime("🧩 IPv4 not detected via 1.1.1.1, trying 1.0.0.1")
             # Try secondary IP check
             try:
                 a = requests.get(
@@ -77,7 +81,7 @@ def getIPs():
                 global shown_ipv4_warning_secondary
                 if not shown_ipv4_warning_secondary:
                     shown_ipv4_warning_secondary = True
-                    print("🧩 IPv4 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                    print_including_datetime("🧩 IPv4 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
                 if purgeUnknownRecords:
                     deleteEntries("A")
     if ipv6_enabled:
@@ -90,7 +94,7 @@ def getIPs():
             global shown_ipv6_warning
             if not shown_ipv6_warning:
                 shown_ipv6_warning = True
-                print("🧩 IPv6 not detected via 1.1.1.1, trying 1.0.0.1")
+                print_including_datetime("🧩 IPv6 not detected via 1.1.1.1, trying 1.0.0.1")
             try:
                 aaaa = requests.get(
                     "https://[2606:4700:4700::1001]/cdn-cgi/trace").text.split("\n")
@@ -100,7 +104,7 @@ def getIPs():
                 global shown_ipv6_warning_secondary
                 if not shown_ipv6_warning_secondary:
                     shown_ipv6_warning_secondary = True
-                    print("🧩 IPv6 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                    print_including_datetime("🧩 IPv6 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
                 if purgeUnknownRecords:
                     deleteEntries("AAAA")
     ips = {}
@@ -166,19 +170,19 @@ def commitRecord(ip):
                                 modified = True
             if identifier:
                 if modified:
-                    print("📡 Updating record " + str(record))
+                    print_including_datetime("📡 Updating record " + str(record))
                     response = cf_api(
                         "zones/" + option['zone_id'] +
                         "/dns_records/" + identifier,
                         "PUT", option, {}, record)
             else:
-                print("➕ Adding new record " + str(record))
+                print_including_datetime("➕ Adding new record " + str(record))
                 response = cf_api(
                     "zones/" + option['zone_id'] + "/dns_records", "POST", option, {}, record)
             if purgeUnknownRecords:
                 for identifier in duplicate_ids:
                     identifier = str(identifier)
-                    print("🗑️ Deleting stale record " + identifier)
+                    print_including_datetime("🗑️ Deleting stale record " + identifier)
                     response = cf_api(
                         "zones/" + option['zone_id'] +
                         "/dns_records/" + identifier,
@@ -229,12 +233,12 @@ def cf_api(endpoint, method, config, headers={}, data=False):
         if response.ok:
             return response.json()
         else:
-            print("😡 Error sending '" + method +
+            print_including_datetime("😡 Error sending '" + method +
                   "' request to '" + response.url + "':")
-            print(response.text)
+            print_including_datetime(response.text)
             return None
     except Exception as e:
-        print("😡 An exception occurred while sending '" +
+        print_including_datetime("😡 An exception occurred while sending '" +
               method + "' request to '" + endpoint + "': " + str(e))
         return None
 
@@ -262,7 +266,7 @@ if __name__ == '__main__':
         with open(os.path.join(CONFIG_PATH, "config.json")) as config_file:
             config = json.loads(config_file.read())
     except:
-        print("😡 Error reading config.json")
+        print_including_datetime("😡 Error reading config.json")
         # wait 10 seconds to prevent excessive logging on docker auto restart
         time.sleep(10)
 
@@ -273,31 +277,31 @@ if __name__ == '__main__':
         except:
             ipv4_enabled = True
             ipv6_enabled = True
-            print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
+            print_including_datetime("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
         try:
             purgeUnknownRecords = config["purgeUnknownRecords"]
         except:
             purgeUnknownRecords = False
-            print("⚙️ No config detected for 'purgeUnknownRecords' - defaulting to False")
+            print_including_datetime("⚙️ No config detected for 'purgeUnknownRecords' - defaulting to False")
         try:
             ttl = int(config["ttl"])
         except:
             ttl = 300  # default Cloudflare TTL
-            print(
+            print_including_datetime(
                 "⚙️ No config detected for 'ttl' - defaulting to 300 seconds (5 minutes)")
         if ttl < 30:
             ttl = 1  #
-            print("⚙️ TTL is too low - defaulting to 1 (auto)")
+            print_including_datetime("⚙️ TTL is too low - defaulting to 1 (auto)")
         if (len(sys.argv) > 1):
             if (sys.argv[1] == "--repeat"):
                 if ipv4_enabled and ipv6_enabled:
-                    print(
+                    print_including_datetime(
                         "🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every " + str(ttl) + " seconds")
                 elif ipv4_enabled and not ipv6_enabled:
-                    print("🕰️ Updating IPv4 (A) records every " +
+                    print_including_datetime("🕰️ Updating IPv4 (A) records every " +
                           str(ttl) + " seconds")
                 elif ipv6_enabled and not ipv4_enabled:
-                    print("🕰️ Updating IPv6 (AAAA) records every " +
+                    print_including_datetime("🕰️ Updating IPv6 (AAAA) records every " +
                           str(ttl) + " seconds")
                 next_time = time.time()
                 killer = GracefulExit()
@@ -307,7 +311,7 @@ if __name__ == '__main__':
                     if killer.kill_now.wait(ttl):
                         break
             else:
-                print("❓ Unrecognized parameter '" +
+                print_including_datetime("❓ Unrecognized parameter '" +
                       sys.argv[1] + "'. Stopping now.")
         else:
             updateIPs(getIPs())
