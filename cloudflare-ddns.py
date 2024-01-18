@@ -22,7 +22,7 @@ from datetime import datetime
 CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd())
 
 def print_including_datetime(text):
-    print("%s: %s" % (datetime.now().strftime("%d/%m/%Y %H:%M:%S"), text))
+    print("%s: %s" % (datetime.now(), text))
 
 class GracefulExit:
     def __init__(self):
