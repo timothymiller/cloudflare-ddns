@@ -291,7 +291,7 @@ Docker requires network_mode be set to host in order to access the IPv6 public a
 
 ### 🏃‍♂️ Running
 
-From the project root directory
+From the `docker` directory
 
 ```bash
 docker-compose up -d
