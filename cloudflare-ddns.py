@@ -291,13 +291,13 @@ if __name__ == '__main__':
         if (len(sys.argv) > 1):
             if (sys.argv[1] == "--repeat"):
                 delay = 300 if ttl == 1 else ttl
-                if ipv4_enabled and ipv6_enabled:
-                    ip_config = "IPv4 (A) & IPv6 (AAAA)"
-                elif ipv4_enabled and not ipv6_enabled:
-                    ip_config = "IPv4 (A)"
-                elif ipv6_enabled and not ipv4_enabled:
-                    ip_config = "IPv6 (AAAA)"
-                print(f"🕰️ Updating {ip_config} records every {str(delay)} seconds")
+                configured_ipvs = []
+                if ipv4_enabled:
+                    configured_ipvs.append("IPv4 (A)")
+                if ipv6_enabled:
+                    configured_ipvs.append("IPv6 (AAAA)")
+                configured_ipvs = ' & '.join(configured_ipvs)
+                print(f"🕰️ Updating {configured_ipvs} records every {str(delay)} seconds")
                 next_time = time.time()
                 killer = GracefulExit()
                 prev_ips = None
