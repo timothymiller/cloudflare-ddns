@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import requests
+from datetime import datetime
 
 CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd())
 
@@ -137,12 +138,14 @@ def commitRecord(ip):
             # Check if name provided is a reference to the root domain
             if name != '' and name != '@':
                 fqdn = name + "." + base_domain_name
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             record = {
                 "type": ip["type"],
                 "name": fqdn,
                 "content": ip["ip"],
                 "proxied": proxied,
-                "ttl": ttl
+                "ttl": ttl,
+                "comment": f"Updated by Cloudflare DDNS at {timestamp}."
             }
             dns_records = cf_api(
                 "zones/" + option['zone_id'] +
