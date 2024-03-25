@@ -277,9 +277,7 @@ services:
     security_opt:
       - no-new-privileges:true
     network_mode: 'host'
-    environment:
-      - PUID=1000
-      - PGID=1000
+    user: 1000:1000
     volumes:
       - /YOUR/PATH/HERE/config.json:/config.json
     restart: unless-stopped
