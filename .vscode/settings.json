@@ -8,6 +8,7 @@
     "**/Thumbs.db": true,
     ".github": true,
     ".gitignore": true,
+    ".dockerignore": true,
     ".vscode": true,
     "Dockerfile": true,
     "LICENSE": true,

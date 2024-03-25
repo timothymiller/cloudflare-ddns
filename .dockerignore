@@ -1,0 +1,6 @@
+# Ignore everything
+*
+
+# Allow specific files and folders
+!/requirements.txt
+!/cloudflare-ddns.py
