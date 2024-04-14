@@ -64,7 +64,9 @@ def getIPs():
     global timeout
     if ipv4_enabled:
         try:
-            a = requests.get(
+            session = requests.Session()
+            session.trust_env = False
+            a = session.get(
                 "https://1.1.1.1/cdn-cgi/trace", timeout=timeout).text.split("\n")
             a.pop()
             a = dict(s.split("=") for s in a)["ip"]
@@ -75,7 +77,9 @@ def getIPs():
                 getLogger().info("🧩 IPv4 not detected via 1.1.1.1, trying 1.0.0.1")
             # Try secondary IP check
             try:
-                a = requests.get(
+                session = requests.Session()
+                session.trust_env = False
+                a = session.get(
                     "https://1.0.0.1/cdn-cgi/trace", timeout=timeout).text.split("\n")
                 a.pop()
                 a = dict(s.split("=") for s in a)["ip"]
@@ -88,7 +92,9 @@ def getIPs():
                     deleteEntries("A")
     if ipv6_enabled:
         try:
-            aaaa = requests.get(
+            session = requests.Session()
+            session.trust_env = False
+            aaaa = session.get(
                 "https://[2606:4700:4700::1111]/cdn-cgi/trace", timeout=timeout).text.split("\n")
             aaaa.pop()
             aaaa = dict(s.split("=") for s in aaaa)["ip"]
@@ -98,11 +104,14 @@ def getIPs():
                 shown_ipv6_warning = True
                 getLogger().info("🧩 IPv6 not detected via 1.1.1.1, trying 1.0.0.1")
             try:
-                aaaa = requests.get(
+                session = requests.Session()
+                session.trust_env = False
+                aaaa = session.get(
                     "https://[2606:4700:4700::1001]/cdn-cgi/trace", timeout=timeout).text.split("\n")
                 aaaa.pop()
                 aaaa = dict(s.split("=") for s in aaaa)["ip"]
-            except Exception:
+            except Exception as e:
+                getLogger().info(str(e))
                 global shown_ipv6_warning_secondary
                 if not shown_ipv6_warning_secondary:
                     shown_ipv6_warning_secondary = True
@@ -225,11 +234,13 @@ def cf_api(endpoint, method, config, headers={}, data=False):
             "X-Auth-Key": config['authentication']['api_key']['api_key'],
         }
     try:
+        session = requests.Session()
+        session.trust_env = False
         if (data == False):
-            response = requests.request(
+            response = session.request(
                 method, "https://api.cloudflare.com/client/v4/" + endpoint, headers=headers, timeout=timeout)
         else:
-            response = requests.request(
+            response = session.request(
                 method, "https://api.cloudflare.com/client/v4/" + endpoint,
                 headers=headers, json=data, timeout=timeout)
 
