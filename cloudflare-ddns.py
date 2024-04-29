@@ -41,7 +41,7 @@ def deleteEntries(type):
             "GET", option)
         if answer is None or answer["result"] is None:
             time.sleep(5)
-            return
+            continue
         for record in answer["result"]:
             identifier = str(record["id"])
             cf_api(
