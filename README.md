@@ -266,7 +266,7 @@ If you have multiple IP addresses and want to load balance between them, you can
 
 Pre-compiled images are available via [the official docker container on DockerHub](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns).
 
-Modify the host file path of config.json inside the volumes section of docker-compose.yml.
+Copy docker/docker-compose.yml file to the root. Modify the host file path of config.json inside the volumes section of docker-compose.yml.
 
 ```yml
 version: '3.9'
