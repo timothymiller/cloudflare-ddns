@@ -15,7 +15,8 @@ import sys
 import threading
 import time
 import requests
-
+from bs4 import BeautifulSoup
+    
 CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd())
 
 
@@ -49,6 +50,41 @@ def deleteEntries(type):
                 "DELETE", option)
             print("🗑️ Deleted stale record " + identifier)
 
+def scrapeIPs():
+    global scrape_url
+    global scrape_ipv4_label
+    global scrape_ipv6_label
+    global ipv4_enabled
+    global ipv6_enabled
+    
+    ips = {}
+    
+    # URL of the page to scrape
+    
+    # Send a GET request to the URL
+    response = requests.get(scrape_url)
+    if response.content:
+        # Parse the HTML content using BeautifulSoup
+        soup = BeautifulSoup(response.content, "html.parser")
+        if soup:
+            # Find the table containing the IP address information
+            
+            # Extract the IPv4 and IPv6 addresses
+            if ipv4_enabled:
+                ipv4_address = soup.find('th', string=scrape_ipv4_label).find_next_sibling("td").text.strip()
+                if (ipv4_address is not None):
+                    ips["ipv4"] = {
+                        "type": "A",
+                        "ip": ipv4_address
+                    }
+            if ipv6_enabled:
+                ipv6_address = soup.find('th', string=scrape_ipv6_label).find_next_sibling("td").text.strip()
+                if (ipv6_address is not None):
+                    ips["ipv6"] = {
+                        "type": "AAAA",
+                        "ip": ipv6_address
+                    }
+    return ips
 
 def getIPs():
     a = None
@@ -56,6 +92,11 @@ def getIPs():
     global ipv4_enabled
     global ipv6_enabled
     global purgeUnknownRecords
+    global scrape_url
+
+    if scrape_url is not None:
+        return scrapeIPs()
+            
     if ipv4_enabled:
         try:
             a = requests.get(
@@ -253,6 +294,8 @@ if __name__ == '__main__':
     ipv4_enabled = True
     ipv6_enabled = True
     purgeUnknownRecords = False
+    scrape_url = None
+    
 
     if sys.version_info < (3, 5):
         raise Exception("🐍 This script requires Python 3.5+")
@@ -274,6 +317,17 @@ if __name__ == '__main__':
             ipv4_enabled = True
             ipv6_enabled = True
             print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
+        try:
+            scrape_url = config["scrape_url"]
+            if ipv4_enabled:
+                scrape_ipv4_label = config["scrape_ipv4_label"]
+            if ipv6_enabled:
+                scrape_ipv6_label = config["scrape_ipv6_label"]
+        except:
+            scrape_url = None
+            scrape_ipv4_label = None
+            scrape_ipv6_label = None
+            print("⚙️ No config detected for 'scrape_url', 'scrape_ipv[4|6]_label' - defaulting to ipify")
         try:
             purgeUnknownRecords = config["purgeUnknownRecords"]
         except:
