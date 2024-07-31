@@ -242,7 +242,83 @@ def cf_api(endpoint, method, config, headers={}, data=False):
 def updateIPs(ips):
     for ip in ips.values():
         commitRecord(ip)
-        #updateLoadBalancer(ip)
+        # updateLoadBalancer(ip)
+
+
+def load_config():
+    config = None
+    try:
+        with open(os.path.join(CONFIG_PATH, "config.json")) as config_file:
+            config = json.loads(config_file.read())
+    except Exception as e:
+        print(f"😡 Error reading config.json: {e}")
+        # wait 10 seconds to prevent excessive logging on docker auto restart
+        time.sleep(10)
+
+    return config
+
+
+def load_config(config):
+    try:
+        ipv4_enabled = config["a"]
+        ipv6_enabled = config["aaaa"]
+    except KeyError:
+        ipv4_enabled = True
+        ipv6_enabled = True
+        print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
+
+    try:
+        purgeUnknownRecords = config["purgeUnknownRecords"]
+    except KeyError:
+        purgeUnknownRecords = False
+        print("⚙️ No config detected for 'purgeUnknownRecords' - defaulting to False")
+
+    try:
+        ttl = int(config["ttl"])
+    except (KeyError, ValueError):
+        ttl = 300  # default Cloudflare TTL
+        print("⚙️ No config detected for 'ttl' - defaulting to 300 seconds (5 minutes)")
+
+    if ttl < 30:
+        ttl = 1
+        print("⚙️ TTL is too low - defaulting to 1 (auto)")
+
+    try:
+        script_delay = int(config["script_delay"])
+    except (KeyError, ValueError):
+        script_delay = 0
+        print("⚙️ No config detected for 'script_delay' - defaulting to 0 seconds")
+
+    return ipv4_enabled, ipv6_enabled, purgeUnknownRecords, ttl, script_delay
+
+
+def handle_arguments(ipv4_enabled, ipv6_enabled, ttl, updateIPs, getIPs):
+    if ipv4_enabled and ipv6_enabled:
+        print("🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every " +
+              str(ttl) + " seconds")
+    elif ipv4_enabled and not ipv6_enabled:
+        print("🕰️ Updating IPv4 (A) records every " +
+              str(ttl) + " seconds")
+    elif ipv6_enabled and not ipv4_enabled:
+        print("🕰️ Updating IPv6 (AAAA) records every " +
+              str(ttl) + " seconds")
+    elif not ipv4_enabled and not ipv6_enabled:
+        print(
+            "🕰️ No IP version enabled. Please enable at least one IP version in config.json.")
+        return
+    elif script_delay > 0:
+        print("🕰️ Script delay set to " +
+              str(script_delay) + " seconds")
+
+    next_time = time.time()
+    killer = GracefulExit()
+    prev_ips = None
+
+    updateIPs(getIPs())
+    time_took = time.time() - next_time
+    print("🕰️ Update took: " + str(time_took) + " seconds")
+
+    return killer
 
 
 if __name__ == '__main__':
@@ -253,61 +329,25 @@ if __name__ == '__main__':
     ipv4_enabled = True
     ipv6_enabled = True
     purgeUnknownRecords = False
+    script_delay = 0  # Script run time delay in seconds
 
     if sys.version_info < (3, 5):
         raise Exception("🐍 This script requires Python 3.5+")
 
-    config = None
-    try:
-        with open(os.path.join(CONFIG_PATH, "config.json")) as config_file:
-            config = json.loads(config_file.read())
-    except:
-        print("😡 Error reading config.json")
-        # wait 10 seconds to prevent excessive logging on docker auto restart
-        time.sleep(10)
-
-    if config is not None:
-        try:
-            ipv4_enabled = config["a"]
-            ipv6_enabled = config["aaaa"]
-        except:
-            ipv4_enabled = True
-            ipv6_enabled = True
-            print("⚙️ Individually disable IPv4 or IPv6 with new config.json options. Read more about it here: https://github.com/timothymiller/cloudflare-ddns/blob/master/README.md")
-        try:
-            purgeUnknownRecords = config["purgeUnknownRecords"]
-        except:
-            purgeUnknownRecords = False
-            print("⚙️ No config detected for 'purgeUnknownRecords' - defaulting to False")
-        try:
-            ttl = int(config["ttl"])
-        except:
-            ttl = 300  # default Cloudflare TTL
-            print(
-                "⚙️ No config detected for 'ttl' - defaulting to 300 seconds (5 minutes)")
-        if ttl < 30:
-            ttl = 1  #
-            print("⚙️ TTL is too low - defaulting to 1 (auto)")
-        if (len(sys.argv) > 1):
-            if (sys.argv[1] == "--repeat"):
-                if ipv4_enabled and ipv6_enabled:
-                    print(
-                        "🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every " + str(ttl) + " seconds")
-                elif ipv4_enabled and not ipv6_enabled:
-                    print("🕰️ Updating IPv4 (A) records every " +
-                          str(ttl) + " seconds")
-                elif ipv6_enabled and not ipv4_enabled:
-                    print("🕰️ Updating IPv6 (AAAA) records every " +
-                          str(ttl) + " seconds")
-                next_time = time.time()
-                killer = GracefulExit()
-                prev_ips = None
-                while True:
-                    updateIPs(getIPs())
-                    if killer.kill_now.wait(ttl):
-                        break
-            else:
-                print("❓ Unrecognized parameter '" +
-                      sys.argv[1] + "'. Stopping now.")
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "--repeat":
+            while True:
+                config = load_config()
+                if config is not None:
+                    ipv4_enabled, ipv6_enabled, purgeUnknownRecords, ttl, script_delay = load_config(
+                        config)
+                    killer = handle_arguments(ipv4_enabled, ipv6_enabled,
+                                              ttl)
+                if killer.kill_now.wait(ttl):
+                    break
+                time.sleep(script_delay)
         else:
-            updateIPs(getIPs())
+            print("❓ Unrecognized parameter '" +
+                  sys.argv[1] + "'. Stopping now.")
+    else:
+        updateIPs(getIPs())
