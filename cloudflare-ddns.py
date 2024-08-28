@@ -44,7 +44,7 @@ def deleteEntries(type):
             "GET", option)
         if answer is None or answer["result"] is None:
             time.sleep(5)
-            return
+            continue
         for record in answer["result"]:
             identifier = str(record["id"])
             cf_api(
@@ -127,7 +127,7 @@ def commitRecord(ip):
         response = cf_api("zones/" + option['zone_id'], "GET", option)
         if response is None or response["result"]["name"] is None:
             time.sleep(5)
-            return
+            continue
         base_domain_name = response["result"]["name"]
         for subdomain in subdomains:
             try:
