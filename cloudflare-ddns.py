@@ -267,7 +267,7 @@ if __name__ == '__main__':
                 config = json.loads(Template(config_file.read()).safe_substitute(ENV_VARS))
             else:
                 config = json.loads(config_file.read())
-    except:
+    except Exception as e:
         print(f"😡 Error reading config.json {str(e)}")
         # wait 10 seconds to prevent excessive logging on docker auto restart
         time.sleep(10)
