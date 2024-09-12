@@ -291,9 +291,9 @@ if __name__ == '__main__':
             ttl = 300  # default Cloudflare TTL
             print(
                 "⚙️ No config detected for 'ttl' - defaulting to 300 seconds (5 minutes)")
-        if ttl < 30:
+        if ttl < 30 or 86400 < ttl:
             ttl = 1  #
-            print("⚙️ TTL is too low - defaulting to 1 (auto)")
+            print("⚙️ TTL must be between 30 (Enterprise) or 60 (standard) and 86400 (1 day) - defaulting to 1 (auto)")
         if (len(sys.argv) > 1):
             if (sys.argv[1] == "--repeat"):
                 if ipv4_enabled and ipv6_enabled:
