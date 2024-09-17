@@ -288,29 +288,28 @@ if __name__ == '__main__':
         try:
             ttl = int(config["ttl"])
         except:
-            ttl = 300  # default Cloudflare TTL
+            ttl = 1  # default Cloudflare TTL
             print(
-                "⚙️ No config detected for 'ttl' - defaulting to 300 seconds (5 minutes)")
+                "⚙️ No config detected for 'ttl' - defaulting to 1 (auto)")
         if ttl < 30:
-            ttl = 1  #
+            ttl = 1
             print("⚙️ TTL is too low - defaulting to 1 (auto)")
         if (len(sys.argv) > 1):
             if (sys.argv[1] == "--repeat"):
-                if ipv4_enabled and ipv6_enabled:
-                    print(
-                        "🕰️ Updating IPv4 (A) & IPv6 (AAAA) records every " + str(ttl) + " seconds")
-                elif ipv4_enabled and not ipv6_enabled:
-                    print("🕰️ Updating IPv4 (A) records every " +
-                          str(ttl) + " seconds")
-                elif ipv6_enabled and not ipv4_enabled:
-                    print("🕰️ Updating IPv6 (AAAA) records every " +
-                          str(ttl) + " seconds")
+                delay = 300 if ttl == 1 else ttl
+                configured_ipvs = []
+                if ipv4_enabled:
+                    configured_ipvs.append("IPv4 (A)")
+                if ipv6_enabled:
+                    configured_ipvs.append("IPv6 (AAAA)")
+                configured_ipvs = ' & '.join(configured_ipvs)
+                print(f"🕰️ Updating {configured_ipvs} records every {str(delay)} seconds")
                 next_time = time.time()
                 killer = GracefulExit()
                 prev_ips = None
                 while True:
                     updateIPs(getIPs())
-                    if killer.kill_now.wait(ttl):
+                    if killer.kill_now.wait(delay):
                         break
             else:
                 print("❓ Unrecognized parameter '" +
