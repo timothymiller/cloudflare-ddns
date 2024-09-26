@@ -39,6 +39,9 @@ jobs:
           tags: |
             type=raw,enable=${{ steps.extract_branch.outputs.branch == 'master' }},value=latest
             type=schedule
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
             type=ref,event=pr
             
       - name: Build and publish
