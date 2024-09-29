@@ -30,7 +30,7 @@ jobs:
         id: extract_branch
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v3
+        uses: docker/metadata-action@v5
         with:
           images: timothyjmiller/cloudflare-ddns
           sep-tags: ','
