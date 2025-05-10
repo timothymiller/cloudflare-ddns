@@ -5,6 +5,6 @@ python3 -m venv venv
 source ./venv/bin/activate
 
 cd $DIR
-set -o pipefail; pip install -r requirements.txt | { grep -v "already satisfied" || :; }
+set -o pipefail; python3 -m pip install -r requirements.txt | { grep -v "already satisfied" || :; }
 
 python3 cloudflare-ddns.py
