@@ -137,19 +137,49 @@ def commitRecord(ip):
                 name = subdomain
                 proxied = option["proxied"]
             fqdn = base_domain_name
+
+            if isinstance(subdomain, dict):
+                # Subdomains were provided as an array of objects with configurable options
+                name = subdomain["name"].lower().strip()
+
+                # Check for proxied option for subdomain
+                proxied = option["proxied"]
+                if "proxied" in subdomain:
+                    proxied = subdomain["proxied"]
+
+                # Check if a record type was configured for the subdomain
+                record_type = ip["type"]
+                if "type" in subdomain:
+                    if subdomain["type"] != "":
+                        record_type = subdomain["type"]
+                
+                # For A records, the record content is expected to be the WAN IP. For CNAME
+                # records, the content is expected to be the based domain name.
+                record_content = ip["ip"]
+                if record_type.lower() == "cname":
+                    record_content = base_domain_name
+
+            else:
+                # Subdomains were provided as an array of strings
+                name = subdomain
+                proxied = option["proxied"]
+                record_type = ip["type"]
+                record_content = ip["ip"]
+
             # Check if name provided is a reference to the root domain
             if name != '' and name != '@':
                 fqdn = name + "." + base_domain_name
+
             record = {
-                "type": ip["type"],
+                "type": record_type,
                 "name": fqdn,
-                "content": ip["ip"],
+                "content": record_content,
                 "proxied": proxied,
                 "ttl": ttl
             }
             dns_records = cf_api(
                 "zones/" + option['zone_id'] +
-                "/dns_records?per_page=100&type=" + ip["type"],
+                "/dns_records?per_page=100&type=" + record_type,
                 "GET", option)
             identifier = None
             modified = False
