@@ -107,15 +107,16 @@ Do not include the base domain name in your `subdomains` config. Do not use the 
       "zone_id": "your_zone_id_here",
       "subdomains": [
         {
-          "name": "", // Root domain (example.com)
-          "proxied": true
+          "name": "",     // Root domain (example.com)
+          "proxied": true,
+          "comment": ""   // Optional DNS record comment (max 100 chars)
         },
         {
-          "name": "foo", // (foo.example.com)
-          "proxied": true
+          "name": "foo",  // (foo.example.com)
+          "proxied": true,
         },
         {
-          "name": "bar", // (bar.example.com)
+          "name": "bar",  // (bar.example.com)
           "proxied": true
         }
       ]

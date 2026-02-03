@@ -12,7 +12,8 @@
       "subdomains": [
         {
           "name": "",
-          "proxied": false
+          "proxied": false,
+          "comment": "(Optional) DNS record comment"
         },
         {
           "name": "remove_or_replace_with_your_subdomain",

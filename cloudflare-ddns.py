@@ -132,9 +132,11 @@ def commitRecord(ip):
         for subdomain in subdomains:
             try:
                 name = subdomain["name"].lower().strip()
+                comment = subdomain["comment"].strip()[:100]   # Truncate to 100 chars
                 proxied = subdomain["proxied"]
             except:
                 name = subdomain
+                comment = ""
                 proxied = option["proxied"]
             fqdn = base_domain_name
             # Check if name provided is a reference to the root domain
@@ -145,7 +147,8 @@ def commitRecord(ip):
                 "name": fqdn,
                 "content": ip["ip"],
                 "proxied": proxied,
-                "ttl": ttl
+                "ttl": ttl,
+                "comment":comment
             }
             dns_records = cf_api(
                 "zones/" + option['zone_id'] +
