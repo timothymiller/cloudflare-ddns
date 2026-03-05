@@ -61,49 +61,66 @@ def getIPs():
     global purgeUnknownRecords
     if ipv4_enabled:
         try:
-            a = requests.get(
-                "https://1.1.1.1/cdn-cgi/trace").text.split("\n")
-            a.pop()
-            a = dict(s.split("=") for s in a)["ip"]
+            # 使用 AWS checkip 获取纯文本 IPv4
+            response = requests.get(
+                "https://checkip.amazonaws.com/",
+                headers={'User-Agent': 'curl/7.81.0'},
+                timeout=10
+            )
+            a = response.text.strip()
+            if "." not in a or ":" in a:
+                raise Exception("Invalid IPv4 format")
         except Exception:
             global shown_ipv4_warning
             if not shown_ipv4_warning:
                 shown_ipv4_warning = True
-                print("🧩 IPv4 not detected via 1.1.1.1, trying 1.0.0.1")
-            # Try secondary IP check
+                print("🧩 IPv4 not detected via checkip.amazonaws.com, retrying...")
             try:
-                a = requests.get(
-                    "https://1.0.0.1/cdn-cgi/trace").text.split("\n")
-                a.pop()
-                a = dict(s.split("=") for s in a)["ip"]
+                response = requests.get(
+                    "https://checkip.amazonaws.com/",
+                    headers={'User-Agent': 'curl/7.81.0'},
+                    timeout=10
+                )
+                a = response.text.strip()
+                if "." not in a or ":" in a:
+                    raise Exception("Invalid IPv4 format")
             except Exception:
                 global shown_ipv4_warning_secondary
                 if not shown_ipv4_warning_secondary:
                     shown_ipv4_warning_secondary = True
-                    print("🧩 IPv4 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                    print("🧩 IPv4 not detected via checkip.amazonaws.com. Check network.")
                 if purgeUnknownRecords:
                     deleteEntries("A")
     if ipv6_enabled:
         try:
-            aaaa = requests.get(
-                "https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
-            aaaa.pop()
-            aaaa = dict(s.split("=") for s in aaaa)["ip"]
+            # 使用 ip.sb 的 API 获取纯文本 IPv6（api64 返回 IPv6）
+            response = requests.get(
+                "https://api64.ip.sb/ip",
+                headers={'User-Agent': 'curl/7.81.0'},
+                timeout=10
+            )
+            aaaa = response.text.strip()
+            if ":" not in aaaa:
+                raise Exception("Invalid IPv6 format")
         except Exception:
             global shown_ipv6_warning
             if not shown_ipv6_warning:
                 shown_ipv6_warning = True
-                print("🧩 IPv6 not detected via 1.1.1.1, trying 1.0.0.1")
+                print("🧩 IPv6 not detected via ip.sb, retrying...")
             try:
-                aaaa = requests.get(
-                    "https://[2606:4700:4700::1001]/cdn-cgi/trace").text.split("\n")
-                aaaa.pop()
-                aaaa = dict(s.split("=") for s in aaaa)["ip"]
+                response = requests.get(
+                    "https://api64.ip.sb/ip",
+                    headers={'User-Agent': 'curl/7.81.0'},
+                    timeout=10
+                )
+                aaaa = response.text.strip()
+                if ":" not in aaaa:
+                    raise Exception("Invalid IPv6 format")
             except Exception:
                 global shown_ipv6_warning_secondary
                 if not shown_ipv6_warning_secondary:
                     shown_ipv6_warning_secondary = True
-                    print("🧩 IPv6 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
+                    print("🧩 IPv6 not detected via ip.sb. Check network.")
                 if purgeUnknownRecords:
                     deleteEntries("AAAA")
     ips = {}
