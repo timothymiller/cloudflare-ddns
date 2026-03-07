@@ -6,10 +6,12 @@
 #                A small, 🕵️ privacy centric, and ⚡
 #                lightning fast multi-architecture Docker image for self hosting projects.
 
-__version__ = "1.0.2"
+__version__ = "1.0.4"
 
 from string import Template
+from collections import Counter
 
+import ipaddress
 import json
 import os
 import signal
@@ -22,6 +24,25 @@ CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd())
 # Read in all environment variables that have the correct prefix
 ENV_VARS = {key: value for (key, value) in os.environ.items() if key.startswith('CF_DDNS_')}
 
+IPV4_ENDPOINTS = [
+    {"url": "https://1.1.1.1/cdn-cgi/trace", "type": "trace"},
+    {"url": "https://1.0.0.1/cdn-cgi/trace", "type": "trace"},
+    {"url": "https://api.ipify.org", "type": "plain"},
+    {"url": "https://ipv4.icanhazip.com", "type": "plain"},
+    {"url": "https://ipv4.seeip.org", "type": "plain"},
+]
+
+IPV6_ENDPOINTS = [
+    {"url": "https://[2606:4700:4700::1111]/cdn-cgi/trace", "type": "trace"},
+    {"url": "https://[2606:4700:4700::1001]/cdn-cgi/trace", "type": "trace"},
+    {"url": "https://api6.ipify.org", "type": "plain"},
+    {"url": "https://ipv6.icanhazip.com", "type": "plain"},
+    {"url": "https://ipv6.seeip.org", "type": "plain"},
+]
+
+CONSENSUS_THRESHOLD = 3
+
+
 class GracefulExit:
     def __init__(self):
         self.kill_now = threading.Event()
@@ -31,6 +52,72 @@ class GracefulExit:
     def exit_gracefully(self, signum, frame):
         print("🛑 Stopping main thread...")
         self.kill_now.set()
+
+
+def get_cloudflare_ips():
+    try:
+        response = requests.get("https://api.cloudflare.com/client/v4/ips")
+        if response.ok:
+            data = response.json()
+            return {
+                "ipv4": data["result"].get("ipv4_cidrs", []),
+                "ipv6": data["result"].get("ipv6_cidrs", [])
+            }
+        else:
+            print("⚠️ Could not fetch Cloudflare IP ranges, CF IP validation will be skipped")
+            return {"ipv4": [], "ipv6": []}
+    except Exception as e:
+        print("⚠️ Exception fetching Cloudflare IP ranges: " + str(e) + ", CF IP validation will be skipped")
+        return {"ipv4": [], "ipv6": []}
+
+
+def is_cloudflare_ip(ip, cf_ranges):
+    try:
+        addr = ipaddress.ip_address(ip)
+        return any(addr in ipaddress.ip_network(r) for r in cf_ranges)
+    except ValueError:
+        return False
+
+
+def fetch_ip_from_endpoint(endpoint):
+    try:
+        response = requests.get(endpoint["url"], timeout=5)
+        if not response.ok:
+            return None
+        if endpoint["type"] == "trace":
+            lines = response.text.strip().split("\n")
+            data = dict(s.split("=") for s in lines if "=" in s)
+            return data.get("ip")
+        else:
+            return response.text.strip()
+    except Exception:
+        return None
+
+
+def get_consensus_ip(endpoints, cf_ranges, version_label):
+    results = []
+    for endpoint in endpoints:
+        ip = fetch_ip_from_endpoint(endpoint)
+        if ip is None:
+            continue
+        if is_cloudflare_ip(ip, cf_ranges):
+            print("⚠️ " + endpoint["url"] + " returned a Cloudflare IP (" + ip + "), ignoring")
+            continue
+        results.append(ip)
+
+    if not results:
+        print("⚠️ No valid " + version_label + " addresses detected from any endpoint, skipping update")
+        return None
+
+    counts = Counter(results)
+    most_common_ip, count = counts.most_common(1)[0]
+
+    if count >= CONSENSUS_THRESHOLD:
+        print("✅ " + version_label + " consensus reached: " + most_common_ip + " (" + str(count) + "/" + str(len(results)) + " sources agree)")
+        return most_common_ip
+    else:
+        print("⚠️ No " + version_label + " consensus reached (threshold: " + str(CONSENSUS_THRESHOLD) + ", best: " + most_common_ip + " with " + str(count) + "/" + str(len(results)) + " sources), skipping update")
+        return None
 
 
 def deleteEntries(type):
@@ -54,65 +141,32 @@ def deleteEntries(type):
 
 
 def getIPs():
-    a = None
-    aaaa = None
     global ipv4_enabled
     global ipv6_enabled
     global purgeUnknownRecords
+
+    cf_ranges = get_cloudflare_ips()
+
+    a = None
+    aaaa = None
+
     if ipv4_enabled:
-        try:
-            a = requests.get(
-                "https://1.1.1.1/cdn-cgi/trace").text.split("\n")
-            a.pop()
-            a = dict(s.split("=") for s in a)["ip"]
-        except Exception:
-            global shown_ipv4_warning
-            if not shown_ipv4_warning:
-                shown_ipv4_warning = True
-                print("🧩 IPv4 not detected via 1.1.1.1, trying 1.0.0.1")
-            # Try secondary IP check
-            try:
-                a = requests.get(
-                    "https://1.0.0.1/cdn-cgi/trace").text.split("\n")
-                a.pop()
-                a = dict(s.split("=") for s in a)["ip"]
-            except Exception:
-                global shown_ipv4_warning_secondary
-                if not shown_ipv4_warning_secondary:
-                    shown_ipv4_warning_secondary = True
-                    print("🧩 IPv4 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
-                if purgeUnknownRecords:
-                    deleteEntries("A")
+        a = get_consensus_ip(IPV4_ENDPOINTS, cf_ranges["ipv4"], "IPv4")
+        if a is None and purgeUnknownRecords:
+            deleteEntries("A")
+
     if ipv6_enabled:
-        try:
-            aaaa = requests.get(
-                "https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
-            aaaa.pop()
-            aaaa = dict(s.split("=") for s in aaaa)["ip"]
-        except Exception:
-            global shown_ipv6_warning
-            if not shown_ipv6_warning:
-                shown_ipv6_warning = True
-                print("🧩 IPv6 not detected via 1.1.1.1, trying 1.0.0.1")
-            try:
-                aaaa = requests.get(
-                    "https://[2606:4700:4700::1001]/cdn-cgi/trace").text.split("\n")
-                aaaa.pop()
-                aaaa = dict(s.split("=") for s in aaaa)["ip"]
-            except Exception:
-                global shown_ipv6_warning_secondary
-                if not shown_ipv6_warning_secondary:
-                    shown_ipv6_warning_secondary = True
-                    print("🧩 IPv6 not detected via 1.0.0.1. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.")
-                if purgeUnknownRecords:
-                    deleteEntries("AAAA")
+        aaaa = get_consensus_ip(IPV6_ENDPOINTS, cf_ranges["ipv6"], "IPv6")
+        if aaaa is None and purgeUnknownRecords:
+            deleteEntries("AAAA")
+
     ips = {}
-    if (a is not None):
+    if a is not None:
         ips["ipv4"] = {
             "type": "A",
             "ip": a
         }
-    if (aaaa is not None):
+    if aaaa is not None:
         ips["ipv6"] = {
             "type": "AAAA",
             "ip": aaaa
@@ -174,6 +228,8 @@ def commitRecord(ip):
                         "zones/" + option['zone_id'] +
                         "/dns_records/" + identifier,
                         "PUT", option, {}, record)
+                else:
+                    print("✅ Record already up to date: " + fqdn + " -> " + ip["ip"])
             else:
                 print("➕ Adding new record " + str(record))
                 response = cf_api(
@@ -249,10 +305,6 @@ def updateIPs(ips):
 
 
 if __name__ == '__main__':
-    shown_ipv4_warning = False
-    shown_ipv4_warning_secondary = False
-    shown_ipv6_warning = False
-    shown_ipv6_warning_secondary = False
     ipv4_enabled = True
     ipv6_enabled = True
     purgeUnknownRecords = False
