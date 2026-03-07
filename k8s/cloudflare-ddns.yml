@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: cloudflare-ddns
-          image: timothyjmiller/cloudflare-ddns:latest
+          image: thisismynameok/cloudflare-ddns:latest
           resources:
             limits:
               memory: '32Mi'
