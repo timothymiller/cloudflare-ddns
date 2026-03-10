@@ -4,7 +4,7 @@
 
 Access your home network remotely via a custom domain name without a static IP!
 
-A feature-complete dynamic DNS client for Cloudflare, written in Rust. The **smallest and most memory-efficient** open-source Cloudflare DDNS Docker image available — **~3.5 MB image size** and **~3.5 MB RAM** at runtime, smaller and leaner than Go-based alternatives. Built as a fully static binary from scratch with zero runtime dependencies.
+A feature-complete dynamic DNS client for Cloudflare, written in Rust. The **smallest and most memory-efficient** open-source Cloudflare DDNS Docker image available — **~1.9 MB image size** and **~3.5 MB RAM** at runtime, smaller and leaner than Go-based alternatives. Built as a fully static binary from scratch with zero runtime dependencies.
 
 Configure everything with environment variables. Supports notifications, heartbeat monitoring, WAF list management, flexible scheduling, and more.
 
@@ -28,7 +28,7 @@ Configure everything with environment variables. Supports notifications, heartbe
 - 🎨 **Pretty output with emoji** — Configurable emoji and verbosity levels
 - 🔒 **Zero-log IP detection** — Uses Cloudflare's [cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace) by default
 - 🏠 **CGNAT-aware local detection** — Filters out shared address space (100.64.0.0/10) and private ranges
-- 🤏 **Tiny static binary** — ~3.5 MB Docker image built from scratch, zero runtime dependencies
+- 🤏 **Tiny static binary** — ~1.9 MB Docker image built from scratch, zero runtime dependencies
 
 ## 🚀 Quick Start
 
