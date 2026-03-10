@@ -14,7 +14,7 @@ regex = "1"
 chrono = { version = "0.4", features = ["clock"] }
 url = "2"
 idna = "1"
-if-addrs = "0.13"
+if-addrs = "0.15"
 
 [dev-dependencies]
 tempfile = "3.26.0"
