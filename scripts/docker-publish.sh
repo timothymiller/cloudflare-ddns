@@ -1,3 +1,8 @@
 #!/bin/bash
 BASH_DIR=$(dirname $(realpath "${BASH_SOURCE}"))
-docker buildx build --platform linux/ppc64le,linux/s390x,linux/386,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/amd64 --tag timothyjmiller/cloudflare-ddns:latest --push ${BASH_DIR}/../
+VERSION=$(grep '^version' ${BASH_DIR}/../Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+docker buildx build \
+  --platform linux/amd64,linux/arm64,linux/arm/v7 \
+  --tag timothyjmiller/cloudflare-ddns:latest \
+  --tag timothyjmiller/cloudflare-ddns:${VERSION} \
+  --push ${BASH_DIR}/../

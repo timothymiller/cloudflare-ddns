@@ -1,0 +1,19 @@
+version: '3.9'
+services:
+  cloudflare-ddns:
+    image: timothyjmiller/cloudflare-ddns:latest
+    container_name: cloudflare-ddns
+    security_opt:
+      - no-new-privileges:true
+    network_mode: 'host'
+    environment:
+      - CLOUDFLARE_API_TOKEN=your-api-token-here
+      - DOMAINS=example.com,www.example.com
+      - PROXIED=false
+      - TTL=1
+      - UPDATE_CRON=@every 5m
+      # - IP6_PROVIDER=none
+      # - HEALTHCHECKS=https://hc-ping.com/your-uuid
+      # - UPTIMEKUMA=https://kuma.example.com/api/push/your-token
+      # - SHOUTRRR=discord://token@webhook-id
+    restart: unless-stopped

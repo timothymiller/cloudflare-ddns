@@ -1,0 +1,98 @@
+# Cloudflare DDNS - Environment Variable Configuration
+# Copy this file to .env and set your values.
+# Setting CLOUDFLARE_API_TOKEN activates environment variable mode.
+
+# === Required ===
+
+# Cloudflare API token with "Edit DNS" capability
+CLOUDFLARE_API_TOKEN=your-api-token-here
+# Or read from a file:
+# CLOUDFLARE_API_TOKEN_FILE=/run/secrets/cloudflare_token
+
+# Domains to update (comma-separated)
+# At least one of DOMAINS, IP4_DOMAINS, IP6_DOMAINS, or WAF_LISTS must be set
+DOMAINS=example.com,www.example.com
+# IP4_DOMAINS=v4only.example.com
+# IP6_DOMAINS=v6only.example.com
+
+# === IP Detection ===
+
+# Provider for IPv4 detection (default: cloudflare.trace)
+# Options: cloudflare.trace, cloudflare.doh, ipify, local, local.iface:<name>,
+#          url:<custom-url>, literal:<ip1>,<ip2>, none
+# IP4_PROVIDER=cloudflare.trace
+
+# Provider for IPv6 detection (default: cloudflare.trace)
+# IP6_PROVIDER=cloudflare.trace
+
+# === Scheduling ===
+
+# Update schedule (default: @every 5m)
+# Formats: @every 5m, @every 1h, @every 30s, @once
+# UPDATE_CRON=@every 5m
+
+# Run an update immediately on startup (default: true)
+# UPDATE_ON_START=true
+
+# Delete managed DNS records on shutdown (default: false)
+# DELETE_ON_STOP=false
+
+# === DNS Records ===
+
+# TTL in seconds: 1=auto, or 30-86400 (default: 1)
+# TTL=1
+
+# Proxied expression: true, false, is(domain), sub(domain), or boolean combos
+# PROXIED=false
+
+# Comment to attach to managed DNS records
+# RECORD_COMMENT=Managed by cloudflare-ddns
+
+# Regex to identify which records are managed (empty = all matching records)
+# MANAGED_RECORDS_COMMENT_REGEX=cloudflare-ddns
+
+# === WAF Lists ===
+
+# Comma-separated WAF lists in account-id/list-name format
+# WAF_LISTS=account123/my_ip_list
+
+# Description for managed WAF lists
+# WAF_LIST_DESCRIPTION=Dynamic IP list
+
+# Comment for WAF list items
+# WAF_LIST_ITEM_COMMENT=cloudflare-ddns
+
+# Regex to identify managed WAF list items
+# MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX=cloudflare-ddns
+
+# === Notifications ===
+
+# Shoutrrr notification URLs (newline-separated)
+# SHOUTRRR=discord://token@webhook-id
+# SHOUTRRR=slack://token-a/token-b/token-c
+# SHOUTRRR=telegram://bot-token@telegram?chats=chat-id
+# SHOUTRRR=generic+https://hooks.example.com/webhook
+
+# === Heartbeat Monitoring ===
+
+# Healthchecks.io ping URL
+# HEALTHCHECKS=https://hc-ping.com/your-uuid
+
+# Uptime Kuma push URL
+# UPTIMEKUMA=https://your-uptime-kuma.com/api/push/your-token
+
+# === Timeouts ===
+
+# IP detection timeout (default: 5s)
+# DETECTION_TIMEOUT=5s
+
+# Cloudflare API request timeout (default: 30s)
+# UPDATE_TIMEOUT=30s
+
+# === Output ===
+
+# Use emoji in output (default: true)
+# EMOJI=true
+
+# Suppress informational output (default: false)
+# QUIET=false
