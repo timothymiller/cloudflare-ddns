@@ -7,7 +7,7 @@ COPY src ./src
 RUN cargo build --release
 
 # ---- Release ----
-FROM alpine:latest AS release
-RUN apk add --no-cache ca-certificates
-COPY --from=builder /build/target/release/cloudflare-ddns /usr/local/bin/cloudflare-ddns
-CMD ["cloudflare-ddns", "--repeat"]
+FROM scratch AS release
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /build/target/release/cloudflare-ddns /cloudflare-ddns
+ENTRYPOINT ["/cloudflare-ddns", "--repeat"]

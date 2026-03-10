@@ -26,7 +26,7 @@ A feature-complete dynamic DNS client for Cloudflare, written in Rust. Configure
 - 🎨 **Pretty output with emoji** — Configurable emoji and verbosity levels
 - 🔒 **Zero-log IP detection** — Uses Cloudflare's [cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace) by default
 - 🏠 **CGNAT-aware local detection** — Filters out shared address space (100.64.0.0/10) and private ranges
-- 🤏 **Tiny static binary** — Small Docker image, zero runtime dependencies
+- 🤏 **Tiny static binary** — ~3.5 MB Docker image built from scratch, zero runtime dependencies
 
 ## 🚀 Quick Start
 
@@ -289,13 +289,13 @@ The binary is at `target/release/cloudflare-ddns`.
 # Single architecture (linux/amd64)
 ./scripts/docker-build.sh
 
-# Multi-architecture (linux/amd64, linux/arm64, linux/arm/v7)
+# Multi-architecture (linux/amd64, linux/arm64, linux/ppc64le)
 ./scripts/docker-build-all.sh
 ```
 
 ## 💻 Supported Platforms
 
-- 🐳 [Docker](https://docs.docker.com/get-docker/) (amd64, arm64, arm/v7)
+- 🐳 [Docker](https://docs.docker.com/get-docker/) (amd64, arm64, ppc64le)
 - 🐙 [Docker Compose](https://docs.docker.com/compose/install/)
 - ☸️ [Kubernetes](https://kubernetes.io/docs/tasks/tools/)
 - 🐧 [Systemd](https://www.freedesktop.org/wiki/Software/systemd/)
