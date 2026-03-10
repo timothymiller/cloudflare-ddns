@@ -6,6 +6,8 @@ Access your home network remotely via a custom domain name without a static IP!
 
 A feature-complete dynamic DNS client for Cloudflare, written in Rust. Configure everything with environment variables. Supports notifications, heartbeat monitoring, WAF list management, flexible scheduling, and more.
 
+[![Docker Pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat&logo=docker&label=pulls)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns) [![Docker Image Size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns/latest?style=flat&logo=docker&label=image%20size)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns)
+
 ## ✨ Features
 
 - 🔍 **Multiple IP detection providers** — Cloudflare Trace, Cloudflare DNS-over-HTTPS, ipify, local interface, custom URL, or static IPs
