@@ -71,7 +71,7 @@ At least one of `DOMAINS`, `IP4_DOMAINS`, `IP6_DOMAINS`, or `WAF_LISTS` must be 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `IP4_PROVIDER` | `cloudflare.trace` | IPv4 detection method |
+| `IP4_PROVIDER` | `ipify` | IPv4 detection method |
 | `IP6_PROVIDER` | `cloudflare.trace` | IPv6 detection method |
 
 Available providers:
@@ -195,7 +195,7 @@ Heartbeats are sent after each update cycle. On failure, a fail signal is sent. 
 | `DOMAINS` | — | 🌐 Domains for both IPv4 and IPv6 |
 | `IP4_DOMAINS` | — | 4️⃣ IPv4-only domains |
 | `IP6_DOMAINS` | — | 6️⃣ IPv6-only domains |
-| `IP4_PROVIDER` | `cloudflare.trace` | 🔍 IPv4 detection provider |
+| `IP4_PROVIDER` | `ipify` | 🔍 IPv4 detection provider |
 | `IP6_PROVIDER` | `cloudflare.trace` | 🔍 IPv6 detection provider |
 | `UPDATE_CRON` | `@every 5m` | ⏱️ Update schedule |
 | `UPDATE_ON_START` | `true` | 🚀 Update on startup |

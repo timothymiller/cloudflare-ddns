@@ -243,7 +243,7 @@ fn read_providers_from_env(ppfmt: &PP) -> Result<HashMap<IpType, ProviderType>, 
     let ip4_provider = match ip4_str {
         Some(s) => ProviderType::parse(&s)
             .map_err(|e| format!("Invalid IP4_PROVIDER: {e}"))?,
-        None => ProviderType::CloudflareTrace { url: None },
+        None => ProviderType::Ipify,
     };
 
     let ip6_provider = match ip6_str {
@@ -1429,12 +1429,12 @@ mod tests {
         let pp = PP::new(false, true);
         let providers = read_providers_from_env(&pp).unwrap();
         drop(g);
-        // Both default to CloudflareTrace, so both V4 and V6 are present.
+        // V4 defaults to Ipify, V6 defaults to CloudflareTrace.
         assert!(providers.contains_key(&IpType::V4));
         assert!(providers.contains_key(&IpType::V6));
         assert!(matches!(
             providers[&IpType::V4],
-            ProviderType::CloudflareTrace { url: None }
+            ProviderType::Ipify
         ));
         assert!(matches!(
             providers[&IpType::V6],

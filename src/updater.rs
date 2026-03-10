@@ -314,6 +314,7 @@ impl LegacyDdnsClient {
                     &mut warnings.shown_ipv4,
                     &mut warnings.shown_ipv4_secondary,
                     "IPv4",
+                    true,
                 )
                 .await;
             if a.is_none() && purge_unknown_records {
@@ -337,6 +338,7 @@ impl LegacyDdnsClient {
                     &mut warnings.shown_ipv6,
                     &mut warnings.shown_ipv6_secondary,
                     "IPv6",
+                    false,
                 )
                 .await;
             if aaaa.is_none() && purge_unknown_records {
@@ -362,6 +364,7 @@ impl LegacyDdnsClient {
         shown_primary: &mut bool,
         shown_secondary: &mut bool,
         label: &str,
+        expect_v4: bool,
     ) -> Option<String> {
         for (i, url) in urls.iter().enumerate() {
             match self.client.get(url).send().await {
@@ -369,6 +372,17 @@ impl LegacyDdnsClient {
                     if let Some(ip) =
                         crate::provider::parse_trace_ip(&resp.text().await.unwrap_or_default())
                     {
+                        // Validate the IP matches the expected address family
+                        if let Ok(addr) = ip.parse::<std::net::IpAddr>() {
+                            if expect_v4 && !addr.is_ipv4() {
+                                eprintln!("{label} trace returned IPv6 address, skipping");
+                                continue;
+                            }
+                            if !expect_v4 && !addr.is_ipv6() {
+                                eprintln!("{label} trace returned IPv4 address, skipping");
+                                continue;
+                            }
+                        }
                         return Some(ip);
                     }
                 }
@@ -1655,7 +1669,7 @@ mod tests {
         let mut shown_primary = false;
         let mut shown_secondary = false;
         let result = ddns
-            .try_trace_urls(&ddns.ipv4_urls, &mut shown_primary, &mut shown_secondary, "IPv4")
+            .try_trace_urls(&ddns.ipv4_urls, &mut shown_primary, &mut shown_secondary, "IPv4", true)
             .await;
         assert_eq!(result, Some("198.51.100.1".to_string()));
     }
@@ -1685,7 +1699,7 @@ mod tests {
         let mut shown_primary = false;
         let mut shown_secondary = false;
         let result = ddns
-            .try_trace_urls(&ddns.ipv4_urls, &mut shown_primary, &mut shown_secondary, "IPv4")
+            .try_trace_urls(&ddns.ipv4_urls, &mut shown_primary, &mut shown_secondary, "IPv4", true)
             .await;
         assert_eq!(result, Some("198.51.100.2".to_string()));
         assert!(shown_primary);
@@ -1706,7 +1720,7 @@ mod tests {
         let mut shown_primary = false;
         let mut shown_secondary = false;
         let result = ddns
-            .try_trace_urls(&ddns.ipv4_urls, &mut shown_primary, &mut shown_secondary, "IPv4")
+            .try_trace_urls(&ddns.ipv4_urls, &mut shown_primary, &mut shown_secondary, "IPv4", true)
             .await;
         assert!(result.is_none());
         assert!(shown_primary);
