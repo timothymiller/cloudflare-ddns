@@ -178,9 +178,23 @@ async fn detect_cloudflare_trace(
     custom_url: Option<&str>,
     ppfmt: &PP,
 ) -> Vec<IpAddr> {
+    // For IPv4, also reject IPs in Cloudflare's own infrastructure ranges — the trace
+    // endpoint returns those when traffic is routed through Cloudflare (WARP, Zero Trust, etc.)
+    let is_acceptable = |ip: &IpAddr| -> bool {
+        if !matches_ip_type(ip, ip_type) {
+            return false;
+        }
+        if ip_type == IpType::V4 {
+            if let IpAddr::V4(v4) = ip {
+                return !is_cloudflare_infra_ipv4(v4);
+            }
+        }
+        true
+    };
+
     if let Some(url) = custom_url {
         if let Some(ip) = fetch_trace_ip(client, url, timeout).await {
-            if matches_ip_type(&ip, ip_type) {
+            if is_acceptable(&ip) {
                 return vec![ip];
             }
         }
@@ -198,7 +212,7 @@ async fn detect_cloudflare_trace(
 
     // Try primary
     if let Some(ip) = fetch_trace_ip(client, primary, timeout).await {
-        if matches_ip_type(&ip, ip_type) {
+        if is_acceptable(&ip) {
             return vec![ip];
         }
     }
@@ -209,7 +223,7 @@ async fn detect_cloudflare_trace(
 
     // Try fallback
     if let Some(ip) = fetch_trace_ip(client, fallback, timeout).await {
-        if matches_ip_type(&ip, ip_type) {
+        if is_acceptable(&ip) {
             return vec![ip];
         }
     }
@@ -547,6 +561,24 @@ fn is_global_v4(ip: &Ipv4Addr) -> bool {
         && !ip.is_documentation()
         && !(ip.octets()[0] == 100 && ip.octets()[1] >= 64 && ip.octets()[1] <= 127) // 100.64.0.0/10 shared address space
         && !ip.octets().starts_with(&[192, 0, 0]) // 192.0.0.0/24
+}
+
+/// Returns true if the IPv4 address belongs to Cloudflare's infrastructure ranges.
+/// These are IPs Cloudflare's trace endpoint may return when traffic routes through
+/// Cloudflare's own network (e.g. WARP, Zero Trust), not the real client IP.
+fn is_cloudflare_infra_ipv4(ip: &Ipv4Addr) -> bool {
+    let o = ip.octets();
+    // 104.16.0.0/13  (104.16–23.x.x)
+    (o[0] == 104 && o[1] >= 16 && o[1] <= 23)
+    // 104.24.0.0/14  (104.24–27.x.x)
+    || (o[0] == 104 && o[1] >= 24 && o[1] <= 27)
+    // 172.64.0.0/13  (172.64–71.x.x)
+    || (o[0] == 172 && o[1] >= 64 && o[1] <= 71)
+    // 162.158.0.0/15 (162.158–159.x.x)
+    || (o[0] == 162 && (o[1] == 158 || o[1] == 159))
+    // 1.1.1.0/24 and 1.0.0.0/24 — the trace endpoints themselves
+    || (o[0] == 1 && o[1] == 1 && o[2] == 1)
+    || (o[0] == 1 && o[1] == 0 && o[2] == 0)
 }
 
 fn is_global_v6(ip: &Ipv6Addr) -> bool {

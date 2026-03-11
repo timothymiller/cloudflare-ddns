@@ -308,15 +308,23 @@ impl LegacyDdnsClient {
         let mut ips = HashMap::new();
 
         if ipv4_enabled {
-            let a = self
-                .try_trace_urls(
-                    &self.ipv4_urls,
-                    &mut warnings.shown_ipv4,
-                    &mut warnings.shown_ipv4_secondary,
-                    "IPv4",
-                    true,
-                )
-                .await;
+            // Prefer ipify for IPv4: cloudflare.trace can return Cloudflare's own
+            // infrastructure IP (104.18.x.x etc.) when traffic routes through Cloudflare.
+            let a = {
+                let ipify = self.fetch_ipify_v4().await;
+                if ipify.is_some() {
+                    ipify
+                } else {
+                    self.try_trace_urls(
+                        &self.ipv4_urls,
+                        &mut warnings.shown_ipv4,
+                        &mut warnings.shown_ipv4_secondary,
+                        "IPv4",
+                        true,
+                    )
+                    .await
+                }
+            };
             if a.is_none() && purge_unknown_records {
                 self.delete_entries("A", config).await;
             }
@@ -356,6 +364,15 @@ impl LegacyDdnsClient {
         }
 
         ips
+    }
+
+    async fn fetch_ipify_v4(&self) -> Option<String> {
+        let resp = self.client.get("https://api4.ipify.org").send().await.ok()?;
+        let body = resp.text().await.ok()?;
+        let ip_str = body.trim();
+        // Validate it parses as a real IPv4 address before accepting it
+        ip_str.parse::<std::net::Ipv4Addr>().ok()?;
+        Some(ip_str.to_string())
     }
 
     async fn try_trace_urls(
