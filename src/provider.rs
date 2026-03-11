@@ -145,9 +145,11 @@ impl ProviderType {
 
 // --- Cloudflare Trace ---
 
-const CF_TRACE_V4_PRIMARY: &str = "https://1.1.1.1/cdn-cgi/trace";
+/// Primary trace URL uses a hostname so DNS resolves normally, avoiding the
+/// problem where WARP/Zero Trust intercepts requests to literal 1.1.1.1.
+const CF_TRACE_PRIMARY: &str = "https://api.cloudflare.com/cdn-cgi/trace";
+/// Fallback URLs use literal IPs for when api.cloudflare.com is unreachable.
 const CF_TRACE_V4_FALLBACK: &str = "https://1.0.0.1/cdn-cgi/trace";
-const CF_TRACE_V6_PRIMARY: &str = "https://[2606:4700:4700::1111]/cdn-cgi/trace";
 const CF_TRACE_V6_FALLBACK: &str = "https://[2606:4700:4700::1001]/cdn-cgi/trace";
 
 pub fn parse_trace_ip(body: &str) -> Option<String> {
@@ -171,16 +173,34 @@ async fn fetch_trace_ip(client: &Client, url: &str, timeout: Duration) -> Option
     ip_str.parse::<IpAddr>().ok()
 }
 
+/// Build an HTTP client that only connects via the given IP family.
+/// Binding to 0.0.0.0 forces IPv4-only; binding to [::] forces IPv6-only.
+/// This ensures the trace endpoint sees the correct address family.
+fn build_split_client(ip_type: IpType, timeout: Duration) -> Client {
+    let local_addr: IpAddr = match ip_type {
+        IpType::V4 => Ipv4Addr::UNSPECIFIED.into(),
+        IpType::V6 => Ipv6Addr::UNSPECIFIED.into(),
+    };
+    Client::builder()
+        .local_address(local_addr)
+        .timeout(timeout)
+        .build()
+        .unwrap_or_default()
+}
+
 async fn detect_cloudflare_trace(
-    client: &Client,
+    _client: &Client,
     ip_type: IpType,
     timeout: Duration,
     custom_url: Option<&str>,
     ppfmt: &PP,
 ) -> Vec<IpAddr> {
+    // Use an IP-family-specific client so the trace endpoint sees the right address family.
+    let client = build_split_client(ip_type, timeout);
+
     if let Some(url) = custom_url {
-        if let Some(ip) = fetch_trace_ip(client, url, timeout).await {
-            if matches_ip_type(&ip, ip_type) {
+        if let Some(ip) = fetch_trace_ip(&client, url, timeout).await {
+            if validate_detected_ip(&ip, ip_type, ppfmt) {
                 return vec![ip];
             }
         }
@@ -191,14 +211,14 @@ async fn detect_cloudflare_trace(
         return Vec::new();
     }
 
-    let (primary, fallback) = match ip_type {
-        IpType::V4 => (CF_TRACE_V4_PRIMARY, CF_TRACE_V4_FALLBACK),
-        IpType::V6 => (CF_TRACE_V6_PRIMARY, CF_TRACE_V6_FALLBACK),
+    let fallback = match ip_type {
+        IpType::V4 => CF_TRACE_V4_FALLBACK,
+        IpType::V6 => CF_TRACE_V6_FALLBACK,
     };
 
-    // Try primary
-    if let Some(ip) = fetch_trace_ip(client, primary, timeout).await {
-        if matches_ip_type(&ip, ip_type) {
+    // Try primary (api.cloudflare.com — resolves via DNS, avoids literal-IP interception)
+    if let Some(ip) = fetch_trace_ip(&client, CF_TRACE_PRIMARY, timeout).await {
+        if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
     }
@@ -207,9 +227,9 @@ async fn detect_cloudflare_trace(
         &format!("{} not detected via primary, trying fallback", ip_type.describe()),
     );
 
-    // Try fallback
-    if let Some(ip) = fetch_trace_ip(client, fallback, timeout).await {
-        if matches_ip_type(&ip, ip_type) {
+    // Try fallback (literal IP — useful when DNS is broken)
+    if let Some(ip) = fetch_trace_ip(&client, fallback, timeout).await {
+        if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
     }
@@ -249,7 +269,7 @@ async fn detect_cloudflare_doh(
             if let Ok(body) = r.bytes().await {
                 if let Some(ip_str) = parse_dns_txt_response(&body) {
                     if let Ok(ip) = ip_str.parse::<IpAddr>() {
-                        if matches_ip_type(&ip, ip_type) {
+                        if validate_detected_ip(&ip, ip_type, ppfmt) {
                             return vec![ip];
                         }
                     }
@@ -379,7 +399,7 @@ async fn detect_ipify(
             if let Ok(body) = resp.text().await {
                 let ip_str = body.trim();
                 if let Ok(ip) = ip_str.parse::<IpAddr>() {
-                    if matches_ip_type(&ip, ip_type) {
+                    if validate_detected_ip(&ip, ip_type, ppfmt) {
                         return vec![ip];
                     }
                 }
@@ -491,7 +511,7 @@ async fn detect_custom_url(
             if let Ok(body) = resp.text().await {
                 let ip_str = body.trim();
                 if let Ok(ip) = ip_str.parse::<IpAddr>() {
-                    if matches_ip_type(&ip, ip_type) {
+                    if validate_detected_ip(&ip, ip_type, ppfmt) {
                         return vec![ip];
                     }
                 }
@@ -514,6 +534,34 @@ fn matches_ip_type(ip: &IpAddr, ip_type: IpType) -> bool {
         IpType::V4 => ip.is_ipv4(),
         IpType::V6 => ip.is_ipv6(),
     }
+}
+
+/// Validate a detected IP: must match the requested address family and be a
+/// global unicast address. Mirrors the checks in favonia/cloudflare-ddns's
+/// NormalizeDetectedIPs — rejects loopback, link-local, multicast,
+/// unspecified, and non-global addresses.
+fn validate_detected_ip(ip: &IpAddr, ip_type: IpType, ppfmt: &PP) -> bool {
+    if !matches_ip_type(ip, ip_type) {
+        ppfmt.warningf(
+            pp::EMOJI_WARNING,
+            &format!(
+                "Detected IP {} does not match expected type {}",
+                ip, ip_type.describe()
+            ),
+        );
+        return false;
+    }
+    if !ip.is_global_() {
+        ppfmt.warningf(
+            pp::EMOJI_WARNING,
+            &format!(
+                "Detected {} address {} is not a global unicast address",
+                ip_type.describe(), ip
+            ),
+        );
+        return false;
+    }
+    true
 }
 
 fn filter_ips_by_type(ips: &[IpAddr], ip_type: IpType) -> Vec<IpAddr> {
@@ -867,6 +915,35 @@ mod tests {
         assert_eq!(result_ok[0], "93.184.216.34".parse::<IpAddr>().unwrap());
     }
 
+    // ---- trace URL constants ----
+
+    #[test]
+    fn test_trace_primary_uses_hostname_not_ip() {
+        // Primary must use a hostname (api.cloudflare.com) so DNS resolves normally
+        // and WARP/Zero Trust doesn't intercept the request.
+        assert_eq!(CF_TRACE_PRIMARY, "https://api.cloudflare.com/cdn-cgi/trace");
+        assert!(CF_TRACE_PRIMARY.contains("api.cloudflare.com"));
+        // Fallbacks use literal IPs for when DNS is broken.
+        assert!(CF_TRACE_V4_FALLBACK.contains("1.0.0.1"));
+        assert!(CF_TRACE_V6_FALLBACK.contains("2606:4700:4700::1001"));
+    }
+
+    // ---- build_split_client ----
+
+    #[test]
+    fn test_build_split_client_v4() {
+        let client = build_split_client(IpType::V4, Duration::from_secs(5));
+        // Client should build successfully — we can't inspect local_address,
+        // but we verify it doesn't panic.
+        drop(client);
+    }
+
+    #[test]
+    fn test_build_split_client_v6() {
+        let client = build_split_client(IpType::V6, Duration::from_secs(5));
+        drop(client);
+    }
+
     // ---- detect_ipify with wiremock ----
 
     #[tokio::test]
@@ -875,7 +952,7 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/"))
-            .respond_with(ResponseTemplate::new(200).set_body_string("198.51.100.1\n"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("93.184.216.34\n"))
             .mount(&server)
             .await;
 
@@ -887,7 +964,7 @@ mod tests {
         // which uses the same logic
         let result = detect_custom_url(&client, &server.uri(), IpType::V4, timeout, &ppfmt).await;
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], "198.51.100.1".parse::<IpAddr>().unwrap());
+        assert_eq!(result[0], "93.184.216.34".parse::<IpAddr>().unwrap());
     }
 
     #[tokio::test]
@@ -897,7 +974,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/"))
             .respond_with(
-                ResponseTemplate::new(200).set_body_string("2001:db8::1\n"),
+                ResponseTemplate::new(200).set_body_string("2606:4700:4700::1111\n"),
             )
             .mount(&server)
             .await;
@@ -908,7 +985,7 @@ mod tests {
 
         let result = detect_custom_url(&client, &server.uri(), IpType::V6, timeout, &ppfmt).await;
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], "2001:db8::1".parse::<IpAddr>().unwrap());
+        assert_eq!(result[0], "2606:4700:4700::1111".parse::<IpAddr>().unwrap());
     }
 
     // ---- detect_custom_url with wiremock ----
@@ -919,7 +996,7 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/my-ip"))
-            .respond_with(ResponseTemplate::new(200).set_body_string("10.0.0.1"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("93.184.216.34"))
             .mount(&server)
             .await;
 
@@ -928,14 +1005,77 @@ mod tests {
         let timeout = Duration::from_secs(5);
         let url = format!("{}/my-ip", server.uri());
 
-        // 10.0.0.1 is a valid IPv4, should match V4
         let result = detect_custom_url(&client, &url, IpType::V4, timeout, &ppfmt).await;
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], "10.0.0.1".parse::<IpAddr>().unwrap());
+        assert_eq!(result[0], "93.184.216.34".parse::<IpAddr>().unwrap());
     }
 
     #[tokio::test]
     async fn test_detect_custom_url_wrong_ip_type() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/my-ip"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("93.184.216.34"))
+            .mount(&server)
+            .await;
+
+        let client = Client::new();
+        let ppfmt = PP::default_pp();
+        let timeout = Duration::from_secs(5);
+        let url = format!("{}/my-ip", server.uri());
+
+        // 93.184.216.34 is IPv4 but we ask for V6 -> empty
+        let result = detect_custom_url(&client, &url, IpType::V6, timeout, &ppfmt).await;
+        assert!(result.is_empty());
+    }
+
+    // ---- validate_detected_ip ----
+
+    #[test]
+    fn test_validate_detected_ip_accepts_global() {
+        let ppfmt = PP::default_pp();
+        assert!(validate_detected_ip(&"93.184.216.34".parse().unwrap(), IpType::V4, &ppfmt));
+        assert!(validate_detected_ip(&"2606:4700:4700::1111".parse().unwrap(), IpType::V6, &ppfmt));
+    }
+
+    #[test]
+    fn test_validate_detected_ip_rejects_wrong_family() {
+        let ppfmt = PP::default_pp();
+        assert!(!validate_detected_ip(&"93.184.216.34".parse().unwrap(), IpType::V6, &ppfmt));
+        assert!(!validate_detected_ip(&"2606:4700:4700::1111".parse().unwrap(), IpType::V4, &ppfmt));
+    }
+
+    #[test]
+    fn test_validate_detected_ip_rejects_private() {
+        let ppfmt = PP::default_pp();
+        assert!(!validate_detected_ip(&"10.0.0.1".parse().unwrap(), IpType::V4, &ppfmt));
+        assert!(!validate_detected_ip(&"192.168.1.1".parse().unwrap(), IpType::V4, &ppfmt));
+        assert!(!validate_detected_ip(&"172.16.0.1".parse().unwrap(), IpType::V4, &ppfmt));
+    }
+
+    #[test]
+    fn test_validate_detected_ip_rejects_loopback() {
+        let ppfmt = PP::default_pp();
+        assert!(!validate_detected_ip(&"127.0.0.1".parse().unwrap(), IpType::V4, &ppfmt));
+        assert!(!validate_detected_ip(&"::1".parse().unwrap(), IpType::V6, &ppfmt));
+    }
+
+    #[test]
+    fn test_validate_detected_ip_rejects_link_local() {
+        let ppfmt = PP::default_pp();
+        assert!(!validate_detected_ip(&"169.254.0.1".parse().unwrap(), IpType::V4, &ppfmt));
+    }
+
+    #[test]
+    fn test_validate_detected_ip_rejects_documentation() {
+        let ppfmt = PP::default_pp();
+        assert!(!validate_detected_ip(&"198.51.100.1".parse().unwrap(), IpType::V4, &ppfmt));
+        assert!(!validate_detected_ip(&"203.0.113.1".parse().unwrap(), IpType::V4, &ppfmt));
+    }
+
+    #[tokio::test]
+    async fn test_detect_custom_url_rejects_private_ip() {
         let server = MockServer::start().await;
 
         Mock::given(method("GET"))
@@ -949,8 +1089,7 @@ mod tests {
         let timeout = Duration::from_secs(5);
         let url = format!("{}/my-ip", server.uri());
 
-        // 10.0.0.1 is IPv4 but we ask for V6 -> empty
-        let result = detect_custom_url(&client, &url, IpType::V6, timeout, &ppfmt).await;
+        let result = detect_custom_url(&client, &url, IpType::V4, timeout, &ppfmt).await;
         assert!(result.is_empty());
     }
 

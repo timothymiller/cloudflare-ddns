@@ -1,6 +1,6 @@
 [package]
 name = "cloudflare-ddns"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2021"
 description = "Access your home network remotely via a custom domain name without a static IP"
 license = "GPL-3.0"
@@ -24,5 +24,5 @@ strip = true
 panic = "abort"
 
 [dev-dependencies]
-tempfile = "3.26.0"
+tempfile = "3.27.0"
 wiremock = "0.6"

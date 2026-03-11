@@ -191,11 +191,11 @@ async fn update_legacy(config: &AppConfig, _ppfmt: &PP) -> bool {
         client,
         cf_api_base: "https://api.cloudflare.com/client/v4".to_string(),
         ipv4_urls: vec![
-            "https://1.1.1.1/cdn-cgi/trace".to_string(),
+            "https://api.cloudflare.com/cdn-cgi/trace".to_string(),
             "https://1.0.0.1/cdn-cgi/trace".to_string(),
         ],
         ipv6_urls: vec![
-            "https://[2606:4700:4700::1111]/cdn-cgi/trace".to_string(),
+            "https://api.cloudflare.com/cdn-cgi/trace".to_string(),
             "https://[2606:4700:4700::1001]/cdn-cgi/trace".to_string(),
         ],
         dry_run: config.dry_run,
