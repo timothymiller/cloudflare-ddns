@@ -145,12 +145,15 @@ impl ProviderType {
 
 // --- Cloudflare Trace ---
 
-/// Primary trace URL uses a hostname so DNS resolves normally, avoiding the
-/// problem where WARP/Zero Trust intercepts requests to literal 1.1.1.1.
-const CF_TRACE_PRIMARY: &str = "https://api.cloudflare.com/cdn-cgi/trace";
-/// Fallback URLs use literal IPs for when api.cloudflare.com is unreachable.
-const CF_TRACE_V4_FALLBACK: &str = "https://1.0.0.1/cdn-cgi/trace";
-const CF_TRACE_V6_FALLBACK: &str = "https://[2606:4700:4700::1001]/cdn-cgi/trace";
+/// Primary trace URLs use literal IPs to guarantee the correct address family.
+/// api.cloudflare.com is dual-stack, so on dual-stack hosts (e.g. Docker
+/// --net=host with IPv6) the connection may go via IPv6 even when detecting
+/// IPv4, causing the trace endpoint to return the wrong address family.
+const CF_TRACE_V4_PRIMARY: &str = "https://1.0.0.1/cdn-cgi/trace";
+const CF_TRACE_V6_PRIMARY: &str = "https://[2606:4700:4700::1001]/cdn-cgi/trace";
+/// Fallback uses a hostname, which works when literal IPs are intercepted
+/// (e.g. Cloudflare WARP/Zero Trust).
+const CF_TRACE_FALLBACK: &str = "https://api.cloudflare.com/cdn-cgi/trace";
 
 pub fn parse_trace_ip(body: &str) -> Option<String> {
     for line in body.lines() {
@@ -211,13 +214,13 @@ async fn detect_cloudflare_trace(
         return Vec::new();
     }
 
-    let fallback = match ip_type {
-        IpType::V4 => CF_TRACE_V4_FALLBACK,
-        IpType::V6 => CF_TRACE_V6_FALLBACK,
+    let primary = match ip_type {
+        IpType::V4 => CF_TRACE_V4_PRIMARY,
+        IpType::V6 => CF_TRACE_V6_PRIMARY,
     };
 
-    // Try primary (api.cloudflare.com — resolves via DNS, avoids literal-IP interception)
-    if let Some(ip) = fetch_trace_ip(&client, CF_TRACE_PRIMARY, timeout).await {
+    // Try primary (literal IP — guarantees correct address family)
+    if let Some(ip) = fetch_trace_ip(&client, primary, timeout).await {
         if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
@@ -227,8 +230,8 @@ async fn detect_cloudflare_trace(
         &format!("{} not detected via primary, trying fallback", ip_type.describe()),
     );
 
-    // Try fallback (literal IP — useful when DNS is broken)
-    if let Some(ip) = fetch_trace_ip(&client, fallback, timeout).await {
+    // Try fallback (hostname-based — works when literal IPs are intercepted by WARP/Zero Trust)
+    if let Some(ip) = fetch_trace_ip(&client, CF_TRACE_FALLBACK, timeout).await {
         if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
@@ -918,14 +921,13 @@ mod tests {
     // ---- trace URL constants ----
 
     #[test]
-    fn test_trace_primary_uses_hostname_not_ip() {
-        // Primary must use a hostname (api.cloudflare.com) so DNS resolves normally
-        // and WARP/Zero Trust doesn't intercept the request.
-        assert_eq!(CF_TRACE_PRIMARY, "https://api.cloudflare.com/cdn-cgi/trace");
-        assert!(CF_TRACE_PRIMARY.contains("api.cloudflare.com"));
-        // Fallbacks use literal IPs for when DNS is broken.
-        assert!(CF_TRACE_V4_FALLBACK.contains("1.0.0.1"));
-        assert!(CF_TRACE_V6_FALLBACK.contains("2606:4700:4700::1001"));
+    fn test_trace_urls() {
+        // Primary URLs use literal IPs to guarantee correct address family.
+        assert!(CF_TRACE_V4_PRIMARY.contains("1.0.0.1"));
+        assert!(CF_TRACE_V6_PRIMARY.contains("2606:4700:4700::1001"));
+        // Fallback uses a hostname for when literal IPs are intercepted (WARP/Zero Trust).
+        assert_eq!(CF_TRACE_FALLBACK, "https://api.cloudflare.com/cdn-cgi/trace");
+        assert!(CF_TRACE_FALLBACK.contains("api.cloudflare.com"));
     }
 
     // ---- build_split_client ----
