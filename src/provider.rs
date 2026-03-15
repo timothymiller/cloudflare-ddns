@@ -191,6 +191,13 @@ fn build_split_client(ip_type: IpType, timeout: Duration) -> Client {
         .unwrap_or_default()
 }
 
+fn default_trace_urls(ip_type: IpType) -> [&'static str; 2] {
+    match ip_type {
+        IpType::V4 => [CF_TRACE_FALLBACK, CF_TRACE_V4_PRIMARY],
+        IpType::V6 => [CF_TRACE_FALLBACK, CF_TRACE_V6_PRIMARY],
+    }
+}
+
 async fn detect_cloudflare_trace(
     _client: &Client,
     ip_type: IpType,
@@ -214,12 +221,9 @@ async fn detect_cloudflare_trace(
         return Vec::new();
     }
 
-    let primary = match ip_type {
-        IpType::V4 => CF_TRACE_V4_PRIMARY,
-        IpType::V6 => CF_TRACE_V6_PRIMARY,
-    };
+    let [primary, fallback] = default_trace_urls(ip_type);
 
-    // Try primary (literal IP — guarantees correct address family)
+    // Try the legacy default URL first.
     if let Some(ip) = fetch_trace_ip(&client, primary, timeout).await {
         if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
@@ -230,8 +234,8 @@ async fn detect_cloudflare_trace(
         &format!("{} not detected via primary, trying fallback", ip_type.describe()),
     );
 
-    // Try fallback (hostname-based — works when literal IPs are intercepted by WARP/Zero Trust)
-    if let Some(ip) = fetch_trace_ip(&client, CF_TRACE_FALLBACK, timeout).await {
+    // Then fall back to the family-specific literal IP endpoint.
+    if let Some(ip) = fetch_trace_ip(&client, fallback, timeout).await {
         if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
@@ -928,6 +932,22 @@ mod tests {
         // Fallback uses a hostname for when literal IPs are intercepted (WARP/Zero Trust).
         assert_eq!(CF_TRACE_FALLBACK, "https://api.cloudflare.com/cdn-cgi/trace");
         assert!(CF_TRACE_FALLBACK.contains("api.cloudflare.com"));
+    }
+
+    #[test]
+    fn test_default_trace_urls_v4_match_previous_order() {
+        assert_eq!(
+            default_trace_urls(IpType::V4),
+            [CF_TRACE_FALLBACK, CF_TRACE_V4_PRIMARY]
+        );
+    }
+
+    #[test]
+    fn test_default_trace_urls_v6_match_previous_order() {
+        assert_eq!(
+            default_trace_urls(IpType::V6),
+            [CF_TRACE_FALLBACK, CF_TRACE_V6_PRIMARY]
+        );
     }
 
     // ---- build_split_client ----

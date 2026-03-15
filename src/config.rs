@@ -23,6 +23,10 @@ pub struct LegacyConfig {
     pub a: bool,
     #[serde(default = "default_true")]
     pub aaaa: bool,
+    #[serde(default)]
+    pub ip4_provider: Option<String>,
+    #[serde(default)]
+    pub ip6_provider: Option<String>,
     #[serde(rename = "purgeUnknownRecords", default)]
     pub purge_unknown_records: bool,
     #[serde(default = "default_ttl")]
@@ -385,8 +389,39 @@ pub fn parse_legacy_config(content: &str) -> Result<LegacyConfig, String> {
     Ok(config)
 }
 
+fn default_legacy_provider() -> ProviderType {
+    ProviderType::CloudflareTrace { url: None }
+}
+
+fn resolve_legacy_provider(
+    enabled: bool,
+    configured: Option<&str>,
+    field_name: &str,
+) -> Result<Option<ProviderType>, String> {
+    if !enabled {
+        return Ok(None);
+    }
+
+    let provider = match configured {
+        Some(value) => {
+            ProviderType::parse(value).map_err(|e| format!("Invalid {field_name}: {e}"))?
+        }
+        None => default_legacy_provider(),
+    };
+
+    if matches!(provider, ProviderType::None) {
+        Ok(None)
+    } else {
+        Ok(Some(provider))
+    }
+}
+
 /// Convert a legacy config into a unified AppConfig
-fn legacy_to_app_config(legacy: LegacyConfig, dry_run: bool, repeat: bool) -> AppConfig {
+fn legacy_to_app_config(
+    legacy: LegacyConfig,
+    dry_run: bool,
+    repeat: bool,
+) -> Result<AppConfig, String> {
     // Extract auth from first entry
     let auth = if let Some(entry) = legacy.cloudflare.first() {
         if !entry.authentication.api_token.is_empty()
@@ -407,11 +442,15 @@ fn legacy_to_app_config(legacy: LegacyConfig, dry_run: bool, repeat: bool) -> Ap
 
     // Build providers
     let mut providers = HashMap::new();
-    if legacy.a {
-        providers.insert(IpType::V4, ProviderType::CloudflareTrace { url: None });
+    if let Some(provider) =
+        resolve_legacy_provider(legacy.a, legacy.ip4_provider.as_deref(), "ip4_provider")?
+    {
+        providers.insert(IpType::V4, provider);
     }
-    if legacy.aaaa {
-        providers.insert(IpType::V6, ProviderType::CloudflareTrace { url: None });
+    if let Some(provider) =
+        resolve_legacy_provider(legacy.aaaa, legacy.ip6_provider.as_deref(), "ip6_provider")?
+    {
+        providers.insert(IpType::V6, provider);
     }
 
     let ttl = TTL::new(legacy.ttl);
@@ -422,7 +461,7 @@ fn legacy_to_app_config(legacy: LegacyConfig, dry_run: bool, repeat: bool) -> Ap
         CronSchedule::Once
     };
 
-    AppConfig {
+    Ok(AppConfig {
         auth,
         providers,
         domains: HashMap::new(),
@@ -445,7 +484,7 @@ fn legacy_to_app_config(legacy: LegacyConfig, dry_run: bool, repeat: bool) -> Ap
         legacy_mode: true,
         legacy_config: Some(legacy),
         repeat,
-    }
+    })
 }
 
 // ============================================================
@@ -579,7 +618,7 @@ pub fn load_config(dry_run: bool, repeat: bool, ppfmt: &PP) -> Result<AppConfig,
     } else {
         ppfmt.infof(pp::EMOJI_CONFIG, "Using config.json configuration");
         let legacy = load_legacy_config()?;
-        Ok(legacy_to_app_config(legacy, dry_run, repeat))
+        legacy_to_app_config(legacy, dry_run, repeat)
     }
 }
 
@@ -680,6 +719,8 @@ mod tests {
         let config = parse_legacy_config(json).unwrap();
         assert!(config.a);
         assert!(config.aaaa);
+        assert_eq!(config.ip4_provider, None);
+        assert_eq!(config.ip6_provider, None);
         assert!(!config.purge_unknown_records);
         assert_eq!(config.ttl, 300);
     }
@@ -761,46 +802,48 @@ mod tests {
     #[test]
     fn test_read_cron_default() {
         // No env var set -> default 5m
-        std::env::remove_var("UPDATE_CRON");
+        let mut g = EnvGuard::set("_PLACEHOLDER_CRON", "x");
+        g.remove("UPDATE_CRON");
         let pp = PP::new(false, false);
         let sched = read_cron_from_env(&pp).unwrap();
+        drop(g);
         assert!(matches!(sched, CronSchedule::Every(d) if d == Duration::from_secs(300)));
     }
 
     #[test]
     fn test_read_cron_once() {
-        std::env::set_var("UPDATE_CRON", "@once");
+        let g = EnvGuard::set("UPDATE_CRON", "@once");
         let pp = PP::new(false, false);
         let sched = read_cron_from_env(&pp).unwrap();
+        drop(g);
         assert!(matches!(sched, CronSchedule::Once));
-        std::env::remove_var("UPDATE_CRON");
     }
 
     #[test]
     fn test_read_cron_every() {
-        std::env::set_var("UPDATE_CRON", "@every 10m");
+        let g = EnvGuard::set("UPDATE_CRON", "@every 10m");
         let pp = PP::new(false, false);
         let sched = read_cron_from_env(&pp).unwrap();
+        drop(g);
         assert!(matches!(sched, CronSchedule::Every(d) if d == Duration::from_secs(600)));
-        std::env::remove_var("UPDATE_CRON");
     }
 
     #[test]
     fn test_read_cron_deprecated_disabled() {
-        std::env::set_var("UPDATE_CRON", "@disabled");
+        let g = EnvGuard::set("UPDATE_CRON", "@disabled");
         let pp = PP::new(false, false);
         let sched = read_cron_from_env(&pp).unwrap();
+        drop(g);
         assert!(matches!(sched, CronSchedule::Once));
-        std::env::remove_var("UPDATE_CRON");
     }
 
     #[test]
     fn test_read_cron_unsupported_format() {
-        std::env::set_var("UPDATE_CRON", "*/5 * * * *");
+        let g = EnvGuard::set("UPDATE_CRON", "*/5 * * * *");
         let pp = PP::new(false, false);
         let result = read_cron_from_env(&pp);
+        drop(g);
         assert!(result.is_err());
-        std::env::remove_var("UPDATE_CRON");
     }
 
     // --- getenv helpers ---
@@ -985,14 +1028,20 @@ mod tests {
             }],
             a: true,
             aaaa: false,
+            ip4_provider: None,
+            ip6_provider: None,
             purge_unknown_records: false,
             ttl: 300,
         };
-        let config = legacy_to_app_config(legacy, false, false);
+        let config = legacy_to_app_config(legacy, false, false).unwrap();
         assert!(config.legacy_mode);
         assert!(matches!(config.auth, Auth::Token(ref t) if t == "my-token"));
         assert!(config.providers.contains_key(&IpType::V4));
         assert!(!config.providers.contains_key(&IpType::V6));
+        assert!(matches!(
+            config.providers[&IpType::V4],
+            ProviderType::CloudflareTrace { url: None }
+        ));
         assert!(matches!(config.update_cron, CronSchedule::Once));
         assert!(!config.dry_run);
     }
@@ -1011,10 +1060,12 @@ mod tests {
             }],
             a: true,
             aaaa: true,
+            ip4_provider: None,
+            ip6_provider: None,
             purge_unknown_records: false,
             ttl: 120,
         };
-        let config = legacy_to_app_config(legacy, true, true);
+        let config = legacy_to_app_config(legacy, true, true).unwrap();
         assert!(matches!(config.update_cron, CronSchedule::Every(d) if d == Duration::from_secs(120)));
         assert!(config.repeat);
         assert!(config.dry_run);
@@ -1037,12 +1088,109 @@ mod tests {
             }],
             a: true,
             aaaa: true,
+            ip4_provider: None,
+            ip6_provider: None,
             purge_unknown_records: false,
             ttl: 300,
         };
-        let config = legacy_to_app_config(legacy, false, false);
+        let config = legacy_to_app_config(legacy, false, false).unwrap();
         assert!(matches!(config.auth, Auth::Key { ref api_key, ref email }
             if api_key == "key123" && email == "test@example.com"));
+    }
+
+    #[test]
+    fn test_legacy_to_app_config_provider_overrides() {
+        let legacy = LegacyConfig {
+            cloudflare: vec![LegacyCloudflareEntry {
+                authentication: LegacyAuthentication {
+                    api_token: "tok".to_string(),
+                    api_key: None,
+                },
+                zone_id: "z".to_string(),
+                subdomains: vec![],
+                proxied: false,
+            }],
+            a: true,
+            aaaa: true,
+            ip4_provider: Some("ipify".to_string()),
+            ip6_provider: Some("local".to_string()),
+            purge_unknown_records: false,
+            ttl: 300,
+        };
+        let config = legacy_to_app_config(legacy, false, false).unwrap();
+        assert!(matches!(config.providers[&IpType::V4], ProviderType::Ipify));
+        assert!(matches!(config.providers[&IpType::V6], ProviderType::Local));
+    }
+
+    #[test]
+    fn test_legacy_to_app_config_disabled_family_ignores_provider_override() {
+        let legacy = LegacyConfig {
+            cloudflare: vec![LegacyCloudflareEntry {
+                authentication: LegacyAuthentication {
+                    api_token: "tok".to_string(),
+                    api_key: None,
+                },
+                zone_id: "z".to_string(),
+                subdomains: vec![],
+                proxied: false,
+            }],
+            a: false,
+            aaaa: true,
+            ip4_provider: Some("totally_invalid_provider".to_string()),
+            ip6_provider: None,
+            purge_unknown_records: false,
+            ttl: 300,
+        };
+        let config = legacy_to_app_config(legacy, false, false).unwrap();
+        assert!(!config.providers.contains_key(&IpType::V4));
+        assert!(config.providers.contains_key(&IpType::V6));
+    }
+
+    #[test]
+    fn test_legacy_to_app_config_none_provider_disables_family() {
+        let legacy = LegacyConfig {
+            cloudflare: vec![LegacyCloudflareEntry {
+                authentication: LegacyAuthentication {
+                    api_token: "tok".to_string(),
+                    api_key: None,
+                },
+                zone_id: "z".to_string(),
+                subdomains: vec![],
+                proxied: false,
+            }],
+            a: true,
+            aaaa: false,
+            ip4_provider: Some("none".to_string()),
+            ip6_provider: None,
+            purge_unknown_records: false,
+            ttl: 300,
+        };
+        let config = legacy_to_app_config(legacy, false, false).unwrap();
+        assert!(!config.providers.contains_key(&IpType::V4));
+    }
+
+    #[test]
+    fn test_legacy_to_app_config_invalid_enabled_provider_returns_error() {
+        let legacy = LegacyConfig {
+            cloudflare: vec![LegacyCloudflareEntry {
+                authentication: LegacyAuthentication {
+                    api_token: "tok".to_string(),
+                    api_key: None,
+                },
+                zone_id: "z".to_string(),
+                subdomains: vec![],
+                proxied: false,
+            }],
+            a: true,
+            aaaa: false,
+            ip4_provider: Some("totally_invalid_provider".to_string()),
+            ip6_provider: None,
+            purge_unknown_records: false,
+            ttl: 300,
+        };
+        let result = legacy_to_app_config(legacy, false, false);
+        assert!(result.is_err());
+        assert!(result.err().unwrap().contains("ip4_provider"));
     }
 
     // --- is_env_config_mode ---
@@ -1152,6 +1300,22 @@ mod tests {
         assert!(config.a);
         assert!(!config.aaaa);
         assert!(config.cloudflare[0].proxied);
+    }
+
+    #[test]
+    fn test_parse_legacy_config_with_provider_overrides() {
+        let json = r#"{
+            "cloudflare": [{
+                "authentication": { "api_token": "tok" },
+                "zone_id": "z",
+                "subdomains": ["@"]
+            }],
+            "ip4_provider": "ipify",
+            "ip6_provider": "local"
+        }"#;
+        let config = parse_legacy_config(json).unwrap();
+        assert_eq!(config.ip4_provider.as_deref(), Some("ipify"));
+        assert_eq!(config.ip6_provider.as_deref(), Some("local"));
     }
 
     // --- substitute_env_vars ---
