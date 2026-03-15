@@ -190,14 +190,6 @@ async fn update_legacy(config: &AppConfig, detection_client: &Client, ppfmt: &PP
     let ddns = LegacyDdnsClient {
         client,
         cf_api_base: "https://api.cloudflare.com/client/v4".to_string(),
-        ipv4_urls: vec![
-            "https://api.cloudflare.com/cdn-cgi/trace".to_string(),
-            "https://1.0.0.1/cdn-cgi/trace".to_string(),
-        ],
-        ipv6_urls: vec![
-            "https://api.cloudflare.com/cdn-cgi/trace".to_string(),
-            "https://[2606:4700:4700::1001]/cdn-cgi/trace".to_string(),
-        ],
         dry_run: config.dry_run,
     };
 
@@ -320,141 +312,13 @@ pub struct LegacyIpInfo {
     pub ip: String,
 }
 
-struct LegacyWarningState {
-    shown_ipv4: bool,
-    shown_ipv4_secondary: bool,
-    shown_ipv6: bool,
-    shown_ipv6_secondary: bool,
-}
-
-impl Default for LegacyWarningState {
-    fn default() -> Self {
-        Self {
-            shown_ipv4: false,
-            shown_ipv4_secondary: false,
-            shown_ipv6: false,
-            shown_ipv6_secondary: false,
-        }
-    }
-}
-
 struct LegacyDdnsClient {
     client: Client,
     cf_api_base: String,
-    ipv4_urls: Vec<String>,
-    ipv6_urls: Vec<String>,
     dry_run: bool,
 }
 
 impl LegacyDdnsClient {
-    async fn get_ips(
-        &self,
-        ipv4_enabled: bool,
-        ipv6_enabled: bool,
-        purge_unknown_records: bool,
-        config: &[LegacyCloudflareEntry],
-        warnings: &mut LegacyWarningState,
-    ) -> HashMap<String, LegacyIpInfo> {
-        let mut ips = HashMap::new();
-
-        if ipv4_enabled {
-            let a = self
-                .try_trace_urls(
-                    &self.ipv4_urls,
-                    &mut warnings.shown_ipv4,
-                    &mut warnings.shown_ipv4_secondary,
-                    "IPv4",
-                    true,
-                )
-                .await;
-            if a.is_none() && purge_unknown_records {
-                self.delete_entries("A", config).await;
-            }
-            if let Some(ip) = a {
-                ips.insert(
-                    "ipv4".to_string(),
-                    LegacyIpInfo {
-                        record_type: "A".to_string(),
-                        ip,
-                    },
-                );
-            }
-        }
-
-        if ipv6_enabled {
-            let aaaa = self
-                .try_trace_urls(
-                    &self.ipv6_urls,
-                    &mut warnings.shown_ipv6,
-                    &mut warnings.shown_ipv6_secondary,
-                    "IPv6",
-                    false,
-                )
-                .await;
-            if aaaa.is_none() && purge_unknown_records {
-                self.delete_entries("AAAA", config).await;
-            }
-            if let Some(ip) = aaaa {
-                ips.insert(
-                    "ipv6".to_string(),
-                    LegacyIpInfo {
-                        record_type: "AAAA".to_string(),
-                        ip,
-                    },
-                );
-            }
-        }
-
-        ips
-    }
-
-    async fn try_trace_urls(
-        &self,
-        urls: &[String],
-        shown_primary: &mut bool,
-        shown_secondary: &mut bool,
-        label: &str,
-        expect_v4: bool,
-    ) -> Option<String> {
-        for (i, url) in urls.iter().enumerate() {
-            match self.client.get(url).send().await {
-                Ok(resp) => {
-                    if let Some(ip) =
-                        crate::provider::parse_trace_ip(&resp.text().await.unwrap_or_default())
-                    {
-                        // Validate the IP matches the expected address family
-                        if let Ok(addr) = ip.parse::<std::net::IpAddr>() {
-                            if expect_v4 && !addr.is_ipv4() {
-                                eprintln!("{label} trace returned IPv6 address, skipping");
-                                continue;
-                            }
-                            if !expect_v4 && !addr.is_ipv6() {
-                                eprintln!("{label} trace returned IPv4 address, skipping");
-                                continue;
-                            }
-                        }
-                        return Some(ip);
-                    }
-                }
-                Err(_) => {
-                    if i == 0 && !*shown_primary {
-                        *shown_primary = true;
-                        let next = if urls.len() > 1 {
-                            ", trying fallback"
-                        } else {
-                            ""
-                        };
-                        eprintln!("{label} not detected via primary{next}");
-                    } else if i > 0 && !*shown_secondary {
-                        *shown_secondary = true;
-                        eprintln!("{label} not detected via fallback. Verify your ISP or DNS provider isn't blocking Cloudflare's IPs.");
-                    }
-                }
-            }
-        }
-        None
-    }
-
     async fn cf_api<T: serde::de::DeserializeOwned>(
         &self,
         endpoint: &str,
@@ -1802,8 +1666,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let ppfmt = pp();
@@ -1866,8 +1728,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let ppfmt = pp();
@@ -1880,86 +1740,6 @@ mod tests {
     // -------------------------------------------------------
     // LegacyDdnsClient tests (internal/private struct)
     // -------------------------------------------------------
-
-    #[tokio::test]
-    async fn test_legacy_try_trace_urls_primary_success() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/trace"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_string("fl=1\nh=mock\nip=198.51.100.1\nts=0\n"),
-            )
-            .mount(&server)
-            .await;
-
-        let ddns = LegacyDdnsClient {
-            client: Client::new(),
-            cf_api_base: server.uri(),
-            ipv4_urls: vec![format!("{}/trace", server.uri())],
-            ipv6_urls: vec![],
-            dry_run: false,
-        };
-        let mut shown_primary = false;
-        let mut shown_secondary = false;
-        let result = ddns
-            .try_trace_urls(&ddns.ipv4_urls, &mut shown_primary, &mut shown_secondary, "IPv4", true)
-            .await;
-        assert_eq!(result, Some("198.51.100.1".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_legacy_try_trace_urls_primary_fails_fallback_succeeds() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/fallback"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_string("fl=1\nh=mock\nip=198.51.100.2\nts=0\n"),
-            )
-            .mount(&server)
-            .await;
-
-        let ddns = LegacyDdnsClient {
-            client: Client::new(),
-            cf_api_base: server.uri(),
-            ipv4_urls: vec![
-                "http://127.0.0.1:1/nonexistent".to_string(), // will fail
-                format!("{}/fallback", server.uri()),
-            ],
-            ipv6_urls: vec![],
-            dry_run: false,
-        };
-        let mut shown_primary = false;
-        let mut shown_secondary = false;
-        let result = ddns
-            .try_trace_urls(&ddns.ipv4_urls, &mut shown_primary, &mut shown_secondary, "IPv4", true)
-            .await;
-        assert_eq!(result, Some("198.51.100.2".to_string()));
-        assert!(shown_primary);
-    }
-
-    #[tokio::test]
-    async fn test_legacy_try_trace_urls_all_fail() {
-        let ddns = LegacyDdnsClient {
-            client: Client::builder().timeout(Duration::from_millis(100)).build().unwrap(),
-            cf_api_base: String::new(),
-            ipv4_urls: vec![
-                "http://127.0.0.1:1/fail1".to_string(),
-                "http://127.0.0.1:1/fail2".to_string(),
-            ],
-            ipv6_urls: vec![],
-            dry_run: false,
-        };
-        let mut shown_primary = false;
-        let mut shown_secondary = false;
-        let result = ddns
-            .try_trace_urls(&ddns.ipv4_urls, &mut shown_primary, &mut shown_secondary, "IPv4", true)
-            .await;
-        assert!(result.is_none());
-        assert!(shown_primary);
-        assert!(shown_secondary);
-    }
 
     #[tokio::test]
     async fn test_legacy_cf_api_get_success() {
@@ -1975,8 +1755,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let entry = crate::config::LegacyCloudflareEntry {
@@ -2009,8 +1787,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let entry = crate::config::LegacyCloudflareEntry {
@@ -2040,8 +1816,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let entry = crate::config::LegacyCloudflareEntry {
@@ -2064,8 +1838,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: "http://localhost".to_string(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let entry = crate::config::LegacyCloudflareEntry {
@@ -2096,8 +1868,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let entry = crate::config::LegacyCloudflareEntry {
@@ -2116,75 +1886,6 @@ mod tests {
             .cf_api("zones/zone1", "GET", &entry, None::<&()>.as_ref())
             .await;
         assert!(result.is_some());
-    }
-
-    #[tokio::test]
-    async fn test_legacy_get_ips_ipv4_enabled() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/trace"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_string("ip=198.51.100.42\n"),
-            )
-            .mount(&server)
-            .await;
-
-        let ddns = LegacyDdnsClient {
-            client: Client::new(),
-            cf_api_base: server.uri(),
-            ipv4_urls: vec![format!("{}/trace", server.uri())],
-            ipv6_urls: vec![],
-            dry_run: false,
-        };
-        let mut warnings = LegacyWarningState::default();
-        let config: Vec<crate::config::LegacyCloudflareEntry> = vec![];
-        let ips = ddns.get_ips(true, false, false, &config, &mut warnings).await;
-        assert!(ips.contains_key("ipv4"));
-        assert_eq!(ips["ipv4"].ip, "198.51.100.42");
-        assert_eq!(ips["ipv4"].record_type, "A");
-    }
-
-    #[tokio::test]
-    async fn test_legacy_get_ips_ipv6_enabled() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/trace6"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_string("ip=2001:db8::1\n"),
-            )
-            .mount(&server)
-            .await;
-
-        let ddns = LegacyDdnsClient {
-            client: Client::new(),
-            cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![format!("{}/trace6", server.uri())],
-            dry_run: false,
-        };
-        let mut warnings = LegacyWarningState::default();
-        let config: Vec<crate::config::LegacyCloudflareEntry> = vec![];
-        let ips = ddns.get_ips(false, true, false, &config, &mut warnings).await;
-        assert!(ips.contains_key("ipv6"));
-        assert_eq!(ips["ipv6"].ip, "2001:db8::1");
-        assert_eq!(ips["ipv6"].record_type, "AAAA");
-    }
-
-    #[tokio::test]
-    async fn test_legacy_get_ips_both_disabled() {
-        let ddns = LegacyDdnsClient {
-            client: Client::new(),
-            cf_api_base: String::new(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
-            dry_run: false,
-        };
-        let mut warnings = LegacyWarningState::default();
-        let config: Vec<crate::config::LegacyCloudflareEntry> = vec![];
-        let ips = ddns.get_ips(false, false, false, &config, &mut warnings).await;
-        assert!(ips.is_empty());
     }
 
     #[tokio::test]
@@ -2223,8 +1924,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let ip = LegacyIpInfo {
@@ -2281,8 +1980,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let ip = LegacyIpInfo {
@@ -2325,8 +2022,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: true,
         };
         let ip = LegacyIpInfo {
@@ -2378,8 +2073,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let ip = LegacyIpInfo {
@@ -2435,8 +2128,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let ip = LegacyIpInfo {
@@ -2486,8 +2177,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let mut ips = HashMap::new();
@@ -2532,8 +2221,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: false,
         };
         let config = vec![crate::config::LegacyCloudflareEntry {
@@ -2566,8 +2253,6 @@ mod tests {
         let ddns = LegacyDdnsClient {
             client: Client::new(),
             cf_api_base: server.uri(),
-            ipv4_urls: vec![],
-            ipv6_urls: vec![],
             dry_run: true,
         };
         let config = vec![crate::config::LegacyCloudflareEntry {
@@ -2581,15 +2266,6 @@ mod tests {
         }];
         // dry_run: should not DELETE
         ddns.delete_entries("A", &config).await;
-    }
-
-    #[test]
-    fn test_legacy_warning_state_default() {
-        let w = LegacyWarningState::default();
-        assert!(!w.shown_ipv4);
-        assert!(!w.shown_ipv4_secondary);
-        assert!(!w.shown_ipv6);
-        assert!(!w.shown_ipv6_secondary);
     }
 }
 
