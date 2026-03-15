@@ -23,6 +23,8 @@
   ],
   "a": true,
   "aaaa": true,
+  "ip4_provider": "cloudflare.trace",
+  "ip6_provider": "cloudflare.trace",
   "purgeUnknownRecords": false,
   "ttl": 300
 }

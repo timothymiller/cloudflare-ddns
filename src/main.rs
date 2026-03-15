@@ -10,6 +10,7 @@ use crate::cloudflare::{Auth, CloudflareHandle};
 use crate::config::{AppConfig, CronSchedule};
 use crate::notifier::{CompositeNotifier, Heartbeat, Message};
 use crate::pp::PP;
+use crate::provider::IpType;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::signal;
@@ -149,7 +150,9 @@ async fn run_legacy_mode(
     };
 
     if config.repeat {
-        match (legacy.a, legacy.aaaa) {
+        let ipv4_enabled = config.providers.contains_key(&IpType::V4);
+        let ipv6_enabled = config.providers.contains_key(&IpType::V6);
+        match (ipv4_enabled, ipv6_enabled) {
             (true, true) => println!(
                 "Updating IPv4 (A) & IPv6 (AAAA) records every {} seconds",
                 legacy.ttl
@@ -298,6 +301,8 @@ mod tests {
             }],
             a: true,
             aaaa: false,
+            ip4_provider: None,
+            ip6_provider: None,
             purge_unknown_records: false,
             ttl: 300,
         }
@@ -811,6 +816,8 @@ mod tests {
             }],
             a: true,
             aaaa: false,
+            ip4_provider: None,
+            ip6_provider: None,
             purge_unknown_records: true,
             ttl: 300,
         };
@@ -910,6 +917,8 @@ mod tests {
             }],
             a: true,
             aaaa: false,
+            ip4_provider: None,
+            ip6_provider: None,
             purge_unknown_records: false,
             ttl: 300,
         };

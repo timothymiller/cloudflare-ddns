@@ -71,7 +71,7 @@ At least one of `DOMAINS`, `IP4_DOMAINS`, `IP6_DOMAINS`, or `WAF_LISTS` must be 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `IP4_PROVIDER` | `ipify` | IPv4 detection method |
+| `IP4_PROVIDER` | `cloudflare.trace` | IPv4 detection method |
 | `IP6_PROVIDER` | `cloudflare.trace` | IPv6 detection method |
 
 Available providers:
@@ -195,7 +195,7 @@ Heartbeats are sent after each update cycle. On failure, a fail signal is sent. 
 | `DOMAINS` | — | 🌐 Domains for both IPv4 and IPv6 |
 | `IP4_DOMAINS` | — | 4️⃣ IPv4-only domains |
 | `IP6_DOMAINS` | — | 6️⃣ IPv6-only domains |
-| `IP4_PROVIDER` | `ipify` | 🔍 IPv4 detection provider |
+| `IP4_PROVIDER` | `cloudflare.trace` | 🔍 IPv4 detection provider |
 | `IP6_PROVIDER` | `cloudflare.trace` | 🔍 IPv6 detection provider |
 | `UPDATE_CRON` | `@every 5m` | ⏱️ Update schedule |
 | `UPDATE_ON_START` | `true` | 🚀 Update on startup |
@@ -347,6 +347,19 @@ Some ISP provided modems only allow port forwarding over IPv4 or IPv6. Disable t
 "aaaa": true
 ```
 
+Optional provider overrides let legacy config use the same provider strings as `IP4_PROVIDER` and
+`IP6_PROVIDER` in env var mode:
+
+```json
+"ip4_provider": "cloudflare.trace",
+"ip6_provider": "cloudflare.trace"
+```
+
+`a` and `aaaa` still control whether each address family is active. If an enabled family omits its
+provider, legacy mode falls back to `cloudflare.trace`. Setting `ip4_provider` or `ip6_provider`
+to `none` disables that family, matching env var mode. Legacy mode still manages one address per
+family, so if a provider returns multiple matches, only the first detected address is used.
+
 ### ⚙️ Config Options
 
 | Key | Type | Default | Description |
@@ -354,6 +367,8 @@ Some ISP provided modems only allow port forwarding over IPv4 or IPv6. Disable t
 | `cloudflare` | array | required | List of zone configurations |
 | `a` | bool | `true` | Enable IPv4 (A record) updates |
 | `aaaa` | bool | `true` | Enable IPv6 (AAAA record) updates |
+| `ip4_provider` | string | `cloudflare.trace` | IPv4 detection provider (same syntax as `IP4_PROVIDER`; `none` disables IPv4) |
+| `ip6_provider` | string | `cloudflare.trace` | IPv6 detection provider (same syntax as `IP6_PROVIDER`; `none` disables IPv6) |
 | `purgeUnknownRecords` | bool | `false` | Delete stale/duplicate DNS records |
 | `ttl` | int | `300` | DNS record TTL in seconds (30-86400, values < 30 become auto) |
 
@@ -378,6 +393,10 @@ Subdomain entries can be a simple string or a detailed object:
 ```
 
 Use `""` or `"@"` for the root domain. Do not include the base domain name.
+
+Legacy mode supports the same provider values as env var mode:
+`cloudflare.trace`, `cloudflare.trace:<url>`, `cloudflare.doh`, `ipify`, `local`,
+`local.iface:<name>`, `url:<url>`, `literal:<ips>`, and `none`.
 
 ### 🔄 Environment Variable Substitution
 
@@ -413,6 +432,8 @@ In the legacy config file, values can reference environment variables with the `
   ],
   "a": true,
   "aaaa": true,
+  "ip4_provider": "cloudflare.trace:https://1.0.0.1/cdn-cgi/trace",
+  "ip6_provider": "cloudflare.trace:https://[2606:4700:4700::1001]/cdn-cgi/trace",
   "purgeUnknownRecords": false,
   "ttl": 300
 }
@@ -440,6 +461,8 @@ In the legacy config file, values can reference environment variables with the `
   ],
   "a": true,
   "aaaa": true,
+  "ip4_provider": "cloudflare.trace",
+  "ip6_provider": "cloudflare.trace",
   "purgeUnknownRecords": false
 }
 ```
