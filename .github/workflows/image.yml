@@ -37,7 +37,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: timothyjmiller/cloudflare-ddns
+          images: masterwishx/cloudflare-ddns
           tags: |
             type=raw,enable=${{ github.ref == 'refs/heads/master' }},value=latest
             type=semver,pattern={{version}}
