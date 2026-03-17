@@ -66,11 +66,8 @@ pub async fn update_once(
         }
 
         // Update DNS records (env var mode - domain-based)
-        for (ip_type, domains) in &config.domains {            
-            let mut ips = detected_ips.get(ip_type).cloned().unwrap_or_default();
-            // FIX: remove duplicates so CloudflareHandle::set_ips sees stable input
-            ips.sort();
-            ips.dedup();
+        for (ip_type, domains) in &config.domains {
+            let ips = detected_ips.get(ip_type).cloned().unwrap_or_default();
             let record_type = ip_type.record_type();
 
             for domain_str in domains {
