@@ -1,3 +1,4 @@
+mod cf_ip_filter;
 mod cloudflare;
 mod config;
 mod domain;

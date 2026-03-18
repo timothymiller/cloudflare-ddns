@@ -1,6 +1,6 @@
 [package]
 name = "cloudflare-ddns"
-version = "2.0.3"
+version = "2.0.4"
 edition = "2021"
 description = "Access your home network remotely via a custom domain name without a static IP"
 license = "GPL-3.0"
@@ -15,6 +15,7 @@ chrono = { version = "0.4", features = ["clock"] }
 url = "2"
 idna = "1"
 if-addrs = "0.13"
+ipnet = "2"
 
 [profile.release]
 opt-level = "s"
