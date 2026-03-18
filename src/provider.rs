@@ -164,14 +164,17 @@ pub fn parse_trace_ip(body: &str) -> Option<String> {
     None
 }
 
-async fn fetch_trace_ip(client: &Client, url: &str, timeout: Duration) -> Option<IpAddr> {
-    let resp = client
-        .get(url)
-        .header("Host", "one.one.one.one")
-        .timeout(timeout)
-        .send()
-        .await
-        .ok()?;
+async fn fetch_trace_ip(
+    client: &Client,
+    url: &str,
+    timeout: Duration,
+    host_override: Option<&str>,
+) -> Option<IpAddr> {
+    let mut req = client.get(url).timeout(timeout);
+    if let Some(host) = host_override {
+        req = req.header("Host", host);
+    }
+    let resp = req.send().await.ok()?;
     let body = resp.text().await.ok()?;
     let ip_str = parse_trace_ip(&body)?;
     ip_str.parse::<IpAddr>().ok()
@@ -203,7 +206,7 @@ async fn detect_cloudflare_trace(
     let client = build_split_client(ip_type, timeout);
 
     if let Some(url) = custom_url {
-        if let Some(ip) = fetch_trace_ip(&client, url, timeout).await {
+        if let Some(ip) = fetch_trace_ip(&client, url, timeout, None).await {
             if validate_detected_ip(&ip, ip_type, ppfmt) {
                 return vec![ip];
             }
@@ -221,7 +224,7 @@ async fn detect_cloudflare_trace(
     };
 
     // Try primary (literal IP — guarantees correct address family)
-    if let Some(ip) = fetch_trace_ip(&client, primary, timeout).await {
+    if let Some(ip) = fetch_trace_ip(&client, primary, timeout, Some("one.one.one.one")).await {
         if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
@@ -232,7 +235,7 @@ async fn detect_cloudflare_trace(
     );
 
     // Try fallback (hostname-based — works when literal IPs are intercepted by WARP/Zero Trust)
-    if let Some(ip) = fetch_trace_ip(&client, CF_TRACE_FALLBACK, timeout).await {
+    if let Some(ip) = fetch_trace_ip(&client, CF_TRACE_FALLBACK, timeout, None).await {
         if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
