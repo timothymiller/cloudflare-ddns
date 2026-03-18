@@ -24,6 +24,7 @@ pub async fn update_once(
 
     let mut all_ok = true;
     let mut messages = Vec::new();
+    let mut notify = false; // NEW: track meaningful events
 
     if config.legacy_mode {
         all_ok = update_legacy(config, ppfmt).await;
@@ -108,6 +109,7 @@ pub async fn update_once(
 
                 match result {
                     SetResult::Updated => {
+                        notify = true;            // NEW
                         let ip_strs: Vec<String> = ips.iter().map(|ip| ip.to_string()).collect();
                         messages.push(Message::new_ok(&format!(
                             "Updated {domain_str} -> {}",
@@ -115,6 +117,7 @@ pub async fn update_once(
                         )));
                     }
                     SetResult::Failed => {
+                        notify = true;            // NEW
                         all_ok = false;
                         messages.push(Message::new_fail(&format!(
                             "Failed to update {domain_str}"
@@ -147,12 +150,14 @@ pub async fn update_once(
 
             match result {
                 SetResult::Updated => {
+                    notify = true;            // NEW                    
                     messages.push(Message::new_ok(&format!(
                         "Updated WAF list {}",
                         waf_list.describe()
                     )));
                 }
                 SetResult::Failed => {
+                    notify = true;            // NEW
                     all_ok = false;
                     messages.push(Message::new_fail(&format!(
                         "Failed to update WAF list {}",
@@ -164,13 +169,17 @@ pub async fn update_once(
         }
     }
 
-    // Send heartbeat
-    let heartbeat_msg = Message::merge(messages.clone());
-    heartbeat.ping(&heartbeat_msg).await;
+    // Send heartbeat ONLY if something meaningful happened
+    if notify {
+        let heartbeat_msg = Message::merge(messages.clone());
+        heartbeat.ping(&heartbeat_msg).await;
+    }
 
-    // Send notifications
-    let notifier_msg = Message::merge(messages);
-    notifier.send(&notifier_msg).await;
+    // Send notifications ONLY when IP changed or failed
+    if notify {
+        let notifier_msg = Message::merge(messages);
+        notifier.send(&notifier_msg).await;
+    }
 
     all_ok
 }

@@ -167,6 +167,7 @@ pub fn parse_trace_ip(body: &str) -> Option<String> {
 async fn fetch_trace_ip(client: &Client, url: &str, timeout: Duration) -> Option<IpAddr> {
     let resp = client
         .get(url)
+        .header("Host", "one.one.one.one")
         .timeout(timeout)
         .send()
         .await
