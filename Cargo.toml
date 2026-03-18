@@ -15,7 +15,6 @@ chrono = { version = "0.4", features = ["clock"] }
 url = "2"
 idna = "1"
 if-addrs = "0.13"
-ipnet = "2"
 
 [profile.release]
 opt-level = "s"

@@ -1,5 +1,4 @@
 use crate::pp::{self, PP};
-use ipnet::IpNet;
 use reqwest::Client;
 use std::net::IpAddr;
 use std::time::Duration;
@@ -7,9 +6,52 @@ use std::time::Duration;
 const CF_IPV4_URL: &str = "https://www.cloudflare.com/ips-v4";
 const CF_IPV6_URL: &str = "https://www.cloudflare.com/ips-v6";
 
+/// A CIDR range parsed from "address/prefix" notation.
+struct CidrRange {
+    addr: IpAddr,
+    prefix_len: u8,
+}
+
+impl CidrRange {
+    fn parse(s: &str) -> Option<Self> {
+        let (addr_str, prefix_str) = s.split_once('/')?;
+        let addr: IpAddr = addr_str.parse().ok()?;
+        let prefix_len: u8 = prefix_str.parse().ok()?;
+        match addr {
+            IpAddr::V4(_) if prefix_len > 32 => None,
+            IpAddr::V6(_) if prefix_len > 128 => None,
+            _ => Some(Self { addr, prefix_len }),
+        }
+    }
+
+    fn contains(&self, ip: &IpAddr) -> bool {
+        match (self.addr, ip) {
+            (IpAddr::V4(net), IpAddr::V4(ip)) => {
+                let net_bits = u32::from(net);
+                let ip_bits = u32::from(*ip);
+                if self.prefix_len == 0 {
+                    return true;
+                }
+                let mask = !0u32 << (32 - self.prefix_len);
+                (net_bits & mask) == (ip_bits & mask)
+            }
+            (IpAddr::V6(net), IpAddr::V6(ip)) => {
+                let net_bits = u128::from(net);
+                let ip_bits = u128::from(*ip);
+                if self.prefix_len == 0 {
+                    return true;
+                }
+                let mask = !0u128 << (128 - self.prefix_len);
+                (net_bits & mask) == (ip_bits & mask)
+            }
+            _ => false,
+        }
+    }
+}
+
 /// Holds parsed Cloudflare CIDR ranges for IP filtering.
 pub struct CloudflareIpFilter {
-    ranges: Vec<IpNet>,
+    ranges: Vec<CidrRange>,
 }
 
 impl CloudflareIpFilter {
@@ -26,13 +68,13 @@ impl CloudflareIpFilter {
                             if line.is_empty() {
                                 continue;
                             }
-                            match line.parse::<IpNet>() {
-                                Ok(net) => ranges.push(net),
-                                Err(e) => {
+                            match CidrRange::parse(line) {
+                                Some(range) => ranges.push(range),
+                                None => {
                                     ppfmt.warningf(
                                         pp::EMOJI_WARNING,
                                         &format!(
-                                            "Failed to parse Cloudflare IP range '{line}': {e}"
+                                            "Failed to parse Cloudflare IP range '{line}'"
                                         ),
                                     );
                                 }
@@ -86,14 +128,14 @@ impl CloudflareIpFilter {
     /// Parse ranges from raw text lines (for testing).
     #[cfg(test)]
     pub fn from_lines(lines: &str) -> Option<Self> {
-        let ranges: Vec<IpNet> = lines
+        let ranges: Vec<CidrRange> = lines
             .lines()
             .filter_map(|l| {
                 let l = l.trim();
                 if l.is_empty() {
                     None
                 } else {
-                    l.parse().ok()
+                    CidrRange::parse(l)
                 }
             })
             .collect();
@@ -177,5 +219,19 @@ mod tests {
         assert!(filter.contains(&IpAddr::V4(Ipv4Addr::new(104, 23, 255, 255))));
         // Just outside range (104.24.0.0)
         assert!(!filter.contains(&IpAddr::V4(Ipv4Addr::new(104, 24, 0, 0))));
+    }
+
+    #[test]
+    fn test_invalid_prefix_rejected() {
+        assert!(CidrRange::parse("10.0.0.0/33").is_none());
+        assert!(CidrRange::parse("::1/129").is_none());
+        assert!(CidrRange::parse("not-an-ip/24").is_none());
+    }
+
+    #[test]
+    fn test_v4_does_not_match_v6() {
+        let filter = CloudflareIpFilter::from_lines("104.16.0.0/13").unwrap();
+        let ip: IpAddr = IpAddr::V6(Ipv6Addr::new(0x2606, 0x4700, 0, 0, 0, 0, 0, 1));
+        assert!(!filter.contains(&ip));
     }
 }

@@ -114,7 +114,6 @@ dependencies = [
  "chrono",
  "idna",
  "if-addrs",
- "ipnet",
  "regex",
  "reqwest",
  "serde",
