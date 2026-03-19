@@ -458,7 +458,7 @@ fn legacy_to_app_config(legacy: LegacyConfig, dry_run: bool, repeat: bool) -> Re
         managed_waf_comment_regex: None,
         detection_timeout: Duration::from_secs(5),
         update_timeout: Duration::from_secs(30),
-        reject_cloudflare_ips: getenv_bool("REJECT_CLOUDFLARE_IPS", false),
+        reject_cloudflare_ips: getenv_bool("REJECT_CLOUDFLARE_IPS", true),
         dry_run,
         emoji: false,
         quiet: false,
@@ -529,7 +529,7 @@ pub fn load_env_config(ppfmt: &PP) -> Result<AppConfig, String> {
 
     let emoji = getenv_bool("EMOJI", true);
     let quiet = getenv_bool("QUIET", false);
-    let reject_cloudflare_ips = getenv_bool("REJECT_CLOUDFLARE_IPS", false);
+    let reject_cloudflare_ips = getenv_bool("REJECT_CLOUDFLARE_IPS", true);
 
     // Validate: must have at least one update target
     if domains.is_empty() && waf_lists.is_empty() {
@@ -681,8 +681,8 @@ pub fn print_config_summary(config: &AppConfig, ppfmt: &PP) {
         inner.infof("", "Delete on stop: enabled");
     }
 
-    if config.reject_cloudflare_ips {
-        inner.infof("", "Reject Cloudflare IPs: enabled");
+    if !config.reject_cloudflare_ips {
+        inner.warningf("", "Cloudflare IP rejection: DISABLED (REJECT_CLOUDFLARE_IPS=false)");
     }
 
     if let Some(ref comment) = config.record_comment {

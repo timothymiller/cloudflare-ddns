@@ -101,11 +101,12 @@ pub async fn update_once(
                         )));
                     }
                 }
-            } else {
+            } else if !detected_ips.is_empty() {
                 ppfmt.warningf(
                     pp::EMOJI_WARNING,
-                    "Could not fetch Cloudflare IP ranges; skipping filter",
+                    "Could not fetch Cloudflare IP ranges; skipping update to avoid writing Cloudflare IPs",
                 );
+                detected_ips.clear();
             }
         }
 
@@ -298,6 +299,7 @@ async fn update_legacy(config: &AppConfig, ppfmt: &PP) -> bool {
 
     // Filter out Cloudflare IPs if enabled
     if config.reject_cloudflare_ips {
+        let before_count = ips.len();
         if let Some(cf_filter) =
             CloudflareIpFilter::fetch(&detection_client, config.detection_timeout, ppfmt).await
         {
@@ -316,11 +318,18 @@ async fn update_legacy(config: &AppConfig, ppfmt: &PP) -> bool {
                 }
                 true
             });
-        } else {
+            if ips.is_empty() && before_count > 0 {
+                ppfmt.warningf(
+                    pp::EMOJI_WARNING,
+                    "All detected addresses were Cloudflare IPs; skipping updates",
+                );
+            }
+        } else if !ips.is_empty() {
             ppfmt.warningf(
                 pp::EMOJI_WARNING,
-                "Could not fetch Cloudflare IP ranges; skipping filter",
+                "Could not fetch Cloudflare IP ranges; skipping update to avoid writing Cloudflare IPs",
             );
+            ips.clear();
         }
     }
 

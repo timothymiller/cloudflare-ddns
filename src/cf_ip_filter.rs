@@ -59,8 +59,13 @@ impl CloudflareIpFilter {
     pub async fn fetch(client: &Client, timeout: Duration, ppfmt: &PP) -> Option<Self> {
         let mut ranges = Vec::new();
 
-        for url in [CF_IPV4_URL, CF_IPV6_URL] {
-            match client.get(url).timeout(timeout).send().await {
+        let (v4_result, v6_result) = tokio::join!(
+            client.get(CF_IPV4_URL).timeout(timeout).send(),
+            client.get(CF_IPV6_URL).timeout(timeout).send(),
+        );
+
+        for (url, result) in [(CF_IPV4_URL, v4_result), (CF_IPV6_URL, v6_result)] {
+            match result {
                 Ok(resp) if resp.status().is_success() => match resp.text().await {
                     Ok(body) => {
                         for line in body.lines() {
@@ -233,5 +238,128 @@ mod tests {
         let filter = CloudflareIpFilter::from_lines("104.16.0.0/13").unwrap();
         let ip: IpAddr = IpAddr::V6(Ipv6Addr::new(0x2606, 0x4700, 0, 0, 0, 0, 0, 1));
         assert!(!filter.contains(&ip));
+    }
+
+    /// All real Cloudflare ranges as of 2026-03. Verifies every range parses
+    /// and that the first and last IP in each range is matched while the
+    /// address just past the end is not.
+    const ALL_CF_RANGES: &str = "\
+173.245.48.0/20
+103.21.244.0/22
+103.22.200.0/22
+103.31.4.0/22
+141.101.64.0/18
+108.162.192.0/18
+190.93.240.0/20
+188.114.96.0/20
+197.234.240.0/22
+198.41.128.0/17
+162.158.0.0/15
+104.16.0.0/13
+104.24.0.0/14
+172.64.0.0/13
+131.0.72.0/22
+2400:cb00::/32
+2606:4700::/32
+2803:f800::/32
+2405:b500::/32
+2405:8100::/32
+2a06:98c0::/29
+2c0f:f248::/32
+";
+
+    #[test]
+    fn test_all_real_ranges_parse() {
+        let filter = CloudflareIpFilter::from_lines(ALL_CF_RANGES).unwrap();
+        assert_eq!(filter.ranges.len(), 22);
+    }
+
+    /// For a /N IPv4 range starting at `base`, return (first, last, just_outside).
+    fn v4_range_bounds(a: u8, b: u8, c: u8, d: u8, prefix: u8) -> (Ipv4Addr, Ipv4Addr, Ipv4Addr) {
+        let base = u32::from(Ipv4Addr::new(a, b, c, d));
+        let size = 1u32 << (32 - prefix);
+        let first = Ipv4Addr::from(base);
+        let last = Ipv4Addr::from(base + size - 1);
+        let outside = Ipv4Addr::from(base + size);
+        (first, last, outside)
+    }
+
+    #[test]
+    fn test_all_real_ipv4_ranges_match() {
+        // Test each range individually so adjacent ranges (e.g. 104.16.0.0/13
+        // and 104.24.0.0/14) don't cause false failures on boundary checks.
+        let ranges: &[(u8, u8, u8, u8, u8)] = &[
+            (173, 245, 48, 0, 20),
+            (103, 21, 244, 0, 22),
+            (103, 22, 200, 0, 22),
+            (103, 31, 4, 0, 22),
+            (141, 101, 64, 0, 18),
+            (108, 162, 192, 0, 18),
+            (190, 93, 240, 0, 20),
+            (188, 114, 96, 0, 20),
+            (197, 234, 240, 0, 22),
+            (198, 41, 128, 0, 17),
+            (162, 158, 0, 0, 15),
+            (104, 16, 0, 0, 13),
+            (104, 24, 0, 0, 14),
+            (172, 64, 0, 0, 13),
+            (131, 0, 72, 0, 22),
+        ];
+
+        for &(a, b, c, d, prefix) in ranges {
+            let cidr = format!("{a}.{b}.{c}.{d}/{prefix}");
+            let filter = CloudflareIpFilter::from_lines(&cidr).unwrap();
+            let (first, last, outside) = v4_range_bounds(a, b, c, d, prefix);
+            assert!(
+                filter.contains(&IpAddr::V4(first)),
+                "First IP {first} should be in {cidr}"
+            );
+            assert!(
+                filter.contains(&IpAddr::V4(last)),
+                "Last IP {last} should be in {cidr}"
+            );
+            assert!(
+                !filter.contains(&IpAddr::V4(outside)),
+                "IP {outside} should NOT be in {cidr}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_real_ipv6_ranges_match() {
+        let filter = CloudflareIpFilter::from_lines(ALL_CF_RANGES).unwrap();
+
+        // (base high 16-bit segment, prefix len)
+        let ranges: &[(u16, u16, u8)] = &[
+            (0x2400, 0xcb00, 32),
+            (0x2606, 0x4700, 32),
+            (0x2803, 0xf800, 32),
+            (0x2405, 0xb500, 32),
+            (0x2405, 0x8100, 32),
+            (0x2a06, 0x98c0, 29),
+            (0x2c0f, 0xf248, 32),
+        ];
+
+        for &(seg0, seg1, prefix) in ranges {
+            let base = u128::from(Ipv6Addr::new(seg0, seg1, 0, 0, 0, 0, 0, 0));
+            let size = 1u128 << (128 - prefix);
+
+            let first = Ipv6Addr::from(base);
+            let last = Ipv6Addr::from(base + size - 1);
+            let outside = Ipv6Addr::from(base + size);
+
+            assert!(
+                filter.contains(&IpAddr::V6(first)),
+                "First IP {first} should be in {seg0:x}:{seg1:x}::/{prefix}"
+            );
+            assert!(
+                filter.contains(&IpAddr::V6(last)),
+                "Last IP {last} should be in {seg0:x}:{seg1:x}::/{prefix}"
+            );
+            assert!(
+                !filter.contains(&IpAddr::V6(outside)),
+                "IP {outside} should NOT be in {seg0:x}:{seg1:x}::/{prefix}"
+            );
+        }
     }
 }
