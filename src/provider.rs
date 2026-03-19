@@ -183,7 +183,7 @@ async fn fetch_trace_ip(
 /// Build an HTTP client that only connects via the given IP family.
 /// Binding to 0.0.0.0 forces IPv4-only; binding to [::] forces IPv6-only.
 /// This ensures the trace endpoint sees the correct address family.
-fn build_split_client(ip_type: IpType, timeout: Duration) -> Client {
+pub fn build_split_client(ip_type: IpType, timeout: Duration) -> Client {
     let local_addr: IpAddr = match ip_type {
         IpType::V4 => Ipv4Addr::UNSPECIFIED.into(),
         IpType::V6 => Ipv6Addr::UNSPECIFIED.into(),

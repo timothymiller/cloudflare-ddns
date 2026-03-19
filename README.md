@@ -369,6 +369,32 @@ Some ISP provided modems only allow port forwarding over IPv4 or IPv6. Disable t
 | `purgeUnknownRecords` | bool | `false` | Delete stale/duplicate DNS records |
 | `ttl` | int | `300` | DNS record TTL in seconds (30-86400, values < 30 become auto) |
 
+### 🚫 Cloudflare IP Rejection (Legacy Mode)
+
+The `REJECT_CLOUDFLARE_IPS` environment variable is supported in legacy config mode. Set it alongside your `config.json`:
+
+```bash
+REJECT_CLOUDFLARE_IPS=true cloudflare-ddns
+```
+
+Or in Docker Compose:
+
+```yml
+environment:
+  - REJECT_CLOUDFLARE_IPS=true
+volumes:
+  - ./config.json:/config.json
+```
+
+### 🔍 IP Detection (Legacy Mode)
+
+Legacy mode uses [Cloudflare's `/cdn-cgi/trace`](https://www.cloudflare.com/cdn-cgi/trace) endpoint for IP detection. To ensure the correct address family is detected on dual-stack hosts:
+
+- **Primary:** Literal IP URLs (`1.0.0.1` for IPv4, `[2606:4700:4700::1001]` for IPv6) — guarantees the connection uses the correct address family
+- **Fallback:** Hostname URL (`api.cloudflare.com`) — works when literal IPs are intercepted (e.g. Cloudflare WARP or Zero Trust)
+
+Each address family uses a dedicated HTTP client bound to the correct local address (`0.0.0.0` for IPv4, `[::]` for IPv6), preventing the wrong address type from being returned on dual-stack networks.
+
 Each zone entry contains:
 
 | Key | Type | Description |

@@ -440,7 +440,7 @@ fn legacy_to_app_config(legacy: LegacyConfig, dry_run: bool, repeat: bool) -> Ap
         managed_waf_comment_regex: None,
         detection_timeout: Duration::from_secs(5),
         update_timeout: Duration::from_secs(30),
-        reject_cloudflare_ips: false,
+        reject_cloudflare_ips: getenv_bool("REJECT_CLOUDFLARE_IPS", false),
         dry_run,
         emoji: false,
         quiet: false,
