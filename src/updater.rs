@@ -1,4 +1,4 @@
-use crate::cf_ip_filter::CloudflareIpFilter;
+use crate::cf_ip_filter::CachedCloudflareFilter;
 use crate::cloudflare::{CloudflareHandle, SetResult};
 use crate::config::{AppConfig, LegacyCloudflareEntry, LegacySubdomainEntry};
 use crate::domain::make_fqdn;
@@ -16,6 +16,7 @@ pub async fn update_once(
     handle: &CloudflareHandle,
     notifier: &CompositeNotifier,
     heartbeat: &Heartbeat,
+    cf_cache: &mut CachedCloudflareFilter,
     ppfmt: &PP,
 ) -> bool {
     let detection_client = Client::builder()
@@ -28,7 +29,7 @@ pub async fn update_once(
     let mut notify = false; // NEW: track meaningful events
 
     if config.legacy_mode {
-        all_ok = update_legacy(config, ppfmt).await;
+        all_ok = update_legacy(config, cf_cache, ppfmt).await;
     } else {
         // Detect IPs for each provider
         let mut detected_ips: HashMap<IpType, Vec<IpAddr>> = HashMap::new();
@@ -69,7 +70,7 @@ pub async fn update_once(
         // Filter out Cloudflare IPs if enabled
         if config.reject_cloudflare_ips {
             if let Some(cf_filter) =
-                CloudflareIpFilter::fetch(&detection_client, config.detection_timeout, ppfmt).await
+                cf_cache.get(&detection_client, config.detection_timeout, ppfmt).await
             {
                 for (ip_type, ips) in detected_ips.iter_mut() {
                     let before_count = ips.len();
@@ -235,7 +236,7 @@ pub async fn update_once(
 /// IP-family-bound clients (0.0.0.0 for IPv4, [::] for IPv6). This prevents the old
 /// wrong-family warning on dual-stack hosts and honours `ip4_provider`/`ip6_provider`
 /// overrides from config.json.
-async fn update_legacy(config: &AppConfig, ppfmt: &PP) -> bool {
+async fn update_legacy(config: &AppConfig, cf_cache: &mut CachedCloudflareFilter, ppfmt: &PP) -> bool {
     let legacy = match &config.legacy_config {
         Some(l) => l,
         None => return false,
@@ -301,7 +302,7 @@ async fn update_legacy(config: &AppConfig, ppfmt: &PP) -> bool {
     if config.reject_cloudflare_ips {
         let before_count = ips.len();
         if let Some(cf_filter) =
-            CloudflareIpFilter::fetch(&detection_client, config.detection_timeout, ppfmt).await
+            cf_cache.get(&detection_client, config.detection_timeout, ppfmt).await
         {
             ips.retain(|key, ip_info| {
                 if let Ok(addr) = ip_info.ip.parse::<std::net::IpAddr>() {
@@ -802,7 +803,8 @@ mod tests {
         let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
         assert!(ok);
     }
 
@@ -850,7 +852,8 @@ mod tests {
         let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
         assert!(ok);
     }
 
@@ -894,7 +897,8 @@ mod tests {
         let ppfmt = pp();
 
         // all_ok = true because no zone-level errors occurred (empty ips just noop or warn)
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
         // Providers with None are not inserted in loop, so no IP detection warning is emitted,
         // no detected_ips entry is created, and set_ips is called with empty slice -> Noop.
         assert!(ok);
@@ -943,7 +947,8 @@ mod tests {
         let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
         assert!(!ok, "Expected false when zone is not found");
     }
 
@@ -992,7 +997,8 @@ mod tests {
         let ppfmt = pp();
 
         // dry_run returns Updated from set_ips (it signals intent), all_ok should be true
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
         assert!(ok);
     }
 
@@ -1057,7 +1063,8 @@ mod tests {
         let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
         assert!(ok);
     }
 
@@ -1110,7 +1117,8 @@ mod tests {
         let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
         assert!(ok);
     }
 
@@ -1149,7 +1157,8 @@ mod tests {
         let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
         assert!(!ok, "Expected false when WAF list is not found");
     }
 
@@ -1233,7 +1242,8 @@ mod tests {
         let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
         assert!(ok);
     }
 
@@ -1249,7 +1259,8 @@ mod tests {
         let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
         assert!(ok);
     }
 
@@ -1633,7 +1644,8 @@ mod tests {
         let ppfmt = pp();
 
         // set_ips with empty ips and no existing records = Noop; all_ok = true
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
         assert!(ok);
     }
     // -------------------------------------------------------

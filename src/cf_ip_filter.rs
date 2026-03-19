@@ -1,7 +1,7 @@
 use crate::pp::{self, PP};
 use reqwest::Client;
 use std::net::IpAddr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const CF_IPV4_URL: &str = "https://www.cloudflare.com/ips-v4";
 const CF_IPV6_URL: &str = "https://www.cloudflare.com/ips-v6";
@@ -154,6 +154,62 @@ impl CloudflareIpFilter {
     /// Check if an IP address falls within any Cloudflare range.
     pub fn contains(&self, ip: &IpAddr) -> bool {
         self.ranges.iter().any(|net| net.contains(ip))
+    }
+}
+
+/// Refresh interval for Cloudflare IP ranges (24 hours).
+const CF_RANGE_REFRESH: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Cached wrapper around [`CloudflareIpFilter`].
+///
+/// Fetches once, then re-uses the cached ranges for [`CF_RANGE_REFRESH`].
+/// If a refresh fails, the previously cached ranges are kept.
+pub struct CachedCloudflareFilter {
+    filter: Option<CloudflareIpFilter>,
+    fetched_at: Option<Instant>,
+}
+
+impl CachedCloudflareFilter {
+    pub fn new() -> Self {
+        Self {
+            filter: None,
+            fetched_at: None,
+        }
+    }
+
+    /// Return a reference to the current filter, refreshing if stale or absent.
+    pub async fn get(
+        &mut self,
+        client: &Client,
+        timeout: Duration,
+        ppfmt: &PP,
+    ) -> Option<&CloudflareIpFilter> {
+        let stale = match self.fetched_at {
+            Some(t) => t.elapsed() >= CF_RANGE_REFRESH,
+            None => true,
+        };
+
+        if stale {
+            match CloudflareIpFilter::fetch(client, timeout, ppfmt).await {
+                Some(new_filter) => {
+                    self.filter = Some(new_filter);
+                    self.fetched_at = Some(Instant::now());
+                }
+                None => {
+                    if self.filter.is_some() {
+                        ppfmt.warningf(
+                            pp::EMOJI_WARNING,
+                            "Failed to refresh Cloudflare IP ranges; using cached version",
+                        );
+                        // Keep using cached filter, but don't update fetched_at
+                        // so we retry next cycle.
+                    }
+                    // If no cached filter exists, return None (caller handles fail-safe).
+                }
+            }
+        }
+
+        self.filter.as_ref()
     }
 }
 

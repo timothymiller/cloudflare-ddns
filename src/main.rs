@@ -116,12 +116,14 @@ async fn main() {
     // Start heartbeat
     heartbeat.start().await;
 
+    let mut cf_cache = cf_ip_filter::CachedCloudflareFilter::new();
+
     if app_config.legacy_mode {
         // --- Legacy mode (original cloudflare-ddns behavior) ---
-        run_legacy_mode(&app_config, &handle, &notifier, &heartbeat, &ppfmt, running).await;
+        run_legacy_mode(&app_config, &handle, &notifier, &heartbeat, &ppfmt, running, &mut cf_cache).await;
     } else {
         // --- Env var mode (cf-ddns behavior) ---
-        run_env_mode(&app_config, &handle, &notifier, &heartbeat, &ppfmt, running).await;
+        run_env_mode(&app_config, &handle, &notifier, &heartbeat, &ppfmt, running, &mut cf_cache).await;
     }
 
     // On shutdown: delete records if configured
@@ -143,6 +145,7 @@ async fn run_legacy_mode(
     heartbeat: &Heartbeat,
     ppfmt: &PP,
     running: Arc<AtomicBool>,
+    cf_cache: &mut cf_ip_filter::CachedCloudflareFilter,
 ) {
     let legacy = match &config.legacy_config {
         Some(l) => l,
@@ -165,7 +168,7 @@ async fn run_legacy_mode(
         }
 
         while running.load(Ordering::SeqCst) {
-            updater::update_once(config, handle, notifier, heartbeat, ppfmt).await;
+            updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt).await;
 
             for _ in 0..legacy.ttl {
                 if !running.load(Ordering::SeqCst) {
@@ -175,7 +178,7 @@ async fn run_legacy_mode(
             }
         }
     } else {
-        updater::update_once(config, handle, notifier, heartbeat, ppfmt).await;
+        updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt).await;
     }
 }
 
@@ -186,11 +189,12 @@ async fn run_env_mode(
     heartbeat: &Heartbeat,
     ppfmt: &PP,
     running: Arc<AtomicBool>,
+    cf_cache: &mut cf_ip_filter::CachedCloudflareFilter,
 ) {
     match &config.update_cron {
         CronSchedule::Once => {
             if config.update_on_start {
-                updater::update_once(config, handle, notifier, heartbeat, ppfmt).await;
+                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt).await;
             }
         }
         schedule => {
@@ -206,7 +210,7 @@ async fn run_env_mode(
 
             // Update on start if configured
             if config.update_on_start {
-                updater::update_once(config, handle, notifier, heartbeat, ppfmt).await;
+                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt).await;
             }
 
             // Main loop
@@ -233,7 +237,7 @@ async fn run_env_mode(
                     return;
                 }
 
-                updater::update_once(config, handle, notifier, heartbeat, ppfmt).await;
+                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt).await;
             }
         }
     }
