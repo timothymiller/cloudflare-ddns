@@ -28,6 +28,7 @@ Configure everything with environment variables. Supports notifications, heartbe
 - 🎨 **Pretty output with emoji** — Configurable emoji and verbosity levels
 - 🔒 **Zero-log IP detection** — Uses Cloudflare's [cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace) by default
 - 🏠 **CGNAT-aware local detection** — Filters out shared address space (100.64.0.0/10) and private ranges
+- 🚫 **Cloudflare IP rejection** — Optionally reject Cloudflare anycast IPs to prevent incorrect DNS updates
 - 🤏 **Tiny static binary** — ~1.9 MB Docker image built from scratch, zero runtime dependencies
 
 ## 🚀 Quick Start
@@ -86,6 +87,16 @@ Available providers:
 | `url:<url>` | 🔗 Custom HTTP(S) endpoint that returns an IP address |
 | `literal:<ips>` | 📌 Static IP addresses (comma-separated) |
 | `none` | 🚫 Disable this IP type |
+
+## 🚫 Cloudflare IP Rejection
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REJECT_CLOUDFLARE_IPS` | `false` | Reject detected IPs that fall within Cloudflare's IP ranges |
+
+Some IP detection providers occasionally return a Cloudflare anycast IP instead of your real public IP. When this happens, your DNS record gets updated to point at Cloudflare infrastructure rather than your actual address.
+
+Setting `REJECT_CLOUDFLARE_IPS=true` prevents this. Each update cycle fetches [Cloudflare's published IP ranges](https://www.cloudflare.com/ips/) and skips any detected IP that falls within them. A warning is logged for every rejected IP.
 
 ## ⏱️ Scheduling
 
@@ -210,6 +221,7 @@ Heartbeats are sent after each update cycle. On failure, a fail signal is sent. 
 | `MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX` | — | 🎯 Managed WAF items regex |
 | `DETECTION_TIMEOUT` | `5s` | ⏳ IP detection timeout |
 | `UPDATE_TIMEOUT` | `30s` | ⏳ API request timeout |
+| `REJECT_CLOUDFLARE_IPS` | `false` | 🚫 Reject Cloudflare anycast IPs |
 | `EMOJI` | `true` | 🎨 Enable emoji output |
 | `QUIET` | `false` | 🤫 Suppress info output |
 | `HEALTHCHECKS` | — | 💓 Healthchecks.io URL |
