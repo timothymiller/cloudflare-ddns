@@ -368,6 +368,8 @@ Some ISP provided modems only allow port forwarding over IPv4 or IPv6. Disable t
 | `aaaa` | bool | `true` | Enable IPv6 (AAAA record) updates |
 | `purgeUnknownRecords` | bool | `false` | Delete stale/duplicate DNS records |
 | `ttl` | int | `300` | DNS record TTL in seconds (30-86400, values < 30 become auto) |
+| `ip4_provider` | string | `"cloudflare.trace"` | IPv4 detection provider (same values as `IP4_PROVIDER` env var) |
+| `ip6_provider` | string | `"cloudflare.trace"` | IPv6 detection provider (same values as `IP6_PROVIDER` env var) |
 
 ### 🚫 Cloudflare IP Rejection (Legacy Mode)
 
@@ -388,12 +390,20 @@ volumes:
 
 ### 🔍 IP Detection (Legacy Mode)
 
-Legacy mode uses [Cloudflare's `/cdn-cgi/trace`](https://www.cloudflare.com/cdn-cgi/trace) endpoint for IP detection. To ensure the correct address family is detected on dual-stack hosts:
+Legacy mode now uses the same shared provider abstraction as environment variable mode. By default it uses the `cloudflare.trace` provider, which builds an IP-family-bound HTTP client (`0.0.0.0` for IPv4, `[::]` for IPv6) to guarantee the correct address family on dual-stack hosts.
 
-- **Primary:** Literal IP URLs (`1.0.0.1` for IPv4, `[2606:4700:4700::1001]` for IPv6) — guarantees the connection uses the correct address family
-- **Fallback:** Hostname URL (`api.cloudflare.com`) — works when literal IPs are intercepted (e.g. Cloudflare WARP or Zero Trust)
+You can override the detection method per address family with `ip4_provider` and `ip6_provider` in your `config.json`. Supported values are the same as the `IP4_PROVIDER` / `IP6_PROVIDER` environment variables: `cloudflare.trace`, `cloudflare.doh`, `ipify`, `local`, `local.iface:<name>`, `url:<https://...>`, `none`.
 
-Each address family uses a dedicated HTTP client bound to the correct local address (`0.0.0.0` for IPv4, `[::]` for IPv6), preventing the wrong address type from being returned on dual-stack networks.
+Set a provider to `"none"` to disable detection for that address family (overrides `a`/`aaaa`):
+
+```json
+{
+  "a": true,
+  "aaaa": true,
+  "ip4_provider": "cloudflare.trace",
+  "ip6_provider": "none"
+}
+```
 
 Each zone entry contains:
 

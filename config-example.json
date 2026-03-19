@@ -24,5 +24,7 @@
   "a": true,
   "aaaa": true,
   "purgeUnknownRecords": false,
-  "ttl": 300
+  "ttl": 300,
+  "ip4_provider": "cloudflare.trace",
+  "ip6_provider": "cloudflare.trace"
 }
