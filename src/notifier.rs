@@ -406,7 +406,7 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
                 service_type: ShoutrrrServiceType::Pushover,
                 webhook_url: format!(
                     "https://api.pushover.net/1/messages.json?token={}&user={}",
-                    parts[1], parts[0]
+                    parts[0], parts[1]
                 ),
             });
         }
@@ -868,7 +868,7 @@ mod tests {
 
     #[test]
     fn test_parse_pushover() {
-        let result = parse_shoutrrr_url("pushover://userkey@apitoken").unwrap();
+        let result = parse_shoutrrr_url("pushover://apitoken@userkey").unwrap();
         assert_eq!(
             result.webhook_url,
             "https://api.pushover.net/1/messages.json?token=apitoken&user=userkey"
@@ -1307,7 +1307,8 @@ mod tests {
     #[test]
     fn test_pushover_url_query_parsing() {
         // Verify that the pushover webhook URL format contains the right params
-        let service = parse_shoutrrr_url("pushover://myuser@mytoken").unwrap();
+        // shoutrrr format: pushover://token@user
+        let service = parse_shoutrrr_url("pushover://mytoken@myuser").unwrap();
         let parsed = url::Url::parse(&service.webhook_url).unwrap();
         let params: std::collections::HashMap<_, _> = parsed.query_pairs().collect();
         assert_eq!(params.get("token").unwrap().as_ref(), "mytoken");

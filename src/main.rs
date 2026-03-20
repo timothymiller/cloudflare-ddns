@@ -11,8 +11,10 @@ use crate::cloudflare::{Auth, CloudflareHandle};
 use crate::config::{AppConfig, CronSchedule};
 use crate::notifier::{CompositeNotifier, Heartbeat, Message};
 use crate::pp::PP;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use reqwest::Client;
 use tokio::signal;
 use tokio::time::{sleep, Duration};
 
@@ -117,13 +119,17 @@ async fn main() {
     heartbeat.start().await;
 
     let mut cf_cache = cf_ip_filter::CachedCloudflareFilter::new();
+    let detection_client = Client::builder()
+        .timeout(app_config.detection_timeout)
+        .build()
+        .unwrap_or_default();
 
     if app_config.legacy_mode {
         // --- Legacy mode (original cloudflare-ddns behavior) ---
-        run_legacy_mode(&app_config, &handle, &notifier, &heartbeat, &ppfmt, running, &mut cf_cache).await;
+        run_legacy_mode(&app_config, &handle, &notifier, &heartbeat, &ppfmt, running, &mut cf_cache, &detection_client).await;
     } else {
         // --- Env var mode (cf-ddns behavior) ---
-        run_env_mode(&app_config, &handle, &notifier, &heartbeat, &ppfmt, running, &mut cf_cache).await;
+        run_env_mode(&app_config, &handle, &notifier, &heartbeat, &ppfmt, running, &mut cf_cache, &detection_client).await;
     }
 
     // On shutdown: delete records if configured
@@ -146,11 +152,14 @@ async fn run_legacy_mode(
     ppfmt: &PP,
     running: Arc<AtomicBool>,
     cf_cache: &mut cf_ip_filter::CachedCloudflareFilter,
+    detection_client: &Client,
 ) {
     let legacy = match &config.legacy_config {
         Some(l) => l,
         None => return,
     };
+
+    let mut noop_reported = HashSet::new();
 
     if config.repeat {
         match (legacy.a, legacy.aaaa) {
@@ -168,7 +177,7 @@ async fn run_legacy_mode(
         }
 
         while running.load(Ordering::SeqCst) {
-            updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt).await;
+            updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
 
             for _ in 0..legacy.ttl {
                 if !running.load(Ordering::SeqCst) {
@@ -178,7 +187,7 @@ async fn run_legacy_mode(
             }
         }
     } else {
-        updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt).await;
+        updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
     }
 }
 
@@ -190,11 +199,14 @@ async fn run_env_mode(
     ppfmt: &PP,
     running: Arc<AtomicBool>,
     cf_cache: &mut cf_ip_filter::CachedCloudflareFilter,
+    detection_client: &Client,
 ) {
+    let mut noop_reported = HashSet::new();
+
     match &config.update_cron {
         CronSchedule::Once => {
             if config.update_on_start {
-                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt).await;
+                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
             }
         }
         schedule => {
@@ -210,7 +222,7 @@ async fn run_env_mode(
 
             // Update on start if configured
             if config.update_on_start {
-                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt).await;
+                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
             }
 
             // Main loop
@@ -237,7 +249,7 @@ async fn run_env_mode(
                     return;
                 }
 
-                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt).await;
+                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
             }
         }
     }
@@ -386,6 +398,7 @@ mod tests {
             config: &[LegacyCloudflareEntry],
             ttl: i64,
             purge_unknown_records: bool,
+            noop_reported: &mut std::collections::HashSet<String>,
         ) {
             for entry in config {
                 #[derive(serde::Deserialize)]
@@ -487,8 +500,10 @@ mod tests {
                         }
                     }
 
+                    let noop_key = format!("{fqdn}:{record_type}");
                     if let Some(ref id) = identifier {
                         if modified {
+                            noop_reported.remove(&noop_key);
                             if self.dry_run {
                                 println!("[DRY RUN] Would update record {fqdn} -> {ip}");
                             } else {
@@ -504,23 +519,30 @@ mod tests {
                                     )
                                     .await;
                             }
-                        } else if self.dry_run {
-                            println!("[DRY RUN] Record {fqdn} is up to date ({ip})");
+                        } else if noop_reported.insert(noop_key) {
+                            if self.dry_run {
+                                println!("[DRY RUN] Record {fqdn} is up to date");
+                            } else {
+                                println!("Record {fqdn} is up to date");
+                            }
                         }
-                    } else if self.dry_run {
-                        println!("[DRY RUN] Would add new record {fqdn} -> {ip}");
                     } else {
-                        println!("Adding new record {fqdn} -> {ip}");
-                        let create_endpoint =
-                            format!("zones/{}/dns_records", entry.zone_id);
-                        let _: Option<serde_json::Value> = self
-                            .cf_api(
-                                &create_endpoint,
-                                "POST",
-                                &entry.authentication.api_token,
-                                Some(&record),
-                            )
-                            .await;
+                        noop_reported.remove(&noop_key);
+                        if self.dry_run {
+                            println!("[DRY RUN] Would add new record {fqdn} -> {ip}");
+                        } else {
+                            println!("Adding new record {fqdn} -> {ip}");
+                            let create_endpoint =
+                                format!("zones/{}/dns_records", entry.zone_id);
+                            let _: Option<serde_json::Value> = self
+                                .cf_api(
+                                    &create_endpoint,
+                                    "POST",
+                                    &entry.authentication.api_token,
+                                    Some(&record),
+                                )
+                                .await;
+                        }
                     }
 
                     if purge_unknown_records {
@@ -640,7 +662,7 @@ mod tests {
 
         let ddns = TestDdnsClient::new(&mock_server.uri());
         let config = test_config(zone_id);
-        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false)
+        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false, &mut std::collections::HashSet::new())
             .await;
     }
 
@@ -689,7 +711,7 @@ mod tests {
 
         let ddns = TestDdnsClient::new(&mock_server.uri());
         let config = test_config(zone_id);
-        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false)
+        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false, &mut std::collections::HashSet::new())
             .await;
     }
 
@@ -732,7 +754,7 @@ mod tests {
 
         let ddns = TestDdnsClient::new(&mock_server.uri());
         let config = test_config(zone_id);
-        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false)
+        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false, &mut std::collections::HashSet::new())
             .await;
     }
 
@@ -766,7 +788,7 @@ mod tests {
 
         let ddns = TestDdnsClient::new(&mock_server.uri()).dry_run();
         let config = test_config(zone_id);
-        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false)
+        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false, &mut std::collections::HashSet::new())
             .await;
     }
 
@@ -823,7 +845,7 @@ mod tests {
             ip4_provider: None,
             ip6_provider: None,
         };
-        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, true)
+        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, true, &mut std::collections::HashSet::new())
             .await;
     }
 
@@ -925,7 +947,7 @@ mod tests {
             ip6_provider: None,
         };
 
-        ddns.commit_record("203.0.113.99", "A", &config.cloudflare, 300, false)
+        ddns.commit_record("203.0.113.99", "A", &config.cloudflare, 300, false, &mut std::collections::HashSet::new())
             .await;
     }
 }

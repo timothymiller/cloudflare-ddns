@@ -467,7 +467,7 @@ impl CloudflareHandle {
                         self.update_record(zone_id, &record.id, &payload, ppfmt).await;
                     }
                 } else {
-                    ppfmt.infof(pp::EMOJI_SKIP, &format!("Record {fqdn} is up to date ({ip_str})"));
+                    // Caller handles "up to date" logging based on SetResult::Noop
                 }
             } else {
                 // Find an existing managed record to update, or create new
@@ -668,10 +668,7 @@ impl CloudflareHandle {
             .collect();
 
         if to_add.is_empty() && ids_to_delete.is_empty() {
-            ppfmt.infof(
-                pp::EMOJI_SKIP,
-                &format!("WAF list {} is up to date", waf_list.describe()),
-            );
+            // Caller handles "up to date" logging based on SetResult::Noop
             return SetResult::Noop;
         }
 

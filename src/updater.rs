@@ -6,7 +6,7 @@ use crate::notifier::{CompositeNotifier, Heartbeat, Message};
 use crate::pp::{self, PP};
 use crate::provider::IpType;
 use reqwest::Client;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -18,18 +18,15 @@ pub async fn update_once(
     heartbeat: &Heartbeat,
     cf_cache: &mut CachedCloudflareFilter,
     ppfmt: &PP,
+    noop_reported: &mut HashSet<String>,
+    detection_client: &Client,
 ) -> bool {
-    let detection_client = Client::builder()
-        .timeout(config.detection_timeout)
-        .build()
-        .unwrap_or_default();
-
     let mut all_ok = true;
     let mut messages = Vec::new();
     let mut notify = false; // NEW: track meaningful events
 
     if config.legacy_mode {
-        all_ok = update_legacy(config, cf_cache, ppfmt).await;
+        all_ok = update_legacy(config, cf_cache, ppfmt, noop_reported, detection_client).await;
     } else {
         // Detect IPs for each provider
         let mut detected_ips: HashMap<IpType, Vec<IpAddr>> = HashMap::new();
@@ -153,9 +150,11 @@ pub async fn update_once(
                     )
                     .await;
 
+                let noop_key = format!("{domain_str}:{record_type}");
                 match result {
                     SetResult::Updated => {
-                        notify = true;            // NEW
+                        noop_reported.remove(&noop_key);
+                        notify = true;
                         let ip_strs: Vec<String> = ips.iter().map(|ip| ip.to_string()).collect();
                         messages.push(Message::new_ok(&format!(
                             "Updated {domain_str} -> {}",
@@ -163,13 +162,18 @@ pub async fn update_once(
                         )));
                     }
                     SetResult::Failed => {
-                        notify = true;            // NEW
+                        noop_reported.remove(&noop_key);
+                        notify = true;
                         all_ok = false;
                         messages.push(Message::new_fail(&format!(
                             "Failed to update {domain_str}"
                         )));
                     }
-                    SetResult::Noop => {}
+                    SetResult::Noop => {
+                        if noop_reported.insert(noop_key) {
+                            ppfmt.infof(pp::EMOJI_SKIP, &format!("Record {domain_str} is up to date"));
+                        }
+                    }
                 }
             }
         }
@@ -194,32 +198,37 @@ pub async fn update_once(
                 )
                 .await;
 
+            let noop_key = format!("waf:{}", waf_list.describe());
             match result {
                 SetResult::Updated => {
-                    notify = true;            // NEW                    
+                    noop_reported.remove(&noop_key);
+                    notify = true;
                     messages.push(Message::new_ok(&format!(
                         "Updated WAF list {}",
                         waf_list.describe()
                     )));
                 }
                 SetResult::Failed => {
-                    notify = true;            // NEW
+                    noop_reported.remove(&noop_key);
+                    notify = true;
                     all_ok = false;
                     messages.push(Message::new_fail(&format!(
                         "Failed to update WAF list {}",
                         waf_list.describe()
                     )));
                 }
-                SetResult::Noop => {}
+                SetResult::Noop => {
+                    if noop_reported.insert(noop_key) {
+                        ppfmt.infof(pp::EMOJI_SKIP, &format!("WAF list {} is up to date", waf_list.describe()));
+                    }
+                }
             }
         }
     }
 
-    // Send heartbeat ONLY if something meaningful happened
-    if notify {
-        let heartbeat_msg = Message::merge(messages.clone());
-        heartbeat.ping(&heartbeat_msg).await;
-    }
+    // Always ping heartbeat so monitors know the updater is alive
+    let heartbeat_msg = Message::merge(messages.clone());
+    heartbeat.ping(&heartbeat_msg).await;
 
     // Send notifications ONLY when IP changed or failed
     if notify {
@@ -236,28 +245,26 @@ pub async fn update_once(
 /// IP-family-bound clients (0.0.0.0 for IPv4, [::] for IPv6). This prevents the old
 /// wrong-family warning on dual-stack hosts and honours `ip4_provider`/`ip6_provider`
 /// overrides from config.json.
-async fn update_legacy(config: &AppConfig, cf_cache: &mut CachedCloudflareFilter, ppfmt: &PP) -> bool {
+async fn update_legacy(
+    config: &AppConfig,
+    cf_cache: &mut CachedCloudflareFilter,
+    ppfmt: &PP,
+    noop_reported: &mut HashSet<String>,
+    detection_client: &Client,
+) -> bool {
     let legacy = match &config.legacy_config {
         Some(l) => l,
         None => return false,
     };
 
-    let client = Client::builder()
-        .timeout(config.update_timeout)
-        .build()
-        .unwrap_or_default();
-
     let ddns = LegacyDdnsClient {
-        client,
+        client: Client::builder()
+            .timeout(config.update_timeout)
+            .build()
+            .unwrap_or_default(),
         cf_api_base: "https://api.cloudflare.com/client/v4".to_string(),
         dry_run: config.dry_run,
     };
-
-    // Detect IPs using the shared provider abstraction
-    let detection_client = Client::builder()
-        .timeout(config.detection_timeout)
-        .build()
-        .unwrap_or_default();
 
     let mut ips = HashMap::new();
 
@@ -339,6 +346,7 @@ async fn update_legacy(config: &AppConfig, cf_cache: &mut CachedCloudflareFilter
         &legacy.cloudflare,
         legacy.ttl,
         legacy.purge_unknown_records,
+        noop_reported,
     )
     .await;
 
@@ -490,9 +498,10 @@ impl LegacyDdnsClient {
         config: &[LegacyCloudflareEntry],
         ttl: i64,
         purge_unknown_records: bool,
+        noop_reported: &mut HashSet<String>,
     ) {
         for ip in ips.values() {
-            self.commit_record(ip, config, ttl, purge_unknown_records)
+            self.commit_record(ip, config, ttl, purge_unknown_records, noop_reported)
                 .await;
         }
     }
@@ -503,6 +512,7 @@ impl LegacyDdnsClient {
         config: &[LegacyCloudflareEntry],
         ttl: i64,
         purge_unknown_records: bool,
+        noop_reported: &mut HashSet<String>,
     ) {
         for entry in config {
             let zone_resp: Option<LegacyCfResponse<LegacyZoneResult>> = self
@@ -578,8 +588,10 @@ impl LegacyDdnsClient {
                     }
                 }
 
+                let noop_key = format!("{fqdn}:{}", ip.record_type);
                 if let Some(ref id) = identifier {
                     if modified {
+                        noop_reported.remove(&noop_key);
                         if self.dry_run {
                             println!("[DRY RUN] Would update record {fqdn} -> {}", ip.ip);
                         } else {
@@ -590,17 +602,24 @@ impl LegacyDdnsClient {
                                 .cf_api(&update_endpoint, "PUT", entry, Some(&record))
                                 .await;
                         }
-                    } else if self.dry_run {
-                        println!("[DRY RUN] Record {fqdn} is up to date ({})", ip.ip);
+                    } else if noop_reported.insert(noop_key) {
+                        if self.dry_run {
+                            println!("[DRY RUN] Record {fqdn} is up to date");
+                        } else {
+                            println!("Record {fqdn} is up to date");
+                        }
                     }
-                } else if self.dry_run {
-                    println!("[DRY RUN] Would add new record {fqdn} -> {}", ip.ip);
                 } else {
-                    println!("Adding new record {fqdn} -> {}", ip.ip);
-                    let create_endpoint = format!("zones/{}/dns_records", entry.zone_id);
-                    let _: Option<serde_json::Value> = self
-                        .cf_api(&create_endpoint, "POST", entry, Some(&record))
-                        .await;
+                    noop_reported.remove(&noop_key);
+                    if self.dry_run {
+                        println!("[DRY RUN] Would add new record {fqdn} -> {}", ip.ip);
+                    } else {
+                        println!("Adding new record {fqdn} -> {}", ip.ip);
+                        let create_endpoint = format!("zones/{}/dns_records", entry.zone_id);
+                        let _: Option<serde_json::Value> = self
+                            .cf_api(&create_endpoint, "POST", entry, Some(&record))
+                            .await;
+                    }
                 }
 
                 if purge_unknown_records {
@@ -804,11 +823,12 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
         assert!(ok);
     }
 
-    /// update_once returns true (all_ok) when IP is already correct (Noop).
+    /// update_once returns true (all_ok) when IP is already correct (Noop),
+    /// and populates noop_reported so subsequent calls suppress the message.
     #[tokio::test]
     async fn test_update_once_noop_when_record_up_to_date() {
         let server = MockServer::start().await;
@@ -853,8 +873,90 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
+        let mut noop_reported = HashSet::new();
+
+        // First call: noop_reported is empty, so "up to date" is reported and key is inserted
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &Client::new()).await;
         assert!(ok);
+        assert!(noop_reported.contains("home.example.com:A"), "noop_reported should contain the domain key after first noop");
+
+        // Second call: noop_reported already has the key, so the message is suppressed
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &Client::new()).await;
+        assert!(ok);
+        assert_eq!(noop_reported.len(), 1, "noop_reported should still have exactly one entry");
+    }
+
+    /// noop_reported is cleared when a record is updated, so "up to date" prints again
+    /// on the next noop cycle.
+    #[tokio::test]
+    async fn test_update_once_noop_reported_cleared_on_change() {
+        let server = MockServer::start().await;
+        let zone_id = "zone-abc";
+        let domain = "home.example.com";
+        let old_ip = "198.51.100.42";
+        let new_ip = "198.51.100.99";
+
+        // Zone lookup
+        Mock::given(method("GET"))
+            .and(path("/zones"))
+            .and(query_param("name", domain))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(zones_response(zone_id, "example.com")),
+            )
+            .mount(&server)
+            .await;
+
+        // List existing records - record has old IP, will be updated
+        Mock::given(method("GET"))
+            .and(path_regex(format!("/zones/{zone_id}/dns_records")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(dns_records_one("rec-1", domain, old_ip)),
+            )
+            .mount(&server)
+            .await;
+
+        // Create record (new IP doesn't match existing, so it creates + deletes stale)
+        Mock::given(method("POST"))
+            .and(path(format!("/zones/{zone_id}/dns_records")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(dns_record_created("rec-2", domain, new_ip)),
+            )
+            .mount(&server)
+            .await;
+
+        // Delete stale record
+        Mock::given(method("DELETE"))
+            .and(path(format!("/zones/{zone_id}/dns_records/rec-1")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"result": {}})))
+            .mount(&server)
+            .await;
+
+        let mut providers = HashMap::new();
+        providers.insert(
+            IpType::V4,
+            ProviderType::Literal {
+                ips: vec![new_ip.parse::<IpAddr>().unwrap()],
+            },
+        );
+        let mut domains = HashMap::new();
+        domains.insert(IpType::V4, vec![domain.to_string()]);
+
+        let config = make_config(providers, domains, vec![], false);
+        let cf = handle(&server.uri());
+        let notifier = empty_notifier();
+        let heartbeat = empty_heartbeat();
+        let ppfmt = pp();
+
+        // Pre-populate noop_reported as if a previous cycle reported it
+        let mut noop_reported = HashSet::new();
+        noop_reported.insert("home.example.com:A".to_string());
+
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &Client::new()).await;
+        assert!(ok);
+        assert!(!noop_reported.contains("home.example.com:A"), "noop_reported should be cleared after an update");
     }
 
     /// update_once returns true even when IP detection yields empty (no providers configured),
@@ -898,7 +1000,7 @@ mod tests {
 
         // all_ok = true because no zone-level errors occurred (empty ips just noop or warn)
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
         // Providers with None are not inserted in loop, so no IP detection warning is emitted,
         // no detected_ips entry is created, and set_ips is called with empty slice -> Noop.
         assert!(ok);
@@ -948,7 +1050,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
         assert!(!ok, "Expected false when zone is not found");
     }
 
@@ -998,7 +1100,7 @@ mod tests {
 
         // dry_run returns Updated from set_ips (it signals intent), all_ok should be true
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
         assert!(ok);
     }
 
@@ -1064,7 +1166,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
         assert!(ok);
     }
 
@@ -1118,7 +1220,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
         assert!(ok);
     }
 
@@ -1158,7 +1260,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
         assert!(!ok, "Expected false when WAF list is not found");
     }
 
@@ -1243,7 +1345,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
         assert!(ok);
     }
 
@@ -1260,7 +1362,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
         assert!(ok);
     }
 
@@ -1645,7 +1747,7 @@ mod tests {
 
         // set_ips with empty ips and no existing records = Noop; all_ok = true
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
         assert!(ok);
     }
     // -------------------------------------------------------
@@ -1850,7 +1952,7 @@ mod tests {
             subdomains: vec![LegacySubdomainEntry::Simple("@".to_string())],
             proxied: false,
         }];
-        ddns.commit_record(&ip, &config, 300, false).await;
+        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new()).await;
     }
 
     #[tokio::test]
@@ -1906,7 +2008,7 @@ mod tests {
             subdomains: vec![LegacySubdomainEntry::Simple("@".to_string())],
             proxied: false,
         }];
-        ddns.commit_record(&ip, &config, 300, false).await;
+        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new()).await;
     }
 
     #[tokio::test]
@@ -1949,7 +2051,7 @@ mod tests {
             proxied: false,
         }];
         // Should not POST
-        ddns.commit_record(&ip, &config, 300, false).await;
+        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new()).await;
     }
 
     #[tokio::test]
@@ -2002,7 +2104,7 @@ mod tests {
             }],
             proxied: false,
         }];
-        ddns.commit_record(&ip, &config, 300, false).await;
+        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new()).await;
     }
 
     #[tokio::test]
@@ -2054,7 +2156,7 @@ mod tests {
             subdomains: vec![LegacySubdomainEntry::Simple("@".to_string())],
             proxied: false,
         }];
-        ddns.commit_record(&ip, &config, 300, true).await;
+        ddns.commit_record(&ip, &config, 300, true, &mut HashSet::new()).await;
     }
 
     #[tokio::test]
@@ -2104,7 +2206,7 @@ mod tests {
             subdomains: vec![LegacySubdomainEntry::Simple("@".to_string())],
             proxied: false,
         }];
-        ddns.update_ips(&ips, &config, 300, false).await;
+        ddns.update_ips(&ips, &config, 300, false, &mut HashSet::new()).await;
     }
 
     #[tokio::test]
