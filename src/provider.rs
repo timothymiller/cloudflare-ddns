@@ -1,6 +1,7 @@
 use crate::pp::{self, PP};
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::Client;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::time::Duration;
 
 /// IP type: IPv4 or IPv6
@@ -145,14 +146,14 @@ impl ProviderType {
 
 // --- Cloudflare Trace ---
 
-/// Primary trace URLs use literal IPs to guarantee the correct address family.
-/// api.cloudflare.com is dual-stack, so on dual-stack hosts (e.g. Docker
-/// --net=host with IPv6) the connection may go via IPv6 even when detecting
-/// IPv4, causing the trace endpoint to return the wrong address family.
-const CF_TRACE_V4_PRIMARY: &str = "https://1.0.0.1/cdn-cgi/trace";
-const CF_TRACE_V6_PRIMARY: &str = "https://[2606:4700:4700::1001]/cdn-cgi/trace";
-/// Fallback uses a hostname, which works when literal IPs are intercepted
-/// (e.g. Cloudflare WARP/Zero Trust).
+/// Primary trace URL uses cloudflare.com (the CDN endpoint, not the DNS
+/// resolver).  The `build_split_client` forces the correct address family by
+/// filtering DNS results, so a dual-stack hostname is safe.
+/// Using literal DNS-resolver IPs (1.0.0.1 / [2606:4700:4700::1001]) caused
+/// TLS SNI mismatches and returned Cloudflare proxy IPs for some users.
+const CF_TRACE_PRIMARY: &str = "https://cloudflare.com/cdn-cgi/trace";
+/// Fallback uses api.cloudflare.com, which works when cloudflare.com is
+/// intercepted (e.g. Cloudflare WARP/Zero Trust).
 const CF_TRACE_FALLBACK: &str = "https://api.cloudflare.com/cdn-cgi/trace";
 
 pub fn parse_trace_ip(body: &str) -> Option<String> {
@@ -180,16 +181,45 @@ async fn fetch_trace_ip(
     ip_str.parse::<IpAddr>().ok()
 }
 
+/// A DNS resolver that filters lookup results to a single address family.
+/// This is the Rust equivalent of favonia/cloudflare-ddns's "split dialer"
+/// pattern: by removing addresses of the wrong family *before* the HTTP
+/// client sees them, we guarantee it can only establish connections over the
+/// desired protocol — no happy-eyeballs race, no fallback to the wrong family.
+struct FilteredResolver {
+    ip_type: IpType,
+}
+
+impl Resolve for FilteredResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let ip_type = self.ip_type;
+        Box::pin(async move {
+            let addrs: Vec<SocketAddr> = tokio::net::lookup_host((name.as_str(), 0))
+                .await
+                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?
+                .filter(|addr| match ip_type {
+                    IpType::V4 => addr.is_ipv4(),
+                    IpType::V6 => addr.is_ipv6(),
+                })
+                .collect();
+            if addrs.is_empty() {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::AddrNotAvailable,
+                    format!("no {} addresses found", ip_type.describe()),
+                )) as Box<dyn std::error::Error + Send + Sync>);
+            }
+            Ok(Box::new(addrs.into_iter()) as Addrs)
+        })
+    }
+}
+
 /// Build an HTTP client that only connects via the given IP family.
-/// Binding to 0.0.0.0 forces IPv4-only; binding to [::] forces IPv6-only.
-/// This ensures the trace endpoint sees the correct address family.
+/// Uses a DNS-level filter to strip addresses of the wrong family from
+/// resolution results, ensuring the client never attempts a connection
+/// over the wrong protocol.
 pub fn build_split_client(ip_type: IpType, timeout: Duration) -> Client {
-    let local_addr: IpAddr = match ip_type {
-        IpType::V4 => Ipv4Addr::UNSPECIFIED.into(),
-        IpType::V6 => Ipv6Addr::UNSPECIFIED.into(),
-    };
     Client::builder()
-        .local_address(local_addr)
+        .dns_resolver(FilteredResolver { ip_type })
         .timeout(timeout)
         .build()
         .unwrap_or_default()
@@ -218,13 +248,8 @@ async fn detect_cloudflare_trace(
         return Vec::new();
     }
 
-    let primary = match ip_type {
-        IpType::V4 => CF_TRACE_V4_PRIMARY,
-        IpType::V6 => CF_TRACE_V6_PRIMARY,
-    };
-
-    // Try primary (literal IP — guarantees correct address family)
-    if let Some(ip) = fetch_trace_ip(&client, primary, timeout, Some("one.one.one.one")).await {
+    // Try primary (cloudflare.com — the CDN trace endpoint)
+    if let Some(ip) = fetch_trace_ip(&client, CF_TRACE_PRIMARY, timeout, None).await {
         if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
@@ -926,21 +951,46 @@ mod tests {
 
     #[test]
     fn test_trace_urls() {
-        // Primary URLs use literal IPs to guarantee correct address family.
-        assert!(CF_TRACE_V4_PRIMARY.contains("1.0.0.1"));
-        assert!(CF_TRACE_V6_PRIMARY.contains("2606:4700:4700::1001"));
-        // Fallback uses a hostname for when literal IPs are intercepted (WARP/Zero Trust).
+        // Primary uses cloudflare.com CDN endpoint (not DNS resolver IPs).
+        assert_eq!(CF_TRACE_PRIMARY, "https://cloudflare.com/cdn-cgi/trace");
+        // Fallback uses api.cloudflare.com for when cloudflare.com is intercepted (WARP/Zero Trust).
         assert_eq!(CF_TRACE_FALLBACK, "https://api.cloudflare.com/cdn-cgi/trace");
-        assert!(CF_TRACE_FALLBACK.contains("api.cloudflare.com"));
     }
 
-    // ---- build_split_client ----
+    // ---- FilteredResolver + build_split_client ----
+
+    #[tokio::test]
+    async fn test_filtered_resolver_v4() {
+        let resolver = FilteredResolver { ip_type: IpType::V4 };
+        let name: Name = "cloudflare.com".parse().unwrap();
+        let addrs: Vec<SocketAddr> = resolver
+            .resolve(name)
+            .await
+            .expect("DNS lookup failed")
+            .collect();
+        assert!(!addrs.is_empty(), "should resolve at least one address");
+        for addr in &addrs {
+            assert!(addr.is_ipv4(), "all addresses should be IPv4, got {addr}");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_filtered_resolver_v6() {
+        let resolver = FilteredResolver { ip_type: IpType::V6 };
+        let name: Name = "cloudflare.com".parse().unwrap();
+        // IPv6 may not be available in all test environments, so we just
+        // verify the resolver doesn't panic and returns only v6 if any.
+        if let Ok(addrs) = resolver.resolve(name).await {
+            for addr in addrs {
+                assert!(addr.is_ipv6(), "all addresses should be IPv6, got {addr}");
+            }
+        }
+    }
 
     #[test]
     fn test_build_split_client_v4() {
         let client = build_split_client(IpType::V4, Duration::from_secs(5));
-        // Client should build successfully — we can't inspect local_address,
-        // but we verify it doesn't panic.
+        // Client should build successfully with filtered resolver.
         drop(client);
     }
 
