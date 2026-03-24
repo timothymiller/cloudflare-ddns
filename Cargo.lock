@@ -139,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "cloudflare-ddns"
-version = "2.0.9"
+version = "2.0.10"
 dependencies = [
  "chrono",
  "idna",

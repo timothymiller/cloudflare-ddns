@@ -26,7 +26,11 @@ pub async fn update_once(
     let mut notify = false; // NEW: track meaningful events
 
     if config.legacy_mode {
-        all_ok = update_legacy(config, cf_cache, ppfmt, noop_reported, detection_client).await;
+        let (ok, legacy_msgs, legacy_notify) =
+            update_legacy(config, cf_cache, ppfmt, noop_reported, detection_client).await;
+        all_ok = ok;
+        messages = legacy_msgs;
+        notify = legacy_notify;
     } else {
         // Detect IPs for each provider
         let mut detected_ips: HashMap<IpType, Vec<IpAddr>> = HashMap::new();
@@ -251,10 +255,10 @@ async fn update_legacy(
     ppfmt: &PP,
     noop_reported: &mut HashSet<String>,
     detection_client: &Client,
-) -> bool {
+) -> (bool, Vec<Message>, bool) {
     let legacy = match &config.legacy_config {
         Some(l) => l,
-        None => return false,
+        None => return (false, Vec::new(), false),
     };
 
     let ddns = LegacyDdnsClient {
@@ -341,16 +345,17 @@ async fn update_legacy(
         }
     }
 
-    ddns.update_ips(
-        &ips,
-        &legacy.cloudflare,
-        legacy.ttl,
-        legacy.purge_unknown_records,
-        noop_reported,
-    )
-    .await;
+    let (msgs, should_notify) = ddns
+        .update_ips(
+            &ips,
+            &legacy.cloudflare,
+            legacy.ttl,
+            legacy.purge_unknown_records,
+            noop_reported,
+        )
+        .await;
 
-    true
+    (true, msgs, should_notify)
 }
 
 /// Delete records on stop (for env var mode).
@@ -499,11 +504,19 @@ impl LegacyDdnsClient {
         ttl: i64,
         purge_unknown_records: bool,
         noop_reported: &mut HashSet<String>,
-    ) {
+    ) -> (Vec<Message>, bool) {
+        let mut messages = Vec::new();
+        let mut notify = false;
         for ip in ips.values() {
-            self.commit_record(ip, config, ttl, purge_unknown_records, noop_reported)
+            let (msgs, changed) = self
+                .commit_record(ip, config, ttl, purge_unknown_records, noop_reported)
                 .await;
+            messages.extend(msgs);
+            if changed {
+                notify = true;
+            }
         }
+        (messages, notify)
     }
 
     async fn commit_record(
@@ -513,7 +526,9 @@ impl LegacyDdnsClient {
         ttl: i64,
         purge_unknown_records: bool,
         noop_reported: &mut HashSet<String>,
-    ) {
+    ) -> (Vec<Message>, bool) {
+        let mut messages = Vec::new();
+        let mut changed = false;
         for entry in config {
             let zone_resp: Option<LegacyCfResponse<LegacyZoneResult>> = self
                 .cf_api(
@@ -592,6 +607,7 @@ impl LegacyDdnsClient {
                 if let Some(ref id) = identifier {
                     if modified {
                         noop_reported.remove(&noop_key);
+                        changed = true;
                         if self.dry_run {
                             println!("[DRY RUN] Would update record {fqdn} -> {}", ip.ip);
                         } else {
@@ -602,6 +618,10 @@ impl LegacyDdnsClient {
                                 .cf_api(&update_endpoint, "PUT", entry, Some(&record))
                                 .await;
                         }
+                        messages.push(Message::new_ok(&format!(
+                            "Updated {fqdn} -> {}",
+                            ip.ip
+                        )));
                     } else if noop_reported.insert(noop_key) {
                         if self.dry_run {
                             println!("[DRY RUN] Record {fqdn} is up to date");
@@ -611,6 +631,7 @@ impl LegacyDdnsClient {
                     }
                 } else {
                     noop_reported.remove(&noop_key);
+                    changed = true;
                     if self.dry_run {
                         println!("[DRY RUN] Would add new record {fqdn} -> {}", ip.ip);
                     } else {
@@ -620,6 +641,10 @@ impl LegacyDdnsClient {
                             .cf_api(&create_endpoint, "POST", entry, Some(&record))
                             .await;
                     }
+                    messages.push(Message::new_ok(&format!(
+                        "Created {fqdn} -> {}",
+                        ip.ip
+                    )));
                 }
 
                 if purge_unknown_records {
@@ -638,6 +663,7 @@ impl LegacyDdnsClient {
                 }
             }
         }
+        (messages, changed)
     }
 }
 
