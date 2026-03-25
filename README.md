@@ -363,6 +363,21 @@ Some ISP provided modems only allow port forwarding over IPv4 or IPv6. Disable t
 
 ### ⚙️ Config Options
 
+By default, the legacy config file is loaded from `./config.json`. Set the `CONFIG_PATH` environment variable to change the directory:
+
+```bash
+CONFIG_PATH=/etc/cloudflare-ddns cloudflare-ddns
+```
+
+Or in Docker Compose:
+
+```yml
+environment:
+  - CONFIG_PATH=/config
+volumes:
+  - /your/path/config.json:/config/config.json
+```
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `cloudflare` | array | required | List of zone configurations |
