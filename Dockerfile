@@ -5,6 +5,7 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN cargo build --release
+RUN apk add --no-cache upx && upx --best --lzma target/release/cloudflare-ddns
 
 # ---- Release ----
 FROM scratch AS release

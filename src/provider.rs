@@ -26,10 +26,6 @@ impl IpType {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn all() -> &'static [IpType] {
-        &[IpType::V4, IpType::V6]
-    }
 }
 
 /// All supported provider types
@@ -879,7 +875,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new();
+        let client = crate::test_client();
         let ppfmt = PP::default_pp();
         let url = format!("{}/cdn-cgi/trace", server.uri());
         let timeout = Duration::from_secs(5);
@@ -919,7 +915,7 @@ mod tests {
 
         // We can't override the hardcoded primary/fallback URLs, but we can test
         // the custom URL path: first with a failing URL, then a succeeding one.
-        let client = Client::new();
+        let client = crate::test_client();
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
 
@@ -1012,7 +1008,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new();
+        let client = crate::test_client();
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
 
@@ -1035,7 +1031,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new();
+        let client = crate::test_client();
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
 
@@ -1056,7 +1052,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new();
+        let client = crate::test_client();
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
         let url = format!("{}/my-ip", server.uri());
@@ -1076,7 +1072,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new();
+        let client = crate::test_client();
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
         let url = format!("{}/my-ip", server.uri());
@@ -1140,7 +1136,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = Client::new();
+        let client = crate::test_client();
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
         let url = format!("{}/my-ip", server.uri());
@@ -1351,7 +1347,7 @@ mod tests {
                 "5.6.7.8".parse().unwrap(),
             ],
         };
-        let client = Client::new();
+        let client = crate::test_client();
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
 
@@ -1369,7 +1365,7 @@ mod tests {
                 "2001:db8::1".parse().unwrap(),
             ],
         };
-        let client = Client::new();
+        let client = crate::test_client();
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
 
@@ -1383,7 +1379,7 @@ mod tests {
     #[tokio::test]
     async fn test_none_detect_ips_returns_empty() {
         let provider = ProviderType::None;
-        let client = Client::new();
+        let client = crate::test_client();
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
 

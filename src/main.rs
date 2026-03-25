@@ -20,8 +20,12 @@ use tokio::time::{sleep, Duration};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     // Parse CLI args
     let args: Vec<String> = std::env::args().collect();
     let dry_run = args.iter().any(|a| a == "--dry-run");
@@ -229,13 +233,11 @@ async fn run_env_mode(
             while running.load(Ordering::SeqCst) {
                 // Sleep for interval, checking running flag each second
                 let secs = interval.as_secs();
-                let next_time = chrono::Local::now() + chrono::Duration::seconds(secs as i64);
+                let mins = secs / 60;
+                let rem_secs = secs % 60;
                 ppfmt.infof(
                     pp::EMOJI_SLEEP,
-                    &format!(
-                        "Next update at {}",
-                        next_time.format("%Y-%m-%d %H:%M:%S %Z")
-                    ),
+                    &format!("Next update in {}m {}s", mins, rem_secs),
                 );
 
                 for _ in 0..secs {
@@ -281,6 +283,21 @@ fn describe_duration(d: Duration) -> String {
 // ============================================================
 // Tests (backwards compatible with original test suite)
 // ============================================================
+
+#[cfg(test)]
+pub(crate) fn init_crypto() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn test_client() -> reqwest::Client {
+    init_crypto();
+    reqwest::Client::new()
+}
 
 #[cfg(test)]
 mod tests {
@@ -333,7 +350,7 @@ mod tests {
     impl TestDdnsClient {
         fn new(base_url: &str) -> Self {
             Self {
-                client: Client::new(),
+                client: crate::test_client(),
                 cf_api_base: base_url.to_string(),
                 ipv4_urls: vec![format!("{base_url}/cdn-cgi/trace")],
                 dry_run: false,

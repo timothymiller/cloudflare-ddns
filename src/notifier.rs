@@ -11,14 +11,6 @@ pub struct Message {
 }
 
 impl Message {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self {
-            lines: Vec::new(),
-            ok: true,
-        }
-    }
-
     pub fn new_ok(msg: &str) -> Self {
         Self {
             lines: vec![msg.to_string()],
@@ -52,16 +44,6 @@ impl Message {
         }
         Message { lines, ok }
     }
-
-    #[allow(dead_code)]
-    pub fn add_line(&mut self, line: &str) {
-        self.lines.push(line.to_string());
-    }
-
-    #[allow(dead_code)]
-    pub fn set_fail(&mut self) {
-        self.ok = false;
-    }
 }
 
 // --- Composite Notifier ---
@@ -72,8 +54,6 @@ pub struct CompositeNotifier {
 
 // Object-safe version of Notifier
 pub trait NotifierDyn: Send + Sync {
-    #[allow(dead_code)]
-    fn describe(&self) -> String;
     fn send_dyn<'a>(
         &'a self,
         msg: &'a Message,
@@ -83,16 +63,6 @@ pub trait NotifierDyn: Send + Sync {
 impl CompositeNotifier {
     pub fn new(notifiers: Vec<Box<dyn NotifierDyn>>) -> Self {
         Self { notifiers }
-    }
-
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.notifiers.is_empty()
-    }
-
-    #[allow(dead_code)]
-    pub fn describe(&self) -> Vec<String> {
-        self.notifiers.iter().map(|n| n.describe()).collect()
     }
 
     pub async fn send(&self, msg: &Message) {
@@ -295,10 +265,6 @@ impl ShoutrrrNotifier {
 }
 
 impl NotifierDyn for ShoutrrrNotifier {
-    fn describe(&self) -> String {
-        ShoutrrrNotifier::describe(self)
-    }
-
     fn send_dyn<'a>(
         &'a self,
         msg: &'a Message,
@@ -442,8 +408,6 @@ pub struct Heartbeat {
 }
 
 pub trait HeartbeatMonitor: Send + Sync {
-    #[allow(dead_code)]
-    fn describe(&self) -> String;
     fn ping<'a>(
         &'a self,
         msg: &'a Message,
@@ -460,16 +424,6 @@ pub trait HeartbeatMonitor: Send + Sync {
 impl Heartbeat {
     pub fn new(monitors: Vec<Box<dyn HeartbeatMonitor>>) -> Self {
         Self { monitors }
-    }
-
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.monitors.is_empty()
-    }
-
-    #[allow(dead_code)]
-    pub fn describe(&self) -> Vec<String> {
-        self.monitors.iter().map(|m| m.describe()).collect()
     }
 
     pub async fn ping(&self, msg: &Message) {
@@ -532,10 +486,6 @@ impl HealthchecksMonitor {
 }
 
 impl HeartbeatMonitor for HealthchecksMonitor {
-    fn describe(&self) -> String {
-        "Healthchecks.io".to_string()
-    }
-
     fn ping<'a>(
         &'a self,
         msg: &'a Message,
@@ -590,10 +540,6 @@ impl UptimeKumaMonitor {
 }
 
 impl HeartbeatMonitor for UptimeKumaMonitor {
-    fn describe(&self) -> String {
-        "Uptime Kuma".to_string()
-    }
-
     fn ping<'a>(
         &'a self,
         msg: &'a Message,
@@ -676,19 +622,6 @@ mod tests {
     }
 
     #[test]
-    fn test_message_new() {
-        let msg = Message::new();
-        assert!(msg.lines.is_empty());
-        assert!(msg.ok);
-    }
-
-    #[test]
-    fn test_message_is_empty_true() {
-        let msg = Message::new();
-        assert!(msg.is_empty());
-    }
-
-    #[test]
     fn test_message_is_empty_false() {
         let msg = Message::new_ok("something");
         assert!(!msg.is_empty());
@@ -698,20 +631,6 @@ mod tests {
     fn test_message_format_single_line() {
         let msg = Message::new_ok("line1");
         assert_eq!(msg.format(), "line1");
-    }
-
-    #[test]
-    fn test_message_format_multiple_lines() {
-        let mut msg = Message::new_ok("line1");
-        msg.add_line("line2");
-        msg.add_line("line3");
-        assert_eq!(msg.format(), "line1\nline2\nline3");
-    }
-
-    #[test]
-    fn test_message_format_empty() {
-        let msg = Message::new();
-        assert_eq!(msg.format(), "");
     }
 
     #[test]
@@ -751,30 +670,12 @@ mod tests {
         assert!(merged.ok);
     }
 
-    #[test]
-    fn test_message_add_line() {
-        let mut msg = Message::new();
-        msg.add_line("first");
-        msg.add_line("second");
-        assert_eq!(msg.lines, vec!["first".to_string(), "second".to_string()]);
-    }
-
-    #[test]
-    fn test_message_set_fail() {
-        let mut msg = Message::new();
-        assert!(msg.ok);
-        msg.set_fail();
-        assert!(!msg.ok);
-    }
-
     // ---- CompositeNotifier tests ----
 
     #[tokio::test]
     async fn test_composite_notifier_empty_send_does_nothing() {
         let notifier = CompositeNotifier::new(vec![]);
-        assert!(notifier.is_empty());
         let msg = Message::new_ok("test");
-        // Should not panic or error
         notifier.send(&msg).await;
     }
 
@@ -1111,7 +1012,7 @@ mod tests {
 
         // Build a notifier that points discord webhook at our mock server
         let notifier = ShoutrrrNotifier {
-            client: Client::new(),
+            client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "discord://token@id".to_string(),
                 service_type: ShoutrrrServiceType::Discord,
@@ -1135,7 +1036,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
-            client: Client::new(),
+            client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "slack://a/b/c".to_string(),
                 service_type: ShoutrrrServiceType::Slack,
@@ -1159,7 +1060,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
-            client: Client::new(),
+            client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "generic://example.com/hook".to_string(),
                 service_type: ShoutrrrServiceType::Generic,
@@ -1175,10 +1076,10 @@ mod tests {
     #[tokio::test]
     async fn test_shoutrrr_send_empty_message() {
         let notifier = ShoutrrrNotifier {
-            client: Client::new(),
+            client: crate::test_client(),
             urls: vec![],
         };
-        let msg = Message::new();
+        let msg = Message { lines: Vec::new(), ok: true };
         let pp = PP::default_pp();
         // Empty message should return true immediately
         let result = notifier.send(&msg, &pp).await;
@@ -1211,7 +1112,7 @@ mod tests {
     #[test]
     fn test_shoutrrr_notifier_describe() {
         let notifier = ShoutrrrNotifier {
-            client: Client::new(),
+            client: crate::test_client(),
             urls: vec![
                 ShoutrrrService {
                     original_url: "discord://t@i".to_string(),
@@ -1267,7 +1168,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
-            client: Client::new(),
+            client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "telegram://token@telegram?chats=123".to_string(),
                 service_type: ShoutrrrServiceType::Telegram,
@@ -1291,7 +1192,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
-            client: Client::new(),
+            client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "gotify://host/path".to_string(),
                 service_type: ShoutrrrServiceType::Gotify,
@@ -1326,7 +1227,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
-            client: Client::new(),
+            client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "custom://host/path".to_string(),
                 service_type: ShoutrrrServiceType::Other("custom".to_string()),
@@ -1350,7 +1251,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
-            client: Client::new(),
+            client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "discord://t@i".to_string(),
                 service_type: ShoutrrrServiceType::Discord,
@@ -1361,23 +1262,6 @@ mod tests {
         let pp = PP::new(false, true);
         let result = notifier.send(&msg, &pp).await;
         assert!(!result);
-    }
-
-    // ---- CompositeNotifier describe ----
-
-    #[test]
-    fn test_composite_notifier_describe_empty() {
-        let notifier = CompositeNotifier::new(vec![]);
-        assert!(notifier.describe().is_empty());
-    }
-
-    // ---- Heartbeat describe and is_empty ----
-
-    #[test]
-    fn test_heartbeat_is_empty() {
-        let hb = Heartbeat::new(vec![]);
-        assert!(hb.is_empty());
-        assert!(hb.describe().is_empty());
     }
 
     #[tokio::test]
@@ -1401,16 +1285,6 @@ mod tests {
         hb.exit(&msg).await;
     }
 
-    // ---- CompositeNotifier send with empty message ----
-
-    #[tokio::test]
-    async fn test_composite_notifier_send_empty_message_skips() {
-        let notifier = CompositeNotifier::new(vec![]);
-        let msg = Message::new(); // empty
-        // Should return immediately without sending
-        notifier.send(&msg).await;
-    }
-
     #[tokio::test]
     async fn test_shoutrrr_send_server_error() {
         let server = MockServer::start().await;
@@ -1422,7 +1296,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
-            client: Client::new(),
+            client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "generic://example.com/hook".to_string(),
                 service_type: ShoutrrrServiceType::Generic,

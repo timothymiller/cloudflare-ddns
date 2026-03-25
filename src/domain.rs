@@ -1,127 +1,12 @@
-use std::fmt;
-
-/// Represents a DNS domain - either a regular FQDN or a wildcard.
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Domain {
-    FQDN(String),
-    Wildcard(String),
-}
-
-#[allow(dead_code)]
-impl Domain {
-    /// Parse a domain string. Handles:
-    /// - "@" or "" -> root domain (handled at FQDN construction time)
-    /// - "*.example.com" -> wildcard
-    /// - "sub.example.com" -> regular FQDN
-    pub fn new(input: &str) -> Result<Self, String> {
-        let trimmed = input.trim().to_lowercase();
-        if trimmed.starts_with("*.") {
-            let base = &trimmed[2..];
-            let ascii = domain_to_ascii(base)?;
-            Ok(Domain::Wildcard(ascii))
-        } else {
-            let ascii = domain_to_ascii(&trimmed)?;
-            Ok(Domain::FQDN(ascii))
-        }
-    }
-
-    /// Returns the DNS name in ASCII form suitable for API calls.
-    pub fn dns_name_ascii(&self) -> String {
-        match self {
-            Domain::FQDN(s) => s.clone(),
-            Domain::Wildcard(s) => format!("*.{s}"),
-        }
-    }
-
-    /// Returns a human-readable description of the domain.
-    pub fn describe(&self) -> String {
-        match self {
-            Domain::FQDN(s) => describe_domain(s),
-            Domain::Wildcard(s) => format!("*.{}", describe_domain(s)),
-        }
-    }
-
-    /// Returns the zones (parent domains) for this domain, from most specific to least.
-    pub fn zones(&self) -> Vec<String> {
-        let base = match self {
-            Domain::FQDN(s) => s.as_str(),
-            Domain::Wildcard(s) => s.as_str(),
-        };
-        let mut zones = Vec::new();
-        let mut current = base.to_string();
-        while !current.is_empty() {
-            zones.push(current.clone());
-            if let Some(pos) = current.find('.') {
-                current = current[pos + 1..].to_string();
-            } else {
-                break;
-            }
-        }
-        zones
-    }
-}
-
-impl fmt::Display for Domain {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.describe())
-    }
-}
-
 /// Construct an FQDN from a subdomain name and base domain.
 pub fn make_fqdn(subdomain: &str, base_domain: &str) -> String {
     let name = subdomain.to_lowercase();
     let name = name.trim();
     if name.is_empty() || name == "@" {
         base_domain.to_lowercase()
-    } else if name.starts_with("*.") {
-        // Wildcard subdomain
-        format!("{name}.{}", base_domain.to_lowercase())
     } else {
         format!("{name}.{}", base_domain.to_lowercase())
     }
-}
-
-/// Convert a domain to ASCII using IDNA encoding.
-#[allow(dead_code)]
-fn domain_to_ascii(domain: &str) -> Result<String, String> {
-    if domain.is_empty() {
-        return Ok(String::new());
-    }
-    // Try IDNA encoding for internationalized domain names
-    match idna::domain_to_ascii(domain) {
-        Ok(ascii) => Ok(ascii),
-        Err(_) => {
-            // Fallback: if it's already ASCII, just return it
-            if domain.is_ascii() {
-                Ok(domain.to_string())
-            } else {
-                Err(format!("Invalid domain name: {domain}"))
-            }
-        }
-    }
-}
-
-/// Convert ASCII domain back to Unicode for display.
-#[allow(dead_code)]
-fn describe_domain(ascii: &str) -> String {
-    // Try to convert punycode back to unicode for display
-    match idna::domain_to_unicode(ascii) {
-        (unicode, Ok(())) => unicode,
-        _ => ascii.to_string(),
-    }
-}
-
-/// Parse a comma-separated list of domain strings.
-#[allow(dead_code)]
-pub fn parse_domain_list(input: &str) -> Result<Vec<Domain>, String> {
-    if input.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-    input
-        .split(',')
-        .map(|s| Domain::new(s.trim()))
-        .collect()
 }
 
 // --- Domain Expression Evaluator ---
@@ -306,18 +191,6 @@ mod tests {
     }
 
     #[test]
-    fn test_domain_wildcard() {
-        let d = Domain::new("*.example.com").unwrap();
-        assert_eq!(d.dns_name_ascii(), "*.example.com");
-    }
-
-    #[test]
-    fn test_parse_domain_list() {
-        let domains = parse_domain_list("example.com, *.example.com, sub.example.com").unwrap();
-        assert_eq!(domains.len(), 3);
-    }
-
-    #[test]
     fn test_proxied_expr_true() {
         let pred = parse_proxied_expression("true").unwrap();
         assert!(pred("anything.com"));
@@ -359,129 +232,6 @@ mod tests {
         assert!(pred("public.com"));
     }
 
-    // --- Domain::new with regular FQDN ---
-    #[test]
-    fn test_domain_new_fqdn() {
-        let d = Domain::new("example.com").unwrap();
-        assert_eq!(d, Domain::FQDN("example.com".to_string()));
-    }
-
-    #[test]
-    fn test_domain_new_fqdn_uppercase() {
-        let d = Domain::new("EXAMPLE.COM").unwrap();
-        assert_eq!(d, Domain::FQDN("example.com".to_string()));
-    }
-
-    // --- Domain::dns_name_ascii for FQDN ---
-    #[test]
-    fn test_dns_name_ascii_fqdn() {
-        let d = Domain::FQDN("example.com".to_string());
-        assert_eq!(d.dns_name_ascii(), "example.com");
-    }
-
-    // --- Domain::describe for both variants ---
-    #[test]
-    fn test_describe_fqdn() {
-        let d = Domain::FQDN("example.com".to_string());
-        // ASCII domain should round-trip through describe unchanged
-        assert_eq!(d.describe(), "example.com");
-    }
-
-    #[test]
-    fn test_describe_wildcard() {
-        let d = Domain::Wildcard("example.com".to_string());
-        assert_eq!(d.describe(), "*.example.com");
-    }
-
-    // --- Domain::zones ---
-    #[test]
-    fn test_zones_fqdn() {
-        let d = Domain::FQDN("sub.example.com".to_string());
-        let zones = d.zones();
-        assert_eq!(zones, vec!["sub.example.com", "example.com", "com"]);
-    }
-
-    #[test]
-    fn test_zones_wildcard() {
-        let d = Domain::Wildcard("example.com".to_string());
-        let zones = d.zones();
-        assert_eq!(zones, vec!["example.com", "com"]);
-    }
-
-    #[test]
-    fn test_zones_single_label() {
-        let d = Domain::FQDN("localhost".to_string());
-        let zones = d.zones();
-        assert_eq!(zones, vec!["localhost"]);
-    }
-
-    // --- Domain Display trait ---
-    #[test]
-    fn test_display_fqdn() {
-        let d = Domain::FQDN("example.com".to_string());
-        assert_eq!(format!("{d}"), "example.com");
-    }
-
-    #[test]
-    fn test_display_wildcard() {
-        let d = Domain::Wildcard("example.com".to_string());
-        assert_eq!(format!("{d}"), "*.example.com");
-    }
-
-    // --- domain_to_ascii (tested indirectly via Domain::new) ---
-    #[test]
-    fn test_domain_new_empty_string() {
-        // empty string -> domain_to_ascii returns Ok("") -> Domain::FQDN("")
-        let d = Domain::new("").unwrap();
-        assert_eq!(d, Domain::FQDN("".to_string()));
-    }
-
-    #[test]
-    fn test_domain_new_ascii_domain() {
-        let d = Domain::new("www.example.org").unwrap();
-        assert_eq!(d.dns_name_ascii(), "www.example.org");
-    }
-
-    #[test]
-    fn test_domain_new_internationalized() {
-        // "münchen.de" should be encoded to punycode
-        let d = Domain::new("münchen.de").unwrap();
-        let ascii = d.dns_name_ascii();
-        // The punycode-encoded form should start with "xn--"
-        assert!(ascii.contains("xn--"), "expected punycode, got: {ascii}");
-    }
-
-    // --- describe_domain (tested indirectly via Domain::describe) ---
-    #[test]
-    fn test_describe_punycode_roundtrip() {
-        // Build a domain with a known punycode label and confirm describe decodes it
-        let d = Domain::new("münchen.de").unwrap();
-        let described = d.describe();
-        // Should contain the Unicode form, not the raw punycode
-        assert!(described.contains("münchen") || described.contains("xn--"),
-            "describe returned: {described}");
-    }
-
-    #[test]
-    fn test_describe_regular_ascii() {
-        let d = Domain::FQDN("example.com".to_string());
-        assert_eq!(d.describe(), "example.com");
-    }
-
-    // --- parse_domain_list with empty input ---
-    #[test]
-    fn test_parse_domain_list_empty() {
-        let result = parse_domain_list("").unwrap();
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_parse_domain_list_whitespace_only() {
-        let result = parse_domain_list("   ").unwrap();
-        assert!(result.is_empty());
-    }
-
-    // --- Tokenizer edge cases (via parse_proxied_expression) ---
     #[test]
     fn test_tokenizer_single_ampersand_error() {
         let result = parse_proxied_expression("is(a.com) & is(b.com)");
@@ -504,7 +254,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // --- Parser edge cases ---
     #[test]
     fn test_parse_and_expr_double_ampersand() {
         let pred = parse_proxied_expression("is(a.com) && is(b.com)").unwrap();
@@ -538,10 +287,8 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // --- make_fqdn with wildcard subdomain ---
     #[test]
     fn test_make_fqdn_wildcard_subdomain() {
-        // A name starting with "*." is treated as a wildcard subdomain
         assert_eq!(make_fqdn("*.sub", "example.com"), "*.sub.example.com");
     }
 }

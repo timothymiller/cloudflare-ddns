@@ -152,16 +152,16 @@ pub struct CloudflareHandle {
     client: Client,
     base_url: String,
     auth: Auth,
-    managed_comment_regex: Option<regex::Regex>,
-    managed_waf_comment_regex: Option<regex::Regex>,
+    managed_comment_regex: Option<regex_lite::Regex>,
+    managed_waf_comment_regex: Option<regex_lite::Regex>,
 }
 
 impl CloudflareHandle {
     pub fn new(
         auth: Auth,
         update_timeout: Duration,
-        managed_comment_regex: Option<regex::Regex>,
-        managed_waf_comment_regex: Option<regex::Regex>,
+        managed_comment_regex: Option<regex_lite::Regex>,
+        managed_waf_comment_regex: Option<regex_lite::Regex>,
     ) -> Self {
         let client = Client::builder()
             .timeout(update_timeout)
@@ -182,6 +182,7 @@ impl CloudflareHandle {
         base_url: &str,
         auth: Auth,
     ) -> Self {
+        crate::init_crypto();
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
@@ -200,39 +201,18 @@ impl CloudflareHandle {
         format!("{}/{path}", self.base_url)
     }
 
-    async fn api_get<T: serde::de::DeserializeOwned>(
+    async fn api_request<T: serde::de::DeserializeOwned>(
         &self,
+        method: reqwest::Method,
         path: &str,
+        body: Option<&impl Serialize>,
         ppfmt: &PP,
     ) -> Option<T> {
         let url = self.api_url(path);
-        let req = self.auth.apply(self.client.get(&url));
-        match req.send().await {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    resp.json::<T>().await.ok()
-                } else {
-                    let url_str = resp.url().to_string();
-                    let text = resp.text().await.unwrap_or_default();
-                    ppfmt.errorf(pp::EMOJI_ERROR, &format!("API GET '{url_str}' failed: {text}"));
-                    None
-                }
-            }
-            Err(e) => {
-                ppfmt.errorf(pp::EMOJI_ERROR, &format!("API GET '{path}' error: {e}"));
-                None
-            }
+        let mut req = self.auth.apply(self.client.request(method.clone(), &url));
+        if let Some(b) = body {
+            req = req.json(b);
         }
-    }
-
-    async fn api_post<T: serde::de::DeserializeOwned, B: Serialize>(
-        &self,
-        path: &str,
-        body: &B,
-        ppfmt: &PP,
-    ) -> Option<T> {
-        let url = self.api_url(path);
-        let req = self.auth.apply(self.client.post(&url)).json(body);
         match req.send().await {
             Ok(resp) => {
                 if resp.status().is_success() {
@@ -240,63 +220,12 @@ impl CloudflareHandle {
                 } else {
                     let url_str = resp.url().to_string();
                     let text = resp.text().await.unwrap_or_default();
-                    ppfmt.errorf(pp::EMOJI_ERROR, &format!("API POST '{url_str}' failed: {text}"));
+                    ppfmt.errorf(pp::EMOJI_ERROR, &format!("API {method} '{url_str}' failed: {text}"));
                     None
                 }
             }
             Err(e) => {
-                ppfmt.errorf(pp::EMOJI_ERROR, &format!("API POST '{path}' error: {e}"));
-                None
-            }
-        }
-    }
-
-    async fn api_put<T: serde::de::DeserializeOwned, B: Serialize>(
-        &self,
-        path: &str,
-        body: &B,
-        ppfmt: &PP,
-    ) -> Option<T> {
-        let url = self.api_url(path);
-        let req = self.auth.apply(self.client.put(&url)).json(body);
-        match req.send().await {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    resp.json::<T>().await.ok()
-                } else {
-                    let url_str = resp.url().to_string();
-                    let text = resp.text().await.unwrap_or_default();
-                    ppfmt.errorf(pp::EMOJI_ERROR, &format!("API PUT '{url_str}' failed: {text}"));
-                    None
-                }
-            }
-            Err(e) => {
-                ppfmt.errorf(pp::EMOJI_ERROR, &format!("API PUT '{path}' error: {e}"));
-                None
-            }
-        }
-    }
-
-    async fn api_delete<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-        ppfmt: &PP,
-    ) -> Option<T> {
-        let url = self.api_url(path);
-        let req = self.auth.apply(self.client.delete(&url));
-        match req.send().await {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    resp.json::<T>().await.ok()
-                } else {
-                    let url_str = resp.url().to_string();
-                    let text = resp.text().await.unwrap_or_default();
-                    ppfmt.errorf(pp::EMOJI_ERROR, &format!("API DELETE '{url_str}' failed: {text}"));
-                    None
-                }
-            }
-            Err(e) => {
-                ppfmt.errorf(pp::EMOJI_ERROR, &format!("API DELETE '{path}' error: {e}"));
+                ppfmt.errorf(pp::EMOJI_ERROR, &format!("API {method} '{path}' error: {e}"));
                 None
             }
         }
@@ -309,7 +238,7 @@ impl CloudflareHandle {
         let mut current = domain.to_string();
         loop {
             let resp: Option<CfListResponse<ZoneResult>> = self
-                .api_get(&format!("zones?name={current}"), ppfmt)
+                .api_request(reqwest::Method::GET, &format!("zones?name={current}"), None::<&()>, ppfmt)
                 .await;
             if let Some(r) = resp {
                 if let Some(zones) = r.result {
@@ -340,7 +269,7 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> Vec<DnsRecord> {
         let path = format!("zones/{zone_id}/dns_records?per_page=100&type={record_type}");
-        let resp: Option<CfListResponse<DnsRecord>> = self.api_get(&path, ppfmt).await;
+        let resp: Option<CfListResponse<DnsRecord>> = self.api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt).await;
         resp.and_then(|r| r.result).unwrap_or_default()
     }
 
@@ -372,7 +301,7 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> Option<DnsRecord> {
         let path = format!("zones/{zone_id}/dns_records");
-        let resp: Option<CfResponse<DnsRecord>> = self.api_post(&path, payload, ppfmt).await;
+        let resp: Option<CfResponse<DnsRecord>> = self.api_request(reqwest::Method::POST, &path, Some(payload), ppfmt).await;
         resp.and_then(|r| r.result)
     }
 
@@ -384,7 +313,7 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> Option<DnsRecord> {
         let path = format!("zones/{zone_id}/dns_records/{record_id}");
-        let resp: Option<CfResponse<DnsRecord>> = self.api_put(&path, payload, ppfmt).await;
+        let resp: Option<CfResponse<DnsRecord>> = self.api_request(reqwest::Method::PUT, &path, Some(payload), ppfmt).await;
         resp.and_then(|r| r.result)
     }
 
@@ -395,7 +324,7 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> bool {
         let path = format!("zones/{zone_id}/dns_records/{record_id}");
-        let resp: Option<CfResponse<serde_json::Value>> = self.api_delete(&path, ppfmt).await;
+        let resp: Option<CfResponse<serde_json::Value>> = self.api_request(reqwest::Method::DELETE, &path, None::<&()>, ppfmt).await;
         resp.is_some()
     }
 
@@ -550,7 +479,7 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> Option<WAFListMeta> {
         let path = format!("accounts/{}/rules/lists", waf_list.account_id);
-        let resp: Option<CfListResponse<WAFListMeta>> = self.api_get(&path, ppfmt).await;
+        let resp: Option<CfListResponse<WAFListMeta>> = self.api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt).await;
         resp.and_then(|r| r.result)
             .and_then(|lists| lists.into_iter().find(|l| l.name == waf_list.list_name))
     }
@@ -562,7 +491,7 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> Vec<WAFListItem> {
         let path = format!("accounts/{account_id}/rules/lists/{list_id}/items");
-        let resp: Option<CfListResponse<WAFListItem>> = self.api_get(&path, ppfmt).await;
+        let resp: Option<CfListResponse<WAFListItem>> = self.api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt).await;
         resp.and_then(|r| r.result).unwrap_or_default()
     }
 
@@ -574,7 +503,7 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> bool {
         let path = format!("accounts/{account_id}/rules/lists/{list_id}/items");
-        let resp: Option<CfResponse<serde_json::Value>> = self.api_post(&path, &items, ppfmt).await;
+        let resp: Option<CfResponse<serde_json::Value>> = self.api_request(reqwest::Method::POST, &path, Some(&items), ppfmt).await;
         resp.is_some()
     }
 
@@ -794,6 +723,7 @@ mod tests {
     }
 
     fn handle_with_regex(base_url: &str, pattern: &str) -> CloudflareHandle {
+        crate::init_crypto();
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
@@ -802,7 +732,7 @@ mod tests {
             client,
             base_url: base_url.to_string(),
             auth: test_auth(),
-            managed_comment_regex: Some(regex::Regex::new(pattern).unwrap()),
+            managed_comment_regex: Some(regex_lite::Regex::new(pattern).unwrap()),
             managed_waf_comment_regex: None,
         }
     }
@@ -1424,7 +1354,7 @@ mod tests {
             api_key: "key123".to_string(),
             email: "user@example.com".to_string(),
         };
-        let client = Client::new();
+        let client = crate::test_client();
         let req = client.get("http://example.com");
         let req = auth.apply(req);
         // Just verify it doesn't panic - we can't inspect headers easily
@@ -1443,7 +1373,7 @@ mod tests {
 
         let h = handle(&server.uri());
         let pp = PP::new(false, true); // quiet
-        let result: Option<CfListResponse<ZoneResult>> = h.api_get("zones", &pp).await;
+        let result: Option<CfListResponse<ZoneResult>> = h.api_request(reqwest::Method::GET, "zones", None::<&()>, &pp).await;
         assert!(result.is_none());
     }
 
@@ -1458,7 +1388,7 @@ mod tests {
         let h = handle(&server.uri());
         let pp = PP::new(false, true);
         let body = serde_json::json!({"test": true});
-        let result: Option<CfResponse<serde_json::Value>> = h.api_post("endpoint", &body, &pp).await;
+        let result: Option<CfResponse<serde_json::Value>> = h.api_request(reqwest::Method::POST, "endpoint", Some(&body), &pp).await;
         assert!(result.is_none());
     }
 
@@ -1473,7 +1403,7 @@ mod tests {
         let h = handle(&server.uri());
         let pp = PP::new(false, true);
         let body = serde_json::json!({"test": true});
-        let result: Option<CfResponse<serde_json::Value>> = h.api_put("endpoint", &body, &pp).await;
+        let result: Option<CfResponse<serde_json::Value>> = h.api_request(reqwest::Method::PUT, "endpoint", Some(&body), &pp).await;
         assert!(result.is_none());
     }
 

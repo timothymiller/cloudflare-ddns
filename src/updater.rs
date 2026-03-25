@@ -849,7 +849,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
         assert!(ok);
     }
 
@@ -902,12 +902,12 @@ mod tests {
         let mut noop_reported = HashSet::new();
 
         // First call: noop_reported is empty, so "up to date" is reported and key is inserted
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &crate::test_client()).await;
         assert!(ok);
         assert!(noop_reported.contains("home.example.com:A"), "noop_reported should contain the domain key after first noop");
 
         // Second call: noop_reported already has the key, so the message is suppressed
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &crate::test_client()).await;
         assert!(ok);
         assert_eq!(noop_reported.len(), 1, "noop_reported should still have exactly one entry");
     }
@@ -980,7 +980,7 @@ mod tests {
         noop_reported.insert("home.example.com:A".to_string());
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &crate::test_client()).await;
         assert!(ok);
         assert!(!noop_reported.contains("home.example.com:A"), "noop_reported should be cleared after an update");
     }
@@ -1026,7 +1026,7 @@ mod tests {
 
         // all_ok = true because no zone-level errors occurred (empty ips just noop or warn)
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
         // Providers with None are not inserted in loop, so no IP detection warning is emitted,
         // no detected_ips entry is created, and set_ips is called with empty slice -> Noop.
         assert!(ok);
@@ -1076,7 +1076,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
         assert!(!ok, "Expected false when zone is not found");
     }
 
@@ -1126,7 +1126,7 @@ mod tests {
 
         // dry_run returns Updated from set_ips (it signals intent), all_ok should be true
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
         assert!(ok);
     }
 
@@ -1192,7 +1192,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
         assert!(ok);
     }
 
@@ -1246,7 +1246,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
         assert!(ok);
     }
 
@@ -1286,7 +1286,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
         assert!(!ok, "Expected false when WAF list is not found");
     }
 
@@ -1371,7 +1371,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
         assert!(ok);
     }
 
@@ -1388,7 +1388,7 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
         assert!(ok);
     }
 
@@ -1773,7 +1773,7 @@ mod tests {
 
         // set_ips with empty ips and no existing records = Noop; all_ok = true
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &Client::new()).await;
+        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
         assert!(ok);
     }
     // -------------------------------------------------------
@@ -1792,7 +1792,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: false,
         };
@@ -1824,7 +1824,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: false,
         };
@@ -1853,7 +1853,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: false,
         };
@@ -1875,7 +1875,7 @@ mod tests {
     #[tokio::test]
     async fn test_legacy_cf_api_unknown_method() {
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: "http://localhost".to_string(),
             dry_run: false,
         };
@@ -1905,7 +1905,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: false,
         };
@@ -1961,7 +1961,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: false,
         };
@@ -2017,7 +2017,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: false,
         };
@@ -2059,7 +2059,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: true,
         };
@@ -2110,7 +2110,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: false,
         };
@@ -2165,7 +2165,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: false,
         };
@@ -2214,7 +2214,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: false,
         };
@@ -2258,7 +2258,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: false,
         };
@@ -2290,7 +2290,7 @@ mod tests {
             .await;
 
         let ddns = LegacyDdnsClient {
-            client: Client::new(),
+            client: crate::test_client(),
             cf_api_base: server.uri(),
             dry_run: true,
         };

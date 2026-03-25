@@ -1,0 +1,6 @@
+target/
+.git/
+.github/
+.gitignore
+*.md
+LICENSE
