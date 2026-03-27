@@ -29,7 +29,7 @@ Configure everything with environment variables. Supports notifications, heartbe
 - 🔒 **Zero-log IP detection** — Uses Cloudflare's [cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace) by default
 - 🏠 **CGNAT-aware local detection** — Filters out shared address space (100.64.0.0/10) and private ranges
 - 🚫 **Cloudflare IP rejection** — Automatically rejects Cloudflare anycast IPs to prevent incorrect DNS updates
-- 🤏 **Tiny static binary** — ~1.9 MB Docker image built from scratch, zero runtime dependencies
+- 🤏 **Tiny static binary** — ~1.1 MB Docker image built from scratch, zero runtime dependencies
 
 ## 🚀 Quick Start
 
