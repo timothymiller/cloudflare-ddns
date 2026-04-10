@@ -14,6 +14,7 @@ use crate::pp::PP;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use rand::Rng;
 use reqwest::Client;
 use tokio::signal;
 use tokio::time::{sleep, Duration};
@@ -251,10 +252,26 @@ async fn run_env_mode(
                     return;
                 }
 
+                // Apply proportional jitter before each update to spread API calls
+                // across clients and reduce synchronized traffic spikes at Cloudflare.
+                let max_jitter = interval.as_secs() / 5;
+                if max_jitter > 0 {
+                    let jitter_secs = rand::rng().random_range(0..=max_jitter);
+                    sleep(std::time::Duration::from_secs(jitter_secs)).await;
+                }
+
                 updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
             }
         }
     }
+}
+
+fn jitter_duration(interval_secs: u64, rand_val: u64) -> std::time::Duration {
+    let max_jitter = interval_secs / 5;
+    if max_jitter == 0 {
+        return std::time::Duration::ZERO;
+    }
+    std::time::Duration::from_secs(rand_val % (max_jitter + 1))
 }
 
 fn describe_duration(d: Duration) -> String {
@@ -864,6 +881,29 @@ mod tests {
         };
         ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, true, &mut std::collections::HashSet::new())
             .await;
+    }
+
+    // --- jitter_duration tests ---
+    #[test]
+    fn test_jitter_duration_standard() {
+        // 5-minute interval: max jitter = 60s
+        let d = super::jitter_duration(300, 30);
+        assert_eq!(d, std::time::Duration::from_secs(30));
+        let d = super::jitter_duration(300, 61);
+        assert_eq!(d, std::time::Duration::from_secs(61 % 61)); // wraps within [0, 60]
+    }
+
+    #[test]
+    fn test_jitter_duration_short_interval() {
+        // interval < 5s: must return zero
+        assert_eq!(super::jitter_duration(4, 99), std::time::Duration::ZERO);
+        assert_eq!(super::jitter_duration(0, 99), std::time::Duration::ZERO);
+    }
+
+    #[test]
+    fn test_jitter_duration_deterministic() {
+        // rand_val=0 always returns zero duration
+        assert_eq!(super::jitter_duration(300, 0), std::time::Duration::ZERO);
     }
 
     // --- describe_duration tests ---
