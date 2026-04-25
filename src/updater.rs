@@ -2321,6 +2321,272 @@ mod tests {
         ddns.delete_entries("A", &config).await;
     }
 
+    // -------------------------------------------------------
+    // delete_on_failure tests
+    // -------------------------------------------------------
+
+    /// When IPv4 detection fails but IPv6 succeeds, and delete_on_failure=false, skip V4 domains but update V6
+    #[tokio::test]
+    async fn test_skip_v4_domains_when_v4_detection_fails() {
+        let server = MockServer::start().await;
+        let zone_id = "zone-abc";
+        let ip_v6 = "2001:db8::1";
+
+        // Zone lookup for V6 domain
+        Mock::given(method("GET"))
+            .and(path("/zones"))
+            .and(query_param("name", "v6.example.com"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(zones_response(zone_id, "example.com")),
+            )
+            .mount(&server)
+            .await;
+
+        // LIST existing records for V6
+        Mock::given(method("GET"))
+            .and(path_regex(format!("/zones/{zone_id}/dns_records")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(dns_records_empty()))
+            .mount(&server)
+            .await;
+
+        // POST for V6 should be called (V6 succeeds)
+        Mock::given(method("POST"))
+            .and(path(format!("/zones/{zone_id}/dns_records")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(dns_record_created(
+                "rec-1",
+                "v6.example.com",
+                "2001:db8::1",
+            )))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Providers: V4 fails (None), V6 succeeds
+        let mut providers = HashMap::new();
+        providers.insert(IpType::V4, ProviderType::None);
+        providers.insert(
+            IpType::V6,
+            ProviderType::Literal {
+                ips: vec![ip_v6.parse().unwrap()],
+            },
+        );
+
+        let mut domains = HashMap::new();
+        domains.insert(IpType::V4, vec!["v4.example.com".to_string()]);
+        domains.insert(IpType::V6, vec!["v6.example.com".to_string()]);
+
+        let mut config = make_config(providers, domains, vec![], false);
+        config.delete_on_failure = false;
+
+        let cf = handle(&server.uri());
+        let notifier = empty_notifier();
+        let heartbeat = empty_heartbeat();
+        let ppfmt = pp();
+
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(
+            &config,
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
+        assert!(ok, "Should succeed with partial detection");
+    }
+
+    /// When IPv6 detection fails but IPv4 succeeds, and delete_on_failure=false, skip V6 domains but update V4
+    #[tokio::test]
+    async fn test_skip_v6_domains_when_v6_detection_fails() {
+        let server = MockServer::start().await;
+        let zone_id = "zone-abc";
+        let ip_v4 = "198.51.100.42";
+
+        // Zone lookup for V4 domain
+        Mock::given(method("GET"))
+            .and(path("/zones"))
+            .and(query_param("name", "v4.example.com"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(zones_response(zone_id, "example.com")),
+            )
+            .mount(&server)
+            .await;
+
+        // LIST existing records for V4
+        Mock::given(method("GET"))
+            .and(path_regex(format!("/zones/{zone_id}/dns_records")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(dns_records_empty()))
+            .mount(&server)
+            .await;
+
+        // POST for V4 should be called (V4 succeeds)
+        Mock::given(method("POST"))
+            .and(path(format!("/zones/{zone_id}/dns_records")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(dns_record_created(
+                "rec-1",
+                "v4.example.com",
+                "198.51.100.42",
+            )))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Providers: V4 succeeds, V6 fails (None)
+        let mut providers = HashMap::new();
+        providers.insert(
+            IpType::V4,
+            ProviderType::Literal {
+                ips: vec![ip_v4.parse().unwrap()],
+            },
+        );
+        providers.insert(IpType::V6, ProviderType::None);
+
+        let mut domains = HashMap::new();
+        domains.insert(IpType::V4, vec!["v4.example.com".to_string()]);
+        domains.insert(IpType::V6, vec!["v6.example.com".to_string()]);
+
+        let mut config = make_config(providers, domains, vec![], false);
+        config.delete_on_failure = false;
+
+        let cf = handle(&server.uri());
+        let notifier = empty_notifier();
+        let heartbeat = empty_heartbeat();
+        let ppfmt = pp();
+
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(
+            &config,
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
+        assert!(ok, "Should succeed with partial detection");
+    }
+
+    /// When both IPv4 and IPv6 detection fail, and delete_on_failure=false, skip all domains
+    #[tokio::test]
+    async fn test_skip_all_domains_when_both_detect_fail() {
+        let server = MockServer::start().await;
+
+        // No POST/DELETE should be called at all
+
+        // Providers: both fail (None)
+        let mut providers = HashMap::new();
+        providers.insert(IpType::V4, ProviderType::None);
+        providers.insert(IpType::V6, ProviderType::None);
+
+        let mut domains = HashMap::new();
+        domains.insert(IpType::V4, vec!["v4.example.com".to_string()]);
+        domains.insert(IpType::V6, vec!["v6.example.com".to_string()]);
+
+        let mut config = make_config(providers, domains, vec![], false);
+        config.delete_on_failure = false;
+
+        let cf = handle(&server.uri());
+        let notifier = empty_notifier();
+        let heartbeat = empty_heartbeat();
+        let ppfmt = pp();
+
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(
+            &config,
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
+        assert!(ok, "Should succeed (no updates, no failures)");
+    }
+
+    /// When both IPv4 and IPv6 detection succeed, and delete_on_failure=false, update all domains
+    #[tokio::test]
+    async fn test_update_all_domains_when_both_detect() {
+        let server = MockServer::start().await;
+        let zone_id = "zone-abc";
+        let ip_v4 = "198.51.100.42";
+        let ip_v6 = "2001:db8::1";
+
+        // Zone lookups for both domains
+        Mock::given(method("GET"))
+            .and(path("/zones"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(zones_response(zone_id, "example.com")),
+            )
+            .mount(&server)
+            .await;
+
+        // LIST existing records (empty for both)
+        Mock::given(method("GET"))
+            .and(path_regex(format!("/zones/{zone_id}/dns_records")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(dns_records_empty()))
+            .mount(&server)
+            .await;
+
+        // POST for both should be called
+        Mock::given(method("POST"))
+            .and(path(format!("/zones/{zone_id}/dns_records")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(dns_record_created(
+                "rec-new",
+                "example.com",
+                "198.51.100.42",
+            )))
+            .expect(2) // Two POSTs: one for V4, one for V6
+            .mount(&server)
+            .await;
+
+        // Providers: both succeed
+        let mut providers = HashMap::new();
+        providers.insert(
+            IpType::V4,
+            ProviderType::Literal {
+                ips: vec![ip_v4.parse().unwrap()],
+            },
+        );
+        providers.insert(
+            IpType::V6,
+            ProviderType::Literal {
+                ips: vec![ip_v6.parse().unwrap()],
+            },
+        );
+
+        let mut domains = HashMap::new();
+        domains.insert(IpType::V4, vec!["v4.example.com".to_string()]);
+        domains.insert(IpType::V6, vec!["v6.example.com".to_string()]);
+
+        let mut config = make_config(providers, domains, vec![], false);
+        config.delete_on_failure = false;
+
+        let cf = handle(&server.uri());
+        let notifier = empty_notifier();
+        let heartbeat = empty_heartbeat();
+        let ppfmt = pp();
+
+        let mut cf_cache = CachedCloudflareFilter::new();
+        let ok = update_once(
+            &config,
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
+        assert!(ok, "Should succeed with both detections");
+    }
 }
 
 // Legacy types for backwards compatibility
