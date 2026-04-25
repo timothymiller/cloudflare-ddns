@@ -115,6 +115,19 @@ pub async fn update_once(
         // Update DNS records (env var mode - domain-based)
         for (ip_type, domains) in &config.domains {
             let ips = detected_ips.get(ip_type).cloned().unwrap_or_default();
+
+            if ips.is_empty() && !config.delete_on_failure {
+                ppfmt.warningf(
+                    pp::EMOJI_WARNING,
+                    &format!(
+                        "Skipping {} domain update for {}",
+                        ip_type.describe(),
+                        domains.join(", ")
+                    ),
+                );
+                continue;
+            }
+
             let record_type = ip_type.record_type();
 
             for domain_str in domains {
@@ -713,6 +726,7 @@ mod tests {
             update_cron: CronSchedule::Once,
             update_on_start: true,
             delete_on_stop: false,
+            delete_on_failure: true,
             ttl: TTL::AUTO,
             proxied_expression: None,
             record_comment: None,
