@@ -84,6 +84,7 @@ pub struct AppConfig {
     pub update_cron: CronSchedule,
     pub update_on_start: bool,
     pub delete_on_stop: bool,
+    pub delete_on_failure: bool,
     pub ttl: TTL,
     pub proxied_expression: Option<Box<dyn Fn(&str) -> bool + Send + Sync>>,
     pub record_comment: Option<String>,
@@ -449,6 +450,7 @@ fn legacy_to_app_config(legacy: LegacyConfig, dry_run: bool, repeat: bool) -> Re
         update_cron: schedule,
         update_on_start: true,
         delete_on_stop: false,
+        delete_on_failure: true,
         ttl,
         proxied_expression: None,
         record_comment: None,
@@ -503,6 +505,7 @@ pub fn load_env_config(ppfmt: &PP) -> Result<AppConfig, String> {
     let update_cron = read_cron_from_env(ppfmt)?;
     let update_on_start = getenv_bool("UPDATE_ON_START", true);
     let delete_on_stop = getenv_bool("DELETE_ON_STOP", false);
+    let delete_on_failure = getenv_bool("DELETE_ON_FAILURE", true);
 
     let ttl_val = getenv("TTL")
         .and_then(|s| s.parse::<i64>().ok())
@@ -571,6 +574,7 @@ pub fn load_env_config(ppfmt: &PP) -> Result<AppConfig, String> {
         update_cron,
         update_on_start,
         delete_on_stop,
+        delete_on_failure,
         ttl,
         proxied_expression,
         record_comment,
@@ -1317,6 +1321,7 @@ mod tests {
             update_cron: CronSchedule::Once,
             update_on_start: true,
             delete_on_stop: false,
+            delete_on_failure: true,
             ttl: TTL::AUTO,
             proxied_expression: None,
             record_comment: None,
@@ -1351,6 +1356,7 @@ mod tests {
             update_cron: CronSchedule::Every(Duration::from_secs(300)),
             update_on_start: true,
             delete_on_stop: true,
+            delete_on_failure: true,
             ttl: TTL::new(60),
             proxied_expression: None,
             record_comment: Some("managed".to_string()),
@@ -2003,6 +2009,7 @@ mod tests {
             update_cron: CronSchedule::Every(Duration::from_secs(300)),
             update_on_start: true,
             delete_on_stop: false,
+            delete_on_failure: true,
             ttl: TTL::AUTO,
             proxied_expression: None,
             record_comment: None,
@@ -2039,6 +2046,7 @@ mod tests {
             update_cron: CronSchedule::Every(Duration::from_secs(600)),
             update_on_start: true,
             delete_on_stop: true,
+            delete_on_failure: true,
             ttl: TTL::new(120),
             proxied_expression: None,
             record_comment: Some("cf-ddns".to_string()),
@@ -2072,6 +2080,7 @@ mod tests {
             update_cron: CronSchedule::Once,
             update_on_start: true,
             delete_on_stop: false,
+            delete_on_failure: true,
             ttl: TTL::AUTO,
             proxied_expression: None,
             record_comment: None,

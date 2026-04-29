@@ -107,6 +107,7 @@ To disable this protection, set `REJECT_CLOUDFLARE_IPS=false`.
 | `UPDATE_CRON` | `@every 5m` | Update schedule |
 | `UPDATE_ON_START` | `true` | Run an update immediately on startup |
 | `DELETE_ON_STOP` | `false` | Delete managed DNS records on shutdown |
+| `DELETE_ON_FAILURE` | `true` | Delete managed DNS records when failed to obtain IP from provider |
 
 Schedule formats:
 
@@ -213,6 +214,7 @@ Heartbeats are sent after each update cycle. On failure, a fail signal is sent. 
 | `UPDATE_CRON` | `@every 5m` | ⏱️ Update schedule |
 | `UPDATE_ON_START` | `true` | 🚀 Update on startup |
 | `DELETE_ON_STOP` | `false` | 🧹 Delete records on shutdown |
+| `DELETE_ON_FAILURE` | `true` | 🧹 Delete records if failed to obtain new records |
 | `TTL` | `1` | ⏳ DNS record TTL |
 | `PROXIED` | `false` | ☁️ Proxied expression |
 | `RECORD_COMMENT` | — | 💬 DNS record comment |
