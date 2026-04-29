@@ -14,7 +14,7 @@ use crate::pp::PP;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use rand::Rng;
+use rand::RngExt;
 use reqwest::Client;
 use tokio::signal;
 use tokio::time::{sleep, Duration};
