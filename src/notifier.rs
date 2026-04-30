@@ -274,6 +274,90 @@ impl NotifierDyn for ShoutrrrNotifier {
     }
 }
 
+/// Build a Gotify webhook URL from a shoutrrr-style URL.
+///
+/// Accepted forms:
+///   gotify://host[:port]/TOKEN[?disabletls=yes]
+///   gotify://host[:port]/path/?token=TOKEN[&disabletls=yes]
+///   gotify+http://host[:port]/TOKEN
+///   gotify+https://host[:port]/TOKEN
+///
+/// `disabletls=yes` switches the resulting webhook to plain HTTP, which is
+/// required for typical home-LAN deployments where Gotify is reachable on a
+/// private IP without TLS.
+fn parse_gotify_url(
+    original: &str,
+    rest: &str,
+    default_scheme: &str,
+) -> Result<ShoutrrrService, String> {
+    // Split off the query string (if any) before path manipulation.
+    let (path_part, query_part) = match rest.split_once('?') {
+        Some((p, q)) => (p, q),
+        None => (rest, ""),
+    };
+
+    let mut token: Option<String> = None;
+    let mut scheme = default_scheme;
+    if !query_part.is_empty() {
+        for pair in query_part.split('&') {
+            let (k, v) = match pair.split_once('=') {
+                Some(kv) => kv,
+                None => continue,
+            };
+            match k {
+                "token" => token = Some(v.to_string()),
+                "disabletls" if v.eq_ignore_ascii_case("yes") => scheme = "http",
+                _ => {}
+            }
+        }
+    }
+
+    // host[:port][/extra/path]/TOKEN  --  token is the last non-empty path segment.
+    let trimmed = path_part.trim_end_matches('/');
+    let (host_path, last_segment) = match trimmed.rsplit_once('/') {
+        Some((h, t)) => (h, t),
+        None => (trimmed, ""),
+    };
+
+    if token.is_none() && !last_segment.is_empty() {
+        token = Some(last_segment.to_string());
+    }
+
+    let token = match token {
+        Some(t) if !t.is_empty() => t,
+        _ => {
+            return Err(format!(
+                "Invalid Gotify shoutrrr URL (missing token): {original}"
+            ));
+        }
+    };
+
+    // host_path is either "host[:port]" or "host[:port]/extra/path" if user
+    // had additional path segments before the token.
+    let host_and_path = if host_path.is_empty() {
+        // No slash before token -> token *was* the only segment, host is path_part minus token.
+        path_part
+            .trim_end_matches('/')
+            .trim_end_matches(&token[..])
+            .trim_end_matches('/')
+            .to_string()
+    } else {
+        host_path.to_string()
+    };
+
+    if host_and_path.is_empty() {
+        return Err(format!(
+            "Invalid Gotify shoutrrr URL (missing host): {original}"
+        ));
+    }
+
+    Ok(ShoutrrrService {
+        original_url: original.to_string(),
+        service_type: ShoutrrrServiceType::Gotify,
+        webhook_url: format!("{scheme}://{host_and_path}/message?token={token}"),
+    })
+}
+
 fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
     // Shoutrrr URL formats:
     // discord://token@id -> https://discord.com/api/webhooks/id/token
@@ -334,15 +418,13 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
         return Err(format!("Invalid Telegram shoutrrr URL: {url_str}"));
     }
 
-    if let Some(rest) = url_str
-        .strip_prefix("gotify://")
-        .or_else(|| url_str.strip_prefix("gotify+https://"))
+    if let Some((rest, default_scheme)) = url_str
+        .strip_prefix("gotify+https://")
+        .map(|r| (r, "https"))
+        .or_else(|| url_str.strip_prefix("gotify+http://").map(|r| (r, "http")))
+        .or_else(|| url_str.strip_prefix("gotify://").map(|r| (r, "https")))
     {
-        return Ok(ShoutrrrService {
-            original_url: url_str.to_string(),
-            service_type: ShoutrrrServiceType::Gotify,
-            webhook_url: format!("https://{rest}/message"),
-        });
+        return parse_gotify_url(url_str, rest, default_scheme);
     }
 
     if let Some(rest) = url_str
@@ -365,14 +447,28 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
     }
 
     if let Some(rest) = url_str.strip_prefix("pushover://") {
-        let parts: Vec<&str> = rest.splitn(2, '@').collect();
+        // Strip query string (devices, priority, title) — not yet supported.
+        let body = rest.split('?').next().unwrap_or(rest).trim_end_matches('/');
+        let parts: Vec<&str> = body.splitn(2, '@').collect();
         if parts.len() == 2 {
+            // Shoutrrr's canonical pushover URL is
+            //   pushover://shoutrrr:APIToken@UserKey
+            // where the literal "shoutrrr:" username is required. Strip an
+            // optional "<user>:" prefix from the token portion so both the
+            // canonical form and the bare "pushover://TOKEN@USER" form work.
+            let token = parts[0]
+                .rsplit_once(':')
+                .map(|(_, t)| t)
+                .unwrap_or(parts[0]);
+            let user = parts[1];
+            if token.is_empty() || user.is_empty() {
+                return Err(format!("Invalid Pushover shoutrrr URL: {url_str}"));
+            }
             return Ok(ShoutrrrService {
                 original_url: url_str.to_string(),
                 service_type: ShoutrrrServiceType::Pushover,
                 webhook_url: format!(
-                    "https://api.pushover.net/1/messages.json?token={}&user={}",
-                    parts[0], parts[1]
+                    "https://api.pushover.net/1/messages.json?token={token}&user={user}"
                 ),
             });
         }
@@ -735,13 +831,51 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_gotify() {
-        let result = parse_shoutrrr_url("gotify://myhost.com/somepath").unwrap();
+    fn test_parse_gotify_token_as_path_segment() {
+        // Shoutrrr canonical format: token is the final path segment.
+        let result = parse_shoutrrr_url("gotify://myhost.com/MYTOKEN").unwrap();
         assert_eq!(
             result.webhook_url,
-            "https://myhost.com/somepath/message"
+            "https://myhost.com/message?token=MYTOKEN"
         );
         assert!(matches!(result.service_type, ShoutrrrServiceType::Gotify));
+    }
+
+    #[test]
+    fn test_parse_gotify_token_query_param() {
+        // Older "gotify://host?token=..." form (issue #262).
+        let result =
+            parse_shoutrrr_url("gotify://192.168.178.222:9090?token=AtE2tUGQig67b0J&disabletls=yes")
+                .unwrap();
+        assert_eq!(
+            result.webhook_url,
+            "http://192.168.178.222:9090/message?token=AtE2tUGQig67b0J"
+        );
+    }
+
+    #[test]
+    fn test_parse_gotify_disabletls_switches_to_http() {
+        let result =
+            parse_shoutrrr_url("gotify://10.0.0.1:8080/TOKEN123?disabletls=yes").unwrap();
+        assert_eq!(
+            result.webhook_url,
+            "http://10.0.0.1:8080/message?token=TOKEN123"
+        );
+    }
+
+    #[test]
+    fn test_parse_gotify_plus_http_scheme() {
+        let result = parse_shoutrrr_url("gotify+http://10.0.0.1:8080/TOKEN").unwrap();
+        assert_eq!(
+            result.webhook_url,
+            "http://10.0.0.1:8080/message?token=TOKEN"
+        );
+    }
+
+    #[test]
+    fn test_parse_gotify_missing_token_errors() {
+        assert!(parse_shoutrrr_url("gotify://myhost.com/").is_err());
+        assert!(parse_shoutrrr_url("gotify://myhost.com").is_err());
     }
 
     #[test]
@@ -781,9 +915,39 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_pushover_shoutrrr_canonical_form() {
+        // Shoutrrr's canonical URL has a literal "shoutrrr:" username.
+        // Issue #258: parser must strip this prefix or Pushover rejects the token.
+        let result =
+            parse_shoutrrr_url("pushover://shoutrrr:apitoken@userkey").unwrap();
+        assert_eq!(
+            result.webhook_url,
+            "https://api.pushover.net/1/messages.json?token=apitoken&user=userkey"
+        );
+    }
+
+    #[test]
+    fn test_parse_pushover_strips_query_params() {
+        // Optional shoutrrr query params (devices, priority) should not break parsing.
+        let result =
+            parse_shoutrrr_url("pushover://shoutrrr:tok@user/?devices=phone&priority=1")
+                .unwrap();
+        assert_eq!(
+            result.webhook_url,
+            "https://api.pushover.net/1/messages.json?token=tok&user=user"
+        );
+    }
+
+    #[test]
     fn test_parse_pushover_invalid() {
         let result = parse_shoutrrr_url("pushover://noatsign");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_pushover_empty_token_errors() {
+        assert!(parse_shoutrrr_url("pushover://shoutrrr:@user").is_err());
+        assert!(parse_shoutrrr_url("pushover://tok@").is_err());
     }
 
     #[test]

@@ -280,8 +280,16 @@ impl CloudflareHandle {
         name: &str,
         ppfmt: &PP,
     ) -> Vec<DnsRecord> {
+        // Cloudflare normalizes DNS record names to lowercase server-side, so a
+        // case-sensitive match against the user-supplied name (e.g. ExaMple.com)
+        // would never find existing records and trigger 81058 duplicate-create
+        // errors on every cycle. Match case-insensitively to mirror Cloudflare's
+        // own comparison rules.
         let records = self.list_records(zone_id, record_type, ppfmt).await;
-        records.into_iter().filter(|r| r.name == name).collect()
+        records
+            .into_iter()
+            .filter(|r| r.name.eq_ignore_ascii_case(name))
+            .collect()
     }
 
     fn is_managed_record(&self, record: &DnsRecord) -> bool {
@@ -924,6 +932,29 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].id, "r1");
         assert_eq!(records[1].id, "r2");
+    }
+
+    // Issue #255: Cloudflare normalizes record names to lowercase, so a
+    // case-sensitive match against the user-supplied name (e.g. ExaMple.com)
+    // would loop forever creating duplicates. Verify match is case-insensitive.
+    #[tokio::test]
+    async fn list_records_by_name_case_insensitive() {
+        let server = MockServer::start().await;
+        let body = dns_list_response(vec![
+            dns_record_json("r1", "example.com", "1.2.3.4", None),
+        ]);
+        Mock::given(method("GET"))
+            .and(path("/zones/z1/dns_records"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let h = handle(&server.uri());
+        let records = h
+            .list_records_by_name("z1", "A", "ExaMple.com", &pp())
+            .await;
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, "r1");
     }
 
     #[tokio::test]
