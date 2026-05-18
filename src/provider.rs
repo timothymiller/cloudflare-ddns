@@ -1,6 +1,7 @@
 use crate::pp::{self, PP};
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::Client;
+use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::time::Duration;
 
@@ -36,6 +37,7 @@ pub enum ProviderType {
     Ipify,
     Local,
     LocalIface { interface: String },
+    StableLocalIface { interface: String },
     CustomURL { url: String },
     Literal { ips: Vec<IpAddr> },
     None,
@@ -49,6 +51,7 @@ impl ProviderType {
             ProviderType::Ipify => "ipify",
             ProviderType::Local => "local",
             ProviderType::LocalIface { .. } => "local.iface",
+            ProviderType::StableLocalIface { .. } => "local.iface.stable",
             ProviderType::CustomURL { .. } => "url:",
             ProviderType::Literal { .. } => "literal:",
             ProviderType::None => "none",
@@ -77,6 +80,11 @@ impl ProviderType {
         }
         if input == "local" {
             return Ok(ProviderType::Local);
+        }
+        if let Some(iface) = input.strip_prefix("local.iface.stable:") {
+            return Ok(ProviderType::StableLocalIface {
+                interface: iface.to_string(),
+            });
         }
         if let Some(iface) = input.strip_prefix("local.iface:") {
             return Ok(ProviderType::LocalIface {
@@ -130,6 +138,9 @@ impl ProviderType {
             ProviderType::Local => detect_local(ip_type, ppfmt),
             ProviderType::LocalIface { interface } => {
                 detect_local_iface(interface, ip_type, ppfmt)
+            }
+            ProviderType::StableLocalIface { interface } => {
+                detect_stable_local_iface(interface, ip_type, ppfmt)
             }
             ProviderType::CustomURL { url } => {
                 detect_custom_url(client, url, ip_type, timeout, ppfmt).await
@@ -525,6 +536,105 @@ fn detect_local_iface(interface: &str, ip_type: IpType, ppfmt: &PP) -> Vec<IpAdd
     }
 }
 
+// --- Stable Local Interface ---
+
+const IF_INET6_PATH: &str = "/proc/net/if_inet6";
+const IFA_F_TEMPORARY: u32 = 0x01;
+const IFA_F_DADFAILED: u32 = 0x08;
+const IFA_F_DEPRECATED: u32 = 0x20;
+const IFA_F_TENTATIVE: u32 = 0x40;
+const IPV6_SCOPE_GLOBAL: u8 = 0x00;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IfInet6Address {
+    ip: Ipv6Addr,
+    prefix_len: u8,
+    scope: u8,
+    flags: u32,
+    interface: String,
+}
+
+fn detect_stable_local_iface(interface: &str, ip_type: IpType, ppfmt: &PP) -> Vec<IpAddr> {
+    if ip_type == IpType::V4 {
+        return detect_local_iface(interface, ip_type, ppfmt);
+    }
+
+    let contents = match fs::read_to_string(IF_INET6_PATH) {
+        Ok(contents) => contents,
+        Err(e) => {
+            ppfmt.warningf(
+                pp::EMOJI_WARNING,
+                &format!("Failed to read {IF_INET6_PATH} for stable IPv6 detection: {e}"),
+            );
+            return Vec::new();
+        }
+    };
+
+    let ip = stable_ipv6_addresses_from_if_inet6(&contents, interface)
+        .into_iter()
+        .next();
+    if ip.is_none() {
+        ppfmt.warningf(
+            pp::EMOJI_WARNING,
+            &format!("No stable global IPv6 address found on interface {interface}"),
+        );
+    }
+    ip.into_iter().map(IpAddr::V6).collect()
+}
+
+fn stable_ipv6_addresses_from_if_inet6(contents: &str, interface: &str) -> Vec<Ipv6Addr> {
+    let mut entries: Vec<IfInet6Address> = contents
+        .lines()
+        .filter_map(parse_if_inet6_line)
+        .filter(|addr| addr.interface == interface && is_stable_global_ipv6(addr))
+        .collect();
+
+    entries.sort_by(|a, b| {
+        a.prefix_len
+            .cmp(&b.prefix_len)
+            .then_with(|| a.ip.to_string().cmp(&b.ip.to_string()))
+    });
+
+    let mut ips: Vec<Ipv6Addr> = entries.into_iter().map(|addr| addr.ip).collect();
+    ips.dedup();
+    ips
+}
+
+fn is_stable_global_ipv6(addr: &IfInet6Address) -> bool {
+    addr.scope == IPV6_SCOPE_GLOBAL
+        && IpAddr::V6(addr.ip).is_global_()
+        && addr.flags & (IFA_F_TEMPORARY | IFA_F_DADFAILED | IFA_F_DEPRECATED | IFA_F_TENTATIVE)
+            == 0
+}
+
+fn parse_if_inet6_line(line: &str) -> Option<IfInet6Address> {
+    let mut fields = line.split_whitespace();
+    let addr_hex = fields.next()?;
+    let _ifindex = fields.next()?;
+    let prefix_hex = fields.next()?;
+    let scope_hex = fields.next()?;
+    let flags_hex = fields.next()?;
+    let interface = fields.next()?.to_string();
+
+    if addr_hex.len() != 32 {
+        return None;
+    }
+
+    let mut octets = [0_u8; 16];
+    for (index, octet) in octets.iter_mut().enumerate() {
+        let start = index * 2;
+        *octet = u8::from_str_radix(&addr_hex[start..start + 2], 16).ok()?;
+    }
+
+    Some(IfInet6Address {
+        ip: Ipv6Addr::from(octets),
+        prefix_len: u8::from_str_radix(prefix_hex, 16).ok()?,
+        scope: u8::from_str_radix(scope_hex, 16).ok()?,
+        flags: u32::from_str_radix(flags_hex, 16).ok()?,
+        interface,
+    })
+}
+
 // --- Custom URL ---
 
 async fn detect_custom_url(
@@ -692,6 +802,16 @@ mod tests {
                 assert_eq!(interface, "eth0");
             }
             _ => panic!("Expected LocalIface provider"),
+        }
+    }
+
+    #[test]
+    fn test_provider_parse_stable_local_iface() {
+        match ProviderType::parse("local.iface.stable:eth0").unwrap() {
+            ProviderType::StableLocalIface { interface } => {
+                assert_eq!(interface, "eth0");
+            }
+            _ => panic!("Expected StableLocalIface provider"),
         }
     }
 
@@ -1286,6 +1406,49 @@ mod tests {
         assert!(is_global_v6(&Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 1)));
     }
 
+    #[test]
+    fn test_parse_if_inet6_line() {
+        let addr = parse_if_inet6_line(
+            "26010188c60022d022ff355edc107ebb 03 40 00 00   ens224",
+        )
+        .unwrap();
+
+        assert_eq!(
+            addr.ip,
+            "2601:188:c600:22d0:22ff:355e:dc10:7ebb"
+                .parse::<Ipv6Addr>()
+                .unwrap()
+        );
+        assert_eq!(addr.prefix_len, 64);
+        assert_eq!(addr.scope, IPV6_SCOPE_GLOBAL);
+        assert_eq!(addr.flags, 0);
+        assert_eq!(addr.interface, "ens224");
+    }
+
+    #[test]
+    fn test_stable_ipv6_addresses_from_if_inet6_filters_privacy_addresses() {
+        let contents = "\
+26010188c60022d0ef0a65cc2887be42 03 40 00 01   ens224
+26010188c60022d00000000000003486 03 80 00 00   ens224
+26010188c60022d022ff355edc107ebb 03 40 00 00   ens224
+26010188c60022d0c1aad58a5d6a122d 03 40 00 21   ens224
+fe80000000000000d399115858c872af 03 40 20 80   ens224
+fdaa149d3b9900000000000000000001 0a 40 00 82 br-990e55930a86
+";
+
+        let ips = stable_ipv6_addresses_from_if_inet6(contents, "ens224");
+
+        assert_eq!(
+            ips,
+            vec![
+                "2601:188:c600:22d0:22ff:355e:dc10:7ebb"
+                    .parse::<Ipv6Addr>()
+                    .unwrap(),
+                "2601:188:c600:22d0::3486".parse::<Ipv6Addr>().unwrap(),
+            ]
+        );
+    }
+
     // ---- ProviderType::name ----
 
     #[test]
@@ -1301,6 +1464,10 @@ mod tests {
         assert_eq!(
             ProviderType::LocalIface { interface: "eth0".into() }.name(),
             "local.iface"
+        );
+        assert_eq!(
+            ProviderType::StableLocalIface { interface: "eth0".into() }.name(),
+            "local.iface.stable"
         );
         assert_eq!(
             ProviderType::CustomURL { url: "https://x".into() }.name(),
