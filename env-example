@@ -19,10 +19,12 @@ DOMAINS=example.com,www.example.com
 
 # Provider for IPv4 detection (default: cloudflare.trace)
 # Options: cloudflare.trace, cloudflare.doh, ipify, local, local.iface:<name>,
-#          url:<custom-url>, literal:<ip1>,<ip2>, none
+#          local.iface.stable:<name>, url:<custom-url>, literal:<ip1>,<ip2>, none
 # IP4_PROVIDER=cloudflare.trace
 
 # Provider for IPv6 detection (default: cloudflare.trace)
+# Use local.iface.stable:<name> on Linux to publish a stable address instead
+# of temporary privacy addresses from the selected interface.
 # IP6_PROVIDER=cloudflare.trace
 
 # === Scheduling ===

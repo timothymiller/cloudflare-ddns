@@ -84,6 +84,7 @@ Available providers:
 | `ipify` | 🌎 ipify.org API |
 | `local` | 🏠 Local IP via system routing table (no network traffic, CGNAT-aware) |
 | `local.iface:<name>` | 🔌 IP from a specific network interface (e.g., `local.iface:eth0`) |
+| `local.iface.stable:<name>` | 🔌 Preferred stable IPv6 address from a Linux network interface, excluding temporary/deprecated addresses |
 | `url:<url>` | 🔗 Custom HTTP(S) endpoint that returns an IP address |
 | `literal:<ips>` | 📌 Static IP addresses (comma-separated) |
 | `none` | 🚫 Disable this IP type |
@@ -411,7 +412,7 @@ volumes:
 
 Legacy mode now uses the same shared provider abstraction as environment variable mode. By default it uses the `cloudflare.trace` provider, which builds an IP-family-bound HTTP client (`0.0.0.0` for IPv4, `[::]` for IPv6) to guarantee the correct address family on dual-stack hosts.
 
-You can override the detection method per address family with `ip4_provider` and `ip6_provider` in your `config.json`. Supported values are the same as the `IP4_PROVIDER` / `IP6_PROVIDER` environment variables: `cloudflare.trace`, `cloudflare.doh`, `ipify`, `local`, `local.iface:<name>`, `url:<https://...>`, `none`.
+You can override the detection method per address family with `ip4_provider` and `ip6_provider` in your `config.json`. Supported values are the same as the `IP4_PROVIDER` / `IP6_PROVIDER` environment variables: `cloudflare.trace`, `cloudflare.doh`, `ipify`, `local`, `local.iface:<name>`, `local.iface.stable:<name>`, `url:<https://...>`, `none`.
 
 Set a provider to `"none"` to disable detection for that address family (overrides `a`/`aaaa`):
 
