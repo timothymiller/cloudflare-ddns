@@ -538,7 +538,7 @@ pub fn load_env_config(ppfmt: &PP) -> Result<AppConfig, String> {
     let reject_cloudflare_ips = getenv_bool("REJECT_CLOUDFLARE_IPS", true);
 
     // Validate: must have at least one update target
-    if domains.is_empty() && waf_lists.is_empty() {
+    if domains.is_empty() && docker_host.is_none() && waf_lists.is_empty() {
         return Err(
             "No update targets configured. Set DOMAINS, IP4_DOMAINS, IP6_DOMAINS, or WAF_LISTS."
                 .to_string(),
