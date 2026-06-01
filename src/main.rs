@@ -12,12 +12,15 @@ use crate::cloudflare::{Auth, CloudflareHandle};
 use crate::config::{AppConfig, CronSchedule};
 use crate::notifier::{CompositeNotifier, Heartbeat, Message};
 use crate::pp::PP;
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use crate::provider::IpType;
 use rand::RngExt;
 use reqwest::Client;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::signal;
+use tokio::sync::watch;
+use tokio::sync::watch::Receiver;
 use tokio::time::{sleep, Duration};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -121,6 +124,9 @@ async fn main() {
         r.store(false, Ordering::SeqCst);
     });
 
+    let static_domains = app_config.domains.clone();
+    let (domains_tx, domains_rx) = watch::channel(static_domains.clone());
+
     if let Some(docker_sock) = app_config.docker_host.clone() {
         match docker::spawn_docker_domain_scanner(
             static_domains,
@@ -154,7 +160,8 @@ async fn main() {
 
     if app_config.legacy_mode {
         // --- Legacy mode (original cloudflare-ddns behavior) ---
-        run_legacy_mode(&app_config, &handle, &notifier, &heartbeat, &ppfmt, running, &mut cf_cache, &detection_client).await;
+        run_legacy_mode(
+            &app_config,
             &mut domains_rx.clone(),
             &handle,
             &notifier,
@@ -167,6 +174,8 @@ async fn main() {
         .await;
     } else {
         // --- Env var mode (cf-ddns behavior) ---
+        run_env_mode(
+            &app_config,
             &mut domains_rx.clone(),
             &handle,
             &notifier,
@@ -193,6 +202,7 @@ async fn main() {
 
 async fn run_legacy_mode(
     config: &AppConfig,
+    domains_chan: &mut Receiver<HashMap<IpType, Vec<String>>>,
     handle: &CloudflareHandle,
     notifier: &CompositeNotifier,
     heartbeat: &Heartbeat,
@@ -224,7 +234,8 @@ async fn run_legacy_mode(
         }
 
         while running.load(Ordering::SeqCst) {
-            updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
+            let domains = domains_chan.borrow_and_update().clone();
+            updater::update_once(
                 config,
                 domains,
                 handle,
@@ -241,6 +252,9 @@ async fn run_legacy_mode(
                 if !running.load(Ordering::SeqCst) {
                     break;
                 }
+
+                match domains_chan.has_changed() {
+                    Ok(true) => break, // Changed
                     Ok(false) => {}    // No change yet
                     Err(_) => return,  // channel closed
                 }
@@ -249,7 +263,8 @@ async fn run_legacy_mode(
             }
         }
     } else {
-        updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
+        let domains = domains_chan.borrow_and_update().clone();
+        updater::update_once(
             config,
             domains,
             handle,
@@ -266,6 +281,7 @@ async fn run_legacy_mode(
 
 async fn run_env_mode(
     config: &AppConfig,
+    domains_chan: &mut Receiver<HashMap<IpType, Vec<String>>>,
     handle: &CloudflareHandle,
     notifier: &CompositeNotifier,
     heartbeat: &Heartbeat,
@@ -279,7 +295,8 @@ async fn run_env_mode(
     match &config.update_cron {
         CronSchedule::Once => {
             if config.update_on_start {
-                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
+                let domains = domains_chan.borrow_and_update().clone();
+                updater::update_once(
                     config,
                     domains,
                     handle,
@@ -306,7 +323,8 @@ async fn run_env_mode(
 
             // Update on start if configured
             if config.update_on_start {
-                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
+                let domains = domains_chan.borrow_and_update().clone();
+                updater::update_once(
                     config,
                     domains,
                     handle,
@@ -335,6 +353,9 @@ async fn run_env_mode(
                     if !running.load(Ordering::SeqCst) {
                         return;
                     }
+
+                    match domains_chan.has_changed() {
+                        Ok(true) => break, // Changed
                         Ok(false) => {}    // No change yet
                         Err(_) => return,  // channel closed
                     }
@@ -354,7 +375,8 @@ async fn run_env_mode(
                     sleep(std::time::Duration::from_secs(jitter_secs)).await;
                 }
 
-                updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
+                let domains = domains_chan.borrow_and_update().clone();
+                updater::update_once(
                     config,
                     domains,
                     handle,
