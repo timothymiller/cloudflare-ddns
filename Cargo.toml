@@ -15,6 +15,7 @@ regex-lite = "0.1"
 url = "2"
 if-addrs = "0.15"
 rand = "0.10"
+bollard = "0.21.0"
 
 [profile.release]
 opt-level = "z"

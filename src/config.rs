@@ -80,6 +80,7 @@ pub struct AppConfig {
     pub auth: Auth,
     pub providers: HashMap<IpType, ProviderType>,
     pub domains: HashMap<IpType, Vec<String>>, // FQDN domains by IP type
+    pub docker_host: Option<String>,
     pub waf_lists: Vec<WAFList>,
     pub update_cron: CronSchedule,
     pub update_on_start: bool,
@@ -446,6 +447,7 @@ fn legacy_to_app_config(legacy: LegacyConfig, dry_run: bool, repeat: bool) -> Re
         auth,
         providers,
         domains: HashMap::new(),
+        docker_host: None,
         waf_lists: Vec::new(),
         update_cron: schedule,
         update_on_start: true,
@@ -501,6 +503,7 @@ pub fn load_env_config(ppfmt: &PP) -> Result<AppConfig, String> {
 
     let providers = read_providers_from_env(ppfmt)?;
     let domains = read_domains_from_env(ppfmt);
+    let docker_host = getenv("DOCKER_HOST");
     let waf_lists = read_waf_lists_from_env(ppfmt);
     let update_cron = read_cron_from_env(ppfmt)?;
     let update_on_start = getenv_bool("UPDATE_ON_START", true);
@@ -570,6 +573,7 @@ pub fn load_env_config(ppfmt: &PP) -> Result<AppConfig, String> {
         auth,
         providers,
         domains,
+        docker_host,
         waf_lists,
         update_cron,
         update_on_start,
@@ -1317,6 +1321,7 @@ mod tests {
             auth: Auth::Token(String::new()),
             providers: HashMap::new(),
             domains: HashMap::new(),
+            docker_host: None,
             waf_lists: Vec::new(),
             update_cron: CronSchedule::Once,
             update_on_start: true,
@@ -1352,6 +1357,7 @@ mod tests {
             auth: Auth::Token("tok".to_string()),
             providers: HashMap::new(),
             domains,
+            docker_host: None,
             waf_lists: Vec::new(),
             update_cron: CronSchedule::Every(Duration::from_secs(300)),
             update_on_start: true,
@@ -2005,6 +2011,7 @@ mod tests {
             auth: Auth::Token("tok".to_string()),
             providers: HashMap::new(),
             domains: HashMap::new(),
+            docker_host: None,
             waf_lists: vec![waf_list],
             update_cron: CronSchedule::Every(Duration::from_secs(300)),
             update_on_start: true,
@@ -2042,6 +2049,7 @@ mod tests {
             auth: Auth::Token("tok".to_string()),
             providers,
             domains,
+            docker_host: None,
             waf_lists: Vec::new(),
             update_cron: CronSchedule::Every(Duration::from_secs(600)),
             update_on_start: true,
@@ -2076,6 +2084,7 @@ mod tests {
             auth: Auth::Token("tok".to_string()),
             providers: HashMap::new(),
             domains,
+            docker_host: None,
             waf_lists: Vec::new(),
             update_cron: CronSchedule::Once,
             update_on_start: true,

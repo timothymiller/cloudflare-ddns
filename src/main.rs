@@ -1,6 +1,7 @@
 mod cf_ip_filter;
 mod cloudflare;
 mod config;
+mod docker;
 mod domain;
 mod notifier;
 mod pp;
@@ -120,6 +121,28 @@ async fn main() {
         r.store(false, Ordering::SeqCst);
     });
 
+    if let Some(docker_sock) = app_config.docker_host.clone() {
+        match docker::spawn_docker_domain_scanner(
+            static_domains,
+            docker_sock,
+            &mut domains_tx.clone(),
+            running.clone(),
+            &ppfmt,
+        )
+        .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                ppfmt.errorf(
+                    pp::EMOJI_ERROR,
+                    &format!("DOCKER unable to scan: {}", e.to_string()),
+                );
+
+                return;
+            }
+        }
+    }
+
     // Start heartbeat
     heartbeat.start().await;
 
@@ -132,9 +155,28 @@ async fn main() {
     if app_config.legacy_mode {
         // --- Legacy mode (original cloudflare-ddns behavior) ---
         run_legacy_mode(&app_config, &handle, &notifier, &heartbeat, &ppfmt, running, &mut cf_cache, &detection_client).await;
+            &mut domains_rx.clone(),
+            &handle,
+            &notifier,
+            &heartbeat,
+            &ppfmt,
+            running,
+            &mut cf_cache,
+            &detection_client,
+        )
+        .await;
     } else {
         // --- Env var mode (cf-ddns behavior) ---
-        run_env_mode(&app_config, &handle, &notifier, &heartbeat, &ppfmt, running, &mut cf_cache, &detection_client).await;
+            &mut domains_rx.clone(),
+            &handle,
+            &notifier,
+            &heartbeat,
+            &ppfmt,
+            running,
+            &mut cf_cache,
+            &detection_client,
+        )
+        .await;
     }
 
     // On shutdown: delete records if configured
@@ -183,16 +225,42 @@ async fn run_legacy_mode(
 
         while running.load(Ordering::SeqCst) {
             updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
+                config,
+                domains,
+                handle,
+                notifier,
+                heartbeat,
+                cf_cache,
+                ppfmt,
+                &mut noop_reported,
+                detection_client,
+            )
+            .await;
 
             for _ in 0..legacy.ttl {
                 if !running.load(Ordering::SeqCst) {
                     break;
                 }
+                    Ok(false) => {}    // No change yet
+                    Err(_) => return,  // channel closed
+                }
+
                 sleep(Duration::from_secs(1)).await;
             }
         }
     } else {
         updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
+            config,
+            domains,
+            handle,
+            notifier,
+            heartbeat,
+            cf_cache,
+            ppfmt,
+            &mut noop_reported,
+            detection_client,
+        )
+        .await;
     }
 }
 
@@ -212,6 +280,17 @@ async fn run_env_mode(
         CronSchedule::Once => {
             if config.update_on_start {
                 updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
+                    config,
+                    domains,
+                    handle,
+                    notifier,
+                    heartbeat,
+                    cf_cache,
+                    ppfmt,
+                    &mut noop_reported,
+                    detection_client,
+                )
+                .await;
             }
         }
         schedule => {
@@ -228,6 +307,17 @@ async fn run_env_mode(
             // Update on start if configured
             if config.update_on_start {
                 updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
+                    config,
+                    domains,
+                    handle,
+                    notifier,
+                    heartbeat,
+                    cf_cache,
+                    ppfmt,
+                    &mut noop_reported,
+                    detection_client,
+                )
+                .await;
             }
 
             // Main loop
@@ -245,6 +335,10 @@ async fn run_env_mode(
                     if !running.load(Ordering::SeqCst) {
                         return;
                     }
+                        Ok(false) => {}    // No change yet
+                        Err(_) => return,  // channel closed
+                    }
+
                     sleep(Duration::from_secs(1)).await;
                 }
 
@@ -261,6 +355,17 @@ async fn run_env_mode(
                 }
 
                 updater::update_once(config, handle, notifier, heartbeat, cf_cache, ppfmt, &mut noop_reported, detection_client).await;
+                    config,
+                    domains,
+                    handle,
+                    notifier,
+                    heartbeat,
+                    cf_cache,
+                    ppfmt,
+                    &mut noop_reported,
+                    detection_client,
+                )
+                .await;
             }
         }
     }

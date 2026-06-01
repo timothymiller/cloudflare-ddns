@@ -13,6 +13,7 @@ use std::time::Duration;
 /// Run a single update cycle.
 pub async fn update_once(
     config: &AppConfig,
+    domains: HashMap<IpType, Vec<String>>,
     handle: &CloudflareHandle,
     notifier: &CompositeNotifier,
     heartbeat: &Heartbeat,
@@ -113,7 +114,7 @@ pub async fn update_once(
         }
 
         // Update DNS records (env var mode - domain-based)
-        for (ip_type, domains) in &config.domains {
+        for (ip_type, domains) in domains.iter() {
             let ips = detected_ips.get(ip_type).cloned().unwrap_or_default();
 
             if ips.is_empty() && !config.delete_on_failure {
@@ -722,6 +723,7 @@ mod tests {
             auth: Auth::Token("test-token".to_string()),
             providers,
             domains,
+            docker_host: None,
             waf_lists,
             update_cron: CronSchedule::Once,
             update_on_start: true,
@@ -863,7 +865,18 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
         assert!(ok);
     }
 
@@ -916,12 +929,34 @@ mod tests {
         let mut noop_reported = HashSet::new();
 
         // First call: noop_reported is empty, so "up to date" is reported and key is inserted
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut noop_reported,
+            &crate::test_client(),
+        )
+        .await;
         assert!(ok);
         assert!(noop_reported.contains("home.example.com:A"), "noop_reported should contain the domain key after first noop");
 
         // Second call: noop_reported already has the key, so the message is suppressed
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut noop_reported,
+            &crate::test_client(),
+        )
+        .await;
         assert!(ok);
         assert_eq!(noop_reported.len(), 1, "noop_reported should still have exactly one entry");
     }
@@ -994,7 +1029,18 @@ mod tests {
         noop_reported.insert("home.example.com:A".to_string());
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut noop_reported, &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut noop_reported,
+            &crate::test_client(),
+        )
+        .await;
         assert!(ok);
         assert!(!noop_reported.contains("home.example.com:A"), "noop_reported should be cleared after an update");
     }
@@ -1040,7 +1086,18 @@ mod tests {
 
         // all_ok = true because no zone-level errors occurred (empty ips just noop or warn)
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
         // Providers with None are not inserted in loop, so no IP detection warning is emitted,
         // no detected_ips entry is created, and set_ips is called with empty slice -> Noop.
         assert!(ok);
@@ -1090,7 +1147,18 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
         assert!(!ok, "Expected false when zone is not found");
     }
 
@@ -1140,7 +1208,18 @@ mod tests {
 
         // dry_run returns Updated from set_ips (it signals intent), all_ok should be true
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
         assert!(ok);
     }
 
@@ -1206,7 +1285,18 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
         assert!(ok);
     }
 
@@ -1260,7 +1350,18 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
         assert!(ok);
     }
 
@@ -1300,7 +1401,18 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
         assert!(!ok, "Expected false when WAF list is not found");
     }
 
@@ -1385,7 +1497,18 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
         assert!(ok);
     }
 
@@ -1402,7 +1525,18 @@ mod tests {
         let ppfmt = pp();
 
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
         assert!(ok);
     }
 
@@ -1787,7 +1921,18 @@ mod tests {
 
         // set_ips with empty ips and no existing records = Noop; all_ok = true
         let mut cf_cache = CachedCloudflareFilter::new();
-        let ok = update_once(&config, &cf, &notifier, &heartbeat, &mut cf_cache, &ppfmt, &mut HashSet::new(), &crate::test_client()).await;
+        let ok = update_once(
+            &config,
+            config.domains.clone(),
+            &cf,
+            &notifier,
+            &heartbeat,
+            &mut cf_cache,
+            &ppfmt,
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
         assert!(ok);
     }
     // -------------------------------------------------------
@@ -2386,6 +2531,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
+            config.domains.clone(),
             &cf,
             &notifier,
             &heartbeat,
@@ -2459,6 +2605,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
+            config.domains.clone(),
             &cf,
             &notifier,
             &heartbeat,
@@ -2498,6 +2645,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
+            config.domains.clone(),
             &cf,
             &notifier,
             &heartbeat,
@@ -2576,6 +2724,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
+            config.domains.clone(),
             &cf,
             &notifier,
             &heartbeat,
