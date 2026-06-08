@@ -540,7 +540,7 @@ pub fn load_env_config(ppfmt: &PP) -> Result<AppConfig, String> {
     // Validate: must have at least one update target
     if domains.is_empty() && docker_host.is_none() && waf_lists.is_empty() {
         return Err(
-            "No update targets configured. Set DOMAINS, IP4_DOMAINS, IP6_DOMAINS, or WAF_LISTS."
+            "No update targets configured. Set DOMAINS, IP4_DOMAINS, IP6_DOMAINS, WAF_LISTS, or DOCKER_HOST."
                 .to_string(),
         );
     }

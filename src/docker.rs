@@ -52,7 +52,7 @@ pub async fn spawn_docker_domain_scanner(
                         &format!("DOCKER unable to scan: {}", e.to_string()),
                     );
 
-                    HashSet::default()
+                    docker_domains
                 }
             };
 
