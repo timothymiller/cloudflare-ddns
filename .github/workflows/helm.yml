@@ -51,4 +51,4 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           helm push /tmp/helm-charts/cloudflare-ddns-${{ steps.chart_version.outputs.version }}.tgz \
-            oci://ghcr.io/timothymiller
+            oci://ghcr.io/${{ github.repository_owner }}
