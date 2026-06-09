@@ -1,4 +1,4 @@
-name: Helm Chart
+name: Publish cloudflare-ddns Helm chart
 
 on:
   push:
