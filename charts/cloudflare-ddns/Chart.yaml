@@ -1,0 +1,16 @@
+apiVersion: v2
+name: cloudflare-ddns
+description: Dynamic DNS client for Cloudflare — keeps A/AAAA records in sync with your public IP
+type: application
+version: 0.1.0
+appVersion: "2.1.2"
+home: https://github.com/timothymiller/cloudflare-ddns
+sources:
+  - https://github.com/timothymiller/cloudflare-ddns
+keywords:
+  - ddns
+  - cloudflare
+  - dns
+maintainers:
+  - name: timothymiller
+    url: https://github.com/timothymiller

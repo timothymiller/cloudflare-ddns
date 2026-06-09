@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudflare-ddns.fullname" . }}
+  labels:
+    {{- include "cloudflare-ddns.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cloudflare-ddns.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "cloudflare-ddns.selectorLabels" . | nindent 8 }}
+    spec:
+      hostNetwork: {{ .Values.hostNetwork }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: CLOUDFLARE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "cloudflare-ddns.fullname" .) .Values.cloudflare.existingSecret }}
+                  key: {{ .Values.cloudflare.existingSecretKey }}
+            {{- if .Values.domains }}
+            - name: DOMAINS
+              value: {{ .Values.domains | quote }}
+            {{- end }}
+            {{- if .Values.ip4Domains }}
+            - name: IP4_DOMAINS
+              value: {{ .Values.ip4Domains | quote }}
+            {{- end }}
+            {{- if .Values.ip6Domains }}
+            - name: IP6_DOMAINS
+              value: {{ .Values.ip6Domains | quote }}
+            {{- end }}
+            - name: IP4_PROVIDER
+              value: {{ .Values.ip4Provider | quote }}
+            - name: IP6_PROVIDER
+              value: {{ .Values.ip6Provider | quote }}
+            - name: UPDATE_CRON
+              value: {{ .Values.updateCron | quote }}
+            - name: UPDATE_ON_START
+              value: {{ .Values.updateOnStart | quote }}
+            - name: DELETE_ON_STOP
+              value: {{ .Values.deleteOnStop | quote }}
+            - name: TTL
+              value: {{ .Values.ttl | quote }}
+            - name: PROXIED
+              value: {{ .Values.proxied | quote }}
+            {{- if .Values.recordComment }}
+            - name: RECORD_COMMENT
+              value: {{ .Values.recordComment | quote }}
+            {{- end }}
+            {{- if .Values.managedRecordsCommentRegex }}
+            - name: MANAGED_RECORDS_COMMENT_REGEX
+              value: {{ .Values.managedRecordsCommentRegex | quote }}
+            {{- end }}
+            {{- if .Values.wafLists }}
+            - name: WAF_LISTS
+              value: {{ .Values.wafLists | quote }}
+            {{- end }}
+            {{- if .Values.shoutrrr }}
+            - name: SHOUTRRR
+              value: {{ .Values.shoutrrr | quote }}
+            {{- end }}
+            {{- if .Values.healthchecks }}
+            - name: HEALTHCHECKS
+              value: {{ .Values.healthchecks | quote }}
+            {{- end }}
+            {{- if .Values.uptimeKuma }}
+            - name: UPTIMEKUMA
+              value: {{ .Values.uptimeKuma | quote }}
+            {{- end }}
+            - name: DETECTION_TIMEOUT
+              value: {{ .Values.detectionTimeout | quote }}
+            - name: UPDATE_TIMEOUT
+              value: {{ .Values.updateTimeout | quote }}
+            - name: EMOJI
+              value: {{ .Values.emoji | quote }}
+            - name: QUIET
+              value: {{ .Values.quiet | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

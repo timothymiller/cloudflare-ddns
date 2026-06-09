@@ -261,7 +261,77 @@ services:
 
 ### ☸️ Kubernetes
 
-The included manifest uses the legacy JSON config mode. Create a secret containing your `config.json` and apply:
+#### Helm (recommended)
+
+The chart is published to GitHub Container Registry as an OCI artifact.
+
+**1. Quick install (single domain):**
+
+```bash
+helm install cloudflare-ddns oci://ghcr.io/timothymiller/cloudflare-ddns \
+  --namespace ddns --create-namespace \
+  --set cloudflare.apiToken=your-api-token \
+  --set domains=example.com
+```
+
+> For multiple domains, use a `values.yaml` file — Helm's `--set` treats commas as value-list separators.
+
+**2. Or use a `values.yaml` for a full configuration:**
+
+```yaml
+cloudflare:
+  apiToken: your-api-token   # or use existingSecret
+
+domains: example.com,www.example.com
+ip4Provider: cloudflare.trace
+ip6Provider: cloudflare.trace   # set to none if IPv6 is not needed
+
+proxied: "true"
+updateCron: "@every 5m"
+
+healthchecks: https://hc-ping.com/your-uuid   # optional
+```
+
+```bash
+helm install cloudflare-ddns oci://ghcr.io/timothymiller/cloudflare-ddns \
+  --namespace ddns --create-namespace \
+  -f values.yaml
+```
+
+**Upgrade:**
+
+```bash
+helm upgrade cloudflare-ddns oci://ghcr.io/timothymiller/cloudflare-ddns \
+  --namespace ddns -f values.yaml
+```
+
+**Uninstall:**
+
+```bash
+helm uninstall cloudflare-ddns --namespace ddns
+```
+
+> ⚠️ `hostNetwork: true` is set by default so the pod can detect IPv6 addresses. Disable it with `--set hostNetwork=false` if you only need IPv4.
+
+**Key values:**
+
+| Value | Default | Description |
+|---|---|---|
+| `cloudflare.apiToken` | `""` | API token (required unless `existingSecret` is set) |
+| `cloudflare.existingSecret` | `""` | Use a pre-existing Secret instead |
+| `domains` | `""` | Comma-separated domains for A+AAAA records |
+| `ip4Domains` / `ip6Domains` | `""` | IPv4-only or IPv6-only domains |
+| `ip4Provider` / `ip6Provider` | `cloudflare.trace` | IP detection provider |
+| `proxied` | `"false"` | Proxy through Cloudflare (boolean expression) |
+| `updateCron` | `@every 5m` | Update schedule |
+| `hostNetwork` | `true` | Required for local IPv6 detection |
+| `extraEnv` | `[]` | Additional env vars for advanced settings |
+
+See [`charts/cloudflare-ddns/values.yaml`](charts/cloudflare-ddns/values.yaml) for all options.
+
+#### Raw manifest (legacy)
+
+The `k8s/cloudflare-ddns.yml` manifest uses the legacy JSON config mode. Create a secret containing your `config.json` and apply:
 
 ```bash
 kubectl create secret generic config-cloudflare-ddns --from-file=config.json -n ddns
@@ -316,7 +386,7 @@ The binary is at `target/release/cloudflare-ddns`.
 
 - 🐳 [Docker](https://docs.docker.com/get-docker/) (amd64, arm64, ppc64le)
 - 🐙 [Docker Compose](https://docs.docker.com/compose/install/)
-- ☸️ [Kubernetes](https://kubernetes.io/docs/tasks/tools/)
+- ☸️ [Kubernetes](https://kubernetes.io/docs/tasks/tools/) + [Helm](https://helm.sh) (OCI chart at `ghcr.io/timothymiller/cloudflare-ddns`)
 - 🐧 [Systemd](https://www.freedesktop.org/wiki/Software/systemd/)
 - 🍎 macOS, 🪟 Windows, 🐧 Linux — anywhere Rust compiles
 

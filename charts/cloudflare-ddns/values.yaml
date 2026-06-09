@@ -1,0 +1,80 @@
+image:
+  repository: timothyjmiller/cloudflare-ddns
+  pullPolicy: IfNotPresent
+  # Overrides the image tag — defaults to chart appVersion
+  tag: ""
+
+# Must stay at 1. Multiple replicas cause duplicate DNS updates.
+replicaCount: 1
+
+# Required for IPv6 detection via local interface.
+# Safe to disable if you only need IPv4 (IP6_PROVIDER=none).
+hostNetwork: true
+
+# --- Authentication ---
+# Supply apiToken directly (creates a Secret) OR reference an existing one.
+cloudflare:
+  apiToken: ""
+  existingSecret: ""
+  existingSecretKey: "CLOUDFLARE_API_TOKEN"
+
+# --- Domains ---
+# Comma-separated. At least one of domains / ip4Domains / ip6Domains must be set.
+domains: ""
+ip4Domains: ""
+ip6Domains: ""
+
+# --- IP Detection ---
+# Options: cloudflare.trace, cloudflare.doh, ipify, local,
+#          local.iface:<name>, local.iface.stable:<name>,
+#          url:<url>, literal:<ip1,ip2>, none
+ip4Provider: "cloudflare.trace"
+ip6Provider: "cloudflare.trace"
+
+# --- Scheduling ---
+updateCron: "@every 5m"
+updateOnStart: true
+deleteOnStop: false
+
+# --- DNS Record Settings ---
+ttl: 1
+# Boolean expression: true, false, is(domain), sub(domain), and combos
+proxied: "false"
+recordComment: ""
+managedRecordsCommentRegex: ""
+
+# --- WAF Lists ---
+# Comma-separated, format: account-id/list-name
+wafLists: ""
+
+# --- Notifications (Shoutrrr) ---
+# Newline-separated URLs: discord://, slack://, telegram://, generic+https://...
+shoutrrr: ""
+
+# --- Heartbeat Monitoring ---
+healthchecks: ""
+uptimeKuma: ""
+
+# --- Timeouts ---
+detectionTimeout: "5s"
+updateTimeout: "30s"
+
+# --- Output ---
+emoji: true
+quiet: false
+
+# --- Resources ---
+resources:
+  limits:
+    memory: 32Mi
+    cpu: 50m
+
+# Additional env vars for any setting not exposed above
+extraEnv: []
+# - name: REJECT_CLOUDFLARE_IPS
+#   value: "false"
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
