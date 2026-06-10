@@ -48,16 +48,37 @@ impl Message {
 
 // --- Composite Notifier ---
 
+#[derive(Clone)]
 pub struct CompositeNotifier {
     notifiers: Vec<Box<dyn NotifierDyn>>,
 }
 
 // Object-safe version of Notifier
-pub trait NotifierDyn: Send + Sync {
+pub trait NotifierDyn: CloneBox + Send + Sync {
     fn send_dyn<'a>(
         &'a self,
         msg: &'a Message,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>;
+}
+
+// Helper trait to perform the actual cloning into a Box
+pub trait CloneBox {
+    fn clone_box(&self) -> Box<dyn NotifierDyn>;
+}
+
+impl<T> CloneBox for T
+where
+    T: NotifierDyn + Clone + 'static,
+{
+    fn clone_box(&self) -> Box<dyn NotifierDyn> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn NotifierDyn> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
 }
 
 impl CompositeNotifier {
@@ -76,18 +97,20 @@ impl CompositeNotifier {
 }
 
 // --- Shoutrrr Notifier ---
-
+#[derive(Clone)]
 pub struct ShoutrrrNotifier {
     client: Client,
     urls: Vec<ShoutrrrService>,
 }
 
+#[derive(Clone)]
 struct ShoutrrrService {
     original_url: String,
     service_type: ShoutrrrServiceType,
     webhook_url: String,
 }
 
+#[derive(Clone)]
 enum ShoutrrrServiceType {
     Generic,
     Discord,
@@ -147,8 +170,12 @@ impl ShoutrrrNotifier {
         let mut all_ok = true;
         for service in &self.urls {
             let ok = match &service.service_type {
-                ShoutrrrServiceType::Generic => self.send_generic(&service.webhook_url, &text).await,
-                ShoutrrrServiceType::Discord => self.send_discord(&service.webhook_url, &text).await,
+                ShoutrrrServiceType::Generic => {
+                    self.send_generic(&service.webhook_url, &text).await
+                }
+                ShoutrrrServiceType::Discord => {
+                    self.send_discord(&service.webhook_url, &text).await
+                }
                 ShoutrrrServiceType::Slack => self.send_slack(&service.webhook_url, &text).await,
                 ShoutrrrServiceType::Telegram => {
                     self.send_telegram(&service.webhook_url, &text).await
@@ -157,7 +184,9 @@ impl ShoutrrrNotifier {
                 ShoutrrrServiceType::Pushover => {
                     self.send_pushover(&service.webhook_url, &text).await
                 }
-                ShoutrrrServiceType::Other(_) => self.send_generic(&service.webhook_url, &text).await,
+                ShoutrrrServiceType::Other(_) => {
+                    self.send_generic(&service.webhook_url, &text).await
+                }
             };
             if !ok {
                 ppfmt.warningf(
@@ -498,7 +527,6 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
 }
 
 // --- Heartbeat ---
-
 pub struct Heartbeat {
     monitors: Vec<Box<dyn HeartbeatMonitor>>,
 }
@@ -508,9 +536,7 @@ pub trait HeartbeatMonitor: Send + Sync {
         &'a self,
         msg: &'a Message,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>;
-    fn start(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>>;
+    fn start(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>>;
     fn exit<'a>(
         &'a self,
         msg: &'a Message,
@@ -594,9 +620,7 @@ impl HeartbeatMonitor for HealthchecksMonitor {
         })
     }
 
-    fn start(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+    fn start(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
         Box::pin(async move { self.send_ping("start", None).await })
     }
 
@@ -656,9 +680,7 @@ impl HeartbeatMonitor for UptimeKumaMonitor {
         })
     }
 
-    fn start(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+    fn start(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
         Box::pin(async move {
             let url = format!("{}?status=up&msg=Starting", self.base_url);
             self.client
@@ -812,16 +834,12 @@ mod tests {
 
     #[test]
     fn test_parse_telegram() {
-        let result =
-            parse_shoutrrr_url("telegram://bottoken123@telegram?chats=12345").unwrap();
+        let result = parse_shoutrrr_url("telegram://bottoken123@telegram?chats=12345").unwrap();
         assert_eq!(
             result.webhook_url,
             "https://api.telegram.org/botbottoken123/sendMessage?chat_id=12345"
         );
-        assert!(matches!(
-            result.service_type,
-            ShoutrrrServiceType::Telegram
-        ));
+        assert!(matches!(result.service_type, ShoutrrrServiceType::Telegram));
     }
 
     #[test]
@@ -844,9 +862,10 @@ mod tests {
     #[test]
     fn test_parse_gotify_token_query_param() {
         // Older "gotify://host?token=..." form (issue #262).
-        let result =
-            parse_shoutrrr_url("gotify://192.168.178.222:9090?token=AtE2tUGQig67b0J&disabletls=yes")
-                .unwrap();
+        let result = parse_shoutrrr_url(
+            "gotify://192.168.178.222:9090?token=AtE2tUGQig67b0J&disabletls=yes",
+        )
+        .unwrap();
         assert_eq!(
             result.webhook_url,
             "http://192.168.178.222:9090/message?token=AtE2tUGQig67b0J"
@@ -855,8 +874,7 @@ mod tests {
 
     #[test]
     fn test_parse_gotify_disabletls_switches_to_http() {
-        let result =
-            parse_shoutrrr_url("gotify://10.0.0.1:8080/TOKEN123?disabletls=yes").unwrap();
+        let result = parse_shoutrrr_url("gotify://10.0.0.1:8080/TOKEN123?disabletls=yes").unwrap();
         assert_eq!(
             result.webhook_url,
             "http://10.0.0.1:8080/message?token=TOKEN123"
@@ -887,16 +905,14 @@ mod tests {
 
     #[test]
     fn test_parse_generic_plus_https() {
-        let result =
-            parse_shoutrrr_url("generic+https://example.com/webhook").unwrap();
+        let result = parse_shoutrrr_url("generic+https://example.com/webhook").unwrap();
         assert_eq!(result.webhook_url, "https://example.com/webhook");
         assert!(matches!(result.service_type, ShoutrrrServiceType::Generic));
     }
 
     #[test]
     fn test_parse_generic_plus_http() {
-        let result =
-            parse_shoutrrr_url("generic+http://example.com/webhook").unwrap();
+        let result = parse_shoutrrr_url("generic+http://example.com/webhook").unwrap();
         assert_eq!(result.webhook_url, "http://example.com/webhook");
         assert!(matches!(result.service_type, ShoutrrrServiceType::Generic));
     }
@@ -908,18 +924,14 @@ mod tests {
             result.webhook_url,
             "https://api.pushover.net/1/messages.json?token=apitoken&user=userkey"
         );
-        assert!(matches!(
-            result.service_type,
-            ShoutrrrServiceType::Pushover
-        ));
+        assert!(matches!(result.service_type, ShoutrrrServiceType::Pushover));
     }
 
     #[test]
     fn test_parse_pushover_shoutrrr_canonical_form() {
         // Shoutrrr's canonical URL has a literal "shoutrrr:" username.
         // Issue #258: parser must strip this prefix or Pushover rejects the token.
-        let result =
-            parse_shoutrrr_url("pushover://shoutrrr:apitoken@userkey").unwrap();
+        let result = parse_shoutrrr_url("pushover://shoutrrr:apitoken@userkey").unwrap();
         assert_eq!(
             result.webhook_url,
             "https://api.pushover.net/1/messages.json?token=apitoken&user=userkey"
@@ -930,8 +942,7 @@ mod tests {
     fn test_parse_pushover_strips_query_params() {
         // Optional shoutrrr query params (devices, priority) should not break parsing.
         let result =
-            parse_shoutrrr_url("pushover://shoutrrr:tok@user/?devices=phone&priority=1")
-                .unwrap();
+            parse_shoutrrr_url("pushover://shoutrrr:tok@user/?devices=phone&priority=1").unwrap();
         assert_eq!(
             result.webhook_url,
             "https://api.pushover.net/1/messages.json?token=tok&user=user"
@@ -952,16 +963,14 @@ mod tests {
 
     #[test]
     fn test_parse_plain_https_url() {
-        let result =
-            parse_shoutrrr_url("https://hooks.example.com/notify").unwrap();
+        let result = parse_shoutrrr_url("https://hooks.example.com/notify").unwrap();
         assert_eq!(result.webhook_url, "https://hooks.example.com/notify");
         assert!(matches!(result.service_type, ShoutrrrServiceType::Generic));
     }
 
     #[test]
     fn test_parse_plain_http_url() {
-        let result =
-            parse_shoutrrr_url("http://hooks.example.com/notify").unwrap();
+        let result = parse_shoutrrr_url("http://hooks.example.com/notify").unwrap();
         assert_eq!(result.webhook_url, "http://hooks.example.com/notify");
         assert!(matches!(result.service_type, ShoutrrrServiceType::Generic));
     }
@@ -1243,7 +1252,10 @@ mod tests {
             client: crate::test_client(),
             urls: vec![],
         };
-        let msg = Message { lines: Vec::new(), ok: true };
+        let msg = Message {
+            lines: Vec::new(),
+            ok: true,
+        };
         let pp = PP::default_pp();
         // Empty message should return true immediately
         let result = notifier.send(&msg, &pp).await;
@@ -1254,14 +1266,21 @@ mod tests {
 
     #[test]
     fn test_shoutrrr_notifier_new_valid() {
-        let urls = vec!["discord://token@id".to_string(), "slack://a/b/c".to_string()];
+        let urls = vec![
+            "discord://token@id".to_string(),
+            "slack://a/b/c".to_string(),
+        ];
         let notifier = ShoutrrrNotifier::new(&urls).unwrap();
         assert_eq!(notifier.urls.len(), 2);
     }
 
     #[test]
     fn test_shoutrrr_notifier_new_skips_empty() {
-        let urls = vec!["".to_string(), "  ".to_string(), "discord://token@id".to_string()];
+        let urls = vec![
+            "".to_string(),
+            "  ".to_string(),
+            "discord://token@id".to_string(),
+        ];
         let notifier = ShoutrrrNotifier::new(&urls).unwrap();
         assert_eq!(notifier.urls.len(), 1);
     }
@@ -1316,7 +1335,10 @@ mod tests {
             ],
         };
         let desc = notifier.describe();
-        assert_eq!(desc, "Discord, Slack, Telegram, Gotify, Pushover, generic webhook, custom");
+        assert_eq!(
+            desc,
+            "Discord, Slack, Telegram, Gotify, Pushover, generic webhook, custom"
+        );
     }
 
     // ---- send_telegram, send_gotify, send_pushover with wiremock ----

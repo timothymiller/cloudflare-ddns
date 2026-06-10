@@ -13,7 +13,7 @@ use std::time::Duration;
 /// Run a single update cycle.
 pub async fn update_once(
     config: &AppConfig,
-    domains: HashMap<IpType, Vec<String>>,
+    domains: &HashMap<IpType, Vec<String>>,
     handle: &CloudflareHandle,
     notifier: &CompositeNotifier,
     heartbeat: &Heartbeat,
@@ -71,8 +71,9 @@ pub async fn update_once(
 
         // Filter out Cloudflare IPs if enabled
         if config.reject_cloudflare_ips {
-            if let Some(cf_filter) =
-                cf_cache.get(&detection_client, config.detection_timeout, ppfmt).await
+            if let Some(cf_filter) = cf_cache
+                .get(&detection_client, config.detection_timeout, ppfmt)
+                .await
             {
                 for (ip_type, ips) in detected_ips.iter_mut() {
                     let before_count = ips.len();
@@ -183,13 +184,14 @@ pub async fn update_once(
                         noop_reported.remove(&noop_key);
                         notify = true;
                         all_ok = false;
-                        messages.push(Message::new_fail(&format!(
-                            "Failed to update {domain_str}"
-                        )));
+                        messages.push(Message::new_fail(&format!("Failed to update {domain_str}")));
                     }
                     SetResult::Noop => {
                         if noop_reported.insert(noop_key) {
-                            ppfmt.infof(pp::EMOJI_SKIP, &format!("Record {domain_str} is up to date"));
+                            ppfmt.infof(
+                                pp::EMOJI_SKIP,
+                                &format!("Record {domain_str} is up to date"),
+                            );
                         }
                     }
                 }
@@ -199,11 +201,7 @@ pub async fn update_once(
         // Update WAF lists
         for waf_list in &config.waf_lists {
             // Collect all detected IPs for WAF lists
-            let all_ips: Vec<IpAddr> = detected_ips
-                .values()
-                .flatten()
-                .copied()
-                .collect();
+            let all_ips: Vec<IpAddr> = detected_ips.values().flatten().copied().collect();
 
             let result = handle
                 .set_waf_list(
@@ -237,7 +235,10 @@ pub async fn update_once(
                 }
                 SetResult::Noop => {
                     if noop_reported.insert(noop_key) {
-                        ppfmt.infof(pp::EMOJI_SKIP, &format!("WAF list {} is up to date", waf_list.describe()));
+                        ppfmt.infof(
+                            pp::EMOJI_SKIP,
+                            &format!("WAF list {} is up to date", waf_list.describe()),
+                        );
                     }
                 }
             }
@@ -326,8 +327,9 @@ async fn update_legacy(
     // Filter out Cloudflare IPs if enabled
     if config.reject_cloudflare_ips {
         let before_count = ips.len();
-        if let Some(cf_filter) =
-            cf_cache.get(&detection_client, config.detection_timeout, ppfmt).await
+        if let Some(cf_filter) = cf_cache
+            .get(&detection_client, config.detection_timeout, ppfmt)
+            .await
         {
             ips.retain(|key, ip_info| {
                 if let Ok(addr) = ip_info.ip.parse::<std::net::IpAddr>() {
@@ -388,8 +390,12 @@ pub async fn final_delete(
 
         for domain_str in domains {
             if let Some(zone_id) = handle.zone_id_of_domain(domain_str, ppfmt).await {
-                handle.final_delete(&zone_id, domain_str, record_type, ppfmt).await;
-                messages.push(Message::new_ok(&format!("Deleted records for {domain_str}")));
+                handle
+                    .final_delete(&zone_id, domain_str, record_type, ppfmt)
+                    .await;
+                messages.push(Message::new_ok(&format!(
+                    "Deleted records for {domain_str}"
+                )));
             }
         }
     }
@@ -484,9 +490,9 @@ impl LegacyDdnsClient {
                 "zones/{}/dns_records?per_page=100&type={record_type}",
                 entry.zone_id
             );
-            let answer: Option<LegacyCfResponse<Vec<LegacyDnsRecord>>> =
-                self.cf_api(&endpoint, "GET", entry, None::<&()>.as_ref())
-                    .await;
+            let answer: Option<LegacyCfResponse<Vec<LegacyDnsRecord>>> = self
+                .cf_api(&endpoint, "GET", entry, None::<&()>.as_ref())
+                .await;
 
             if let Some(resp) = answer {
                 if let Some(records) = resp.result {
@@ -495,10 +501,8 @@ impl LegacyDdnsClient {
                             println!("[DRY RUN] Would delete stale record {}", record.id);
                             continue;
                         }
-                        let del_endpoint = format!(
-                            "zones/{}/dns_records/{}",
-                            entry.zone_id, record.id
-                        );
+                        let del_endpoint =
+                            format!("zones/{}/dns_records/{}", entry.zone_id, record.id);
                         let _: Option<serde_json::Value> = self
                             .cf_api(&del_endpoint, "DELETE", entry, None::<&()>.as_ref())
                             .await;
@@ -585,9 +589,9 @@ impl LegacyDdnsClient {
                     "zones/{}/dns_records?per_page=100&type={}",
                     entry.zone_id, ip.record_type
                 );
-                let dns_records: Option<LegacyCfResponse<Vec<LegacyDnsRecord>>> =
-                    self.cf_api(&dns_endpoint, "GET", entry, None::<&()>.as_ref())
-                        .await;
+                let dns_records: Option<LegacyCfResponse<Vec<LegacyDnsRecord>>> = self
+                    .cf_api(&dns_endpoint, "GET", entry, None::<&()>.as_ref())
+                    .await;
 
                 let mut identifier: Option<String> = None;
                 let mut modified = false;
@@ -606,9 +610,7 @@ impl LegacyDdnsClient {
                                     }
                                 } else {
                                     identifier = Some(r.id.clone());
-                                    if r.content != record.content
-                                        || r.proxied != record.proxied
-                                    {
+                                    if r.content != record.content || r.proxied != record.proxied {
                                         modified = true;
                                     }
                                 }
@@ -632,10 +634,7 @@ impl LegacyDdnsClient {
                                 .cf_api(&update_endpoint, "PUT", entry, Some(&record))
                                 .await;
                         }
-                        messages.push(Message::new_ok(&format!(
-                            "Updated {fqdn} -> {}",
-                            ip.ip
-                        )));
+                        messages.push(Message::new_ok(&format!("Updated {fqdn} -> {}", ip.ip)));
                     } else if noop_reported.insert(noop_key) {
                         if self.dry_run {
                             println!("[DRY RUN] Record {fqdn} is up to date");
@@ -655,10 +654,7 @@ impl LegacyDdnsClient {
                             .cf_api(&create_endpoint, "POST", entry, Some(&record))
                             .await;
                     }
-                    messages.push(Message::new_ok(&format!(
-                        "Created {fqdn} -> {}",
-                        ip.ip
-                    )));
+                    messages.push(Message::new_ok(&format!("Created {fqdn} -> {}", ip.ip)));
                 }
 
                 if purge_unknown_records {
@@ -684,7 +680,7 @@ impl LegacyDdnsClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cloudflare::{Auth, CloudflareHandle, TTL, WAFList};
+    use crate::cloudflare::{Auth, CloudflareHandle, WAFList, TTL};
     use crate::config::{AppConfig, CronSchedule};
     use crate::notifier::{CompositeNotifier, Heartbeat};
     use crate::pp::PP;
@@ -842,8 +838,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path(format!("/zones/{zone_id}/dns_records")))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(dns_record_created("rec-1", domain, ip)),
+                ResponseTemplate::new(200).set_body_json(dns_record_created("rec-1", domain, ip)),
             )
             .mount(&server)
             .await;
@@ -867,7 +862,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -903,8 +898,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path_regex(format!("/zones/{zone_id}/dns_records")))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(dns_records_one("rec-1", domain, ip)),
+                ResponseTemplate::new(200).set_body_json(dns_records_one("rec-1", domain, ip)),
             )
             .mount(&server)
             .await;
@@ -931,7 +925,7 @@ mod tests {
         // First call: noop_reported is empty, so "up to date" is reported and key is inserted
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -942,12 +936,15 @@ mod tests {
         )
         .await;
         assert!(ok);
-        assert!(noop_reported.contains("home.example.com:A"), "noop_reported should contain the domain key after first noop");
+        assert!(
+            noop_reported.contains("home.example.com:A"),
+            "noop_reported should contain the domain key after first noop"
+        );
 
         // Second call: noop_reported already has the key, so the message is suppressed
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -958,7 +955,11 @@ mod tests {
         )
         .await;
         assert!(ok);
-        assert_eq!(noop_reported.len(), 1, "noop_reported should still have exactly one entry");
+        assert_eq!(
+            noop_reported.len(),
+            1,
+            "noop_reported should still have exactly one entry"
+        );
     }
 
     /// noop_reported is cleared when a record is updated, so "up to date" prints again
@@ -985,8 +986,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path_regex(format!("/zones/{zone_id}/dns_records")))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(dns_records_one("rec-1", domain, old_ip)),
+                ResponseTemplate::new(200).set_body_json(dns_records_one("rec-1", domain, old_ip)),
             )
             .mount(&server)
             .await;
@@ -1004,7 +1004,9 @@ mod tests {
         // Delete stale record
         Mock::given(method("DELETE"))
             .and(path(format!("/zones/{zone_id}/dns_records/rec-1")))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"result": {}})))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"result": {}})),
+            )
             .mount(&server)
             .await;
 
@@ -1031,7 +1033,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -1042,7 +1044,10 @@ mod tests {
         )
         .await;
         assert!(ok);
-        assert!(!noop_reported.contains("home.example.com:A"), "noop_reported should be cleared after an update");
+        assert!(
+            !noop_reported.contains("home.example.com:A"),
+            "noop_reported should be cleared after an update"
+        );
     }
 
     /// update_once returns true even when IP detection yields empty (no providers configured),
@@ -1088,7 +1093,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -1114,9 +1119,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/zones"))
             .and(query_param("name", domain))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(zones_empty_response()),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_json(zones_empty_response()))
             .mount(&server)
             .await;
 
@@ -1124,9 +1127,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/zones"))
             .and(query_param("name", "example.com"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(zones_empty_response()),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_json(zones_empty_response()))
             .mount(&server)
             .await;
 
@@ -1149,7 +1150,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -1210,7 +1211,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -1236,8 +1237,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path(format!("/accounts/{account_id}/rules/lists")))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(waf_lists_response(list_id, list_name)),
+                ResponseTemplate::new(200).set_body_json(waf_lists_response(list_id, list_name)),
             )
             .mount(&server)
             .await;
@@ -1248,8 +1248,7 @@ mod tests {
                 "/accounts/{account_id}/rules/lists/{list_id}/items"
             )))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(waf_items_response(serde_json::json!([]))),
+                ResponseTemplate::new(200).set_body_json(waf_items_response(serde_json::json!([]))),
             )
             .mount(&server)
             .await;
@@ -1287,7 +1286,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -1312,8 +1311,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path(format!("/accounts/{account_id}/rules/lists")))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(waf_lists_response(list_id, list_name)),
+                ResponseTemplate::new(200).set_body_json(waf_lists_response(list_id, list_name)),
             )
             .mount(&server)
             .await;
@@ -1323,8 +1321,7 @@ mod tests {
                 "/accounts/{account_id}/rules/lists/{list_id}/items"
             )))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(waf_items_response(serde_json::json!([]))),
+                ResponseTemplate::new(200).set_body_json(waf_items_response(serde_json::json!([]))),
             )
             .mount(&server)
             .await;
@@ -1343,7 +1340,12 @@ mod tests {
             list_name: list_name.to_string(),
         };
 
-        let config = make_config(providers, HashMap::new(), vec![waf_list], true /* dry_run */);
+        let config = make_config(
+            providers,
+            HashMap::new(),
+            vec![waf_list],
+            true, /* dry_run */
+        );
         let cf = handle(&server.uri());
         let notifier = empty_notifier();
         let heartbeat = empty_heartbeat();
@@ -1352,7 +1354,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -1403,7 +1405,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -1499,7 +1501,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -1527,7 +1529,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -1567,8 +1569,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path_regex(format!("/zones/{zone_id}/dns_records")))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(dns_records_one(record_id, domain, ip)),
+                ResponseTemplate::new(200).set_body_json(dns_records_one(record_id, domain, ip)),
             )
             .mount(&server)
             .await;
@@ -1644,18 +1645,14 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/zones"))
             .and(query_param("name", domain))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(zones_empty_response()),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_json(zones_empty_response()))
             .mount(&server)
             .await;
 
         Mock::given(method("GET"))
             .and(path("/zones"))
             .and(query_param("name", "example.com"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(zones_empty_response()),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_json(zones_empty_response()))
             .mount(&server)
             .await;
 
@@ -1686,8 +1683,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path(format!("/accounts/{account_id}/rules/lists")))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(waf_lists_response(list_id, list_name)),
+                ResponseTemplate::new(200).set_body_json(waf_lists_response(list_id, list_name)),
             )
             .mount(&server)
             .await;
@@ -1697,11 +1693,11 @@ mod tests {
             .and(path(format!(
                 "/accounts/{account_id}/rules/lists/{list_id}/items"
             )))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(waf_items_response(serde_json::json!([
+            .respond_with(ResponseTemplate::new(200).set_body_json(waf_items_response(
+                serde_json::json!([
                     { "id": item_id, "ip": ip, "comment": null }
-                ]))),
-            )
+                ]),
+            )))
             .mount(&server)
             .await;
 
@@ -1742,8 +1738,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path(format!("/accounts/{account_id}/rules/lists")))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(waf_lists_response(list_id, list_name)),
+                ResponseTemplate::new(200).set_body_json(waf_lists_response(list_id, list_name)),
             )
             .mount(&server)
             .await;
@@ -1754,8 +1749,7 @@ mod tests {
                 "/accounts/{account_id}/rules/lists/{list_id}/items"
             )))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(waf_items_response(serde_json::json!([]))),
+                ResponseTemplate::new(200).set_body_json(waf_items_response(serde_json::json!([]))),
             )
             .mount(&server)
             .await;
@@ -1803,8 +1797,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path_regex(format!("/zones/{zone_id}/dns_records")))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(dns_records_one(record_id, domain, ip)),
+                ResponseTemplate::new(200).set_body_json(dns_records_one(record_id, domain, ip)),
             )
             .mount(&server)
             .await;
@@ -1823,8 +1816,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path(format!("/accounts/{account_id}/rules/lists")))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(waf_lists_response(list_id, list_name)),
+                ResponseTemplate::new(200).set_body_json(waf_lists_response(list_id, list_name)),
             )
             .mount(&server)
             .await;
@@ -1834,11 +1826,11 @@ mod tests {
             .and(path(format!(
                 "/accounts/{account_id}/rules/lists/{list_id}/items"
             )))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(waf_items_response(serde_json::json!([
+            .respond_with(ResponseTemplate::new(200).set_body_json(waf_items_response(
+                serde_json::json!([
                     { "id": item_id, "ip": ip, "comment": null }
-                ]))),
-            )
+                ]),
+            )))
             .mount(&server)
             .await;
 
@@ -1923,7 +1915,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -2137,7 +2129,8 @@ mod tests {
             subdomains: vec![LegacySubdomainEntry::Simple("@".to_string())],
             proxied: false,
         }];
-        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new()).await;
+        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new())
+            .await;
     }
 
     #[tokio::test]
@@ -2193,7 +2186,8 @@ mod tests {
             subdomains: vec![LegacySubdomainEntry::Simple("@".to_string())],
             proxied: false,
         }];
-        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new()).await;
+        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new())
+            .await;
     }
 
     #[tokio::test]
@@ -2236,7 +2230,8 @@ mod tests {
             proxied: false,
         }];
         // Should not POST
-        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new()).await;
+        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new())
+            .await;
     }
 
     #[tokio::test]
@@ -2289,7 +2284,8 @@ mod tests {
             }],
             proxied: false,
         }];
-        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new()).await;
+        ddns.commit_record(&ip, &config, 300, false, &mut HashSet::new())
+            .await;
     }
 
     #[tokio::test]
@@ -2341,7 +2337,8 @@ mod tests {
             subdomains: vec![LegacySubdomainEntry::Simple("@".to_string())],
             proxied: false,
         }];
-        ddns.commit_record(&ip, &config, 300, true, &mut HashSet::new()).await;
+        ddns.commit_record(&ip, &config, 300, true, &mut HashSet::new())
+            .await;
     }
 
     #[tokio::test]
@@ -2378,10 +2375,13 @@ mod tests {
             dry_run: false,
         };
         let mut ips = HashMap::new();
-        ips.insert("ipv4".to_string(), LegacyIpInfo {
-            record_type: "A".to_string(),
-            ip: "198.51.100.1".to_string(),
-        });
+        ips.insert(
+            "ipv4".to_string(),
+            LegacyIpInfo {
+                record_type: "A".to_string(),
+                ip: "198.51.100.1".to_string(),
+            },
+        );
         let config = vec![crate::config::LegacyCloudflareEntry {
             authentication: crate::config::LegacyAuthentication {
                 api_token: "test-token".to_string(),
@@ -2391,7 +2391,8 @@ mod tests {
             subdomains: vec![LegacySubdomainEntry::Simple("@".to_string())],
             proxied: false,
         }];
-        ddns.update_ips(&ips, &config, 300, false, &mut HashSet::new()).await;
+        ddns.update_ips(&ips, &config, 300, false, &mut HashSet::new())
+            .await;
     }
 
     #[tokio::test]
@@ -2531,7 +2532,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -2605,7 +2606,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -2645,7 +2646,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,
@@ -2724,7 +2725,7 @@ mod tests {
         let mut cf_cache = CachedCloudflareFilter::new();
         let ok = update_once(
             &config,
-            config.domains.clone(),
+            &config.domains,
             &cf,
             &notifier,
             &heartbeat,

@@ -152,6 +152,16 @@ async fn main() {
     // Start heartbeat
     heartbeat.start().await;
 
+    let _ = docker::spawn_domain_cleanup(
+        &app_config,
+        &mut domains_rx.clone(),
+        running.clone(),
+        &ppfmt,
+        &handle,
+        &notifier,
+    )
+    .await;
+
     let mut cf_cache = cf_ip_filter::CachedCloudflareFilter::new();
     let detection_client = Client::builder()
         .timeout(app_config.detection_timeout)
@@ -195,9 +205,7 @@ async fn main() {
     }
 
     // Exit heartbeat
-    heartbeat
-        .exit(&Message::new_ok("Shutting down"))
-        .await;
+    heartbeat.exit(&Message::new_ok("Shutting down")).await;
 }
 
 async fn run_legacy_mode(
@@ -233,11 +241,11 @@ async fn run_legacy_mode(
             (false, false) => println!("Both IPv4 and IPv6 are disabled"),
         }
 
-        while running.load(Ordering::SeqCst) {
-            let domains = domains_chan.borrow_and_update().clone();
+        if config.update_on_start {
+            let domains = domains_chan.borrow_and_update();
             updater::update_once(
                 config,
-                domains,
+                &domains,
                 handle,
                 notifier,
                 heartbeat,
@@ -247,7 +255,9 @@ async fn run_legacy_mode(
                 detection_client,
             )
             .await;
+        }
 
+        while running.load(Ordering::SeqCst) {
             for _ in 0..legacy.ttl {
                 if !running.load(Ordering::SeqCst) {
                     break;
@@ -261,12 +271,26 @@ async fn run_legacy_mode(
 
                 sleep(Duration::from_secs(1)).await;
             }
+
+            let domains = domains_chan.borrow_and_update();
+            updater::update_once(
+                config,
+                &domains,
+                handle,
+                notifier,
+                heartbeat,
+                cf_cache,
+                ppfmt,
+                &mut noop_reported,
+                detection_client,
+            )
+            .await;
         }
     } else {
-        let domains = domains_chan.borrow_and_update().clone();
+        let domains = domains_chan.borrow_and_update();
         updater::update_once(
             config,
-            domains,
+            &domains,
             handle,
             notifier,
             heartbeat,
@@ -295,10 +319,10 @@ async fn run_env_mode(
     match &config.update_cron {
         CronSchedule::Once => {
             if config.update_on_start {
-                let domains = domains_chan.borrow_and_update().clone();
+                let domains = domains_chan.borrow_and_update();
                 updater::update_once(
                     config,
-                    domains,
+                    &domains,
                     handle,
                     notifier,
                     heartbeat,
@@ -323,10 +347,10 @@ async fn run_env_mode(
 
             // Update on start if configured
             if config.update_on_start {
-                let domains = domains_chan.borrow_and_update().clone();
+                let domains = domains_chan.borrow_and_update();
                 updater::update_once(
                     config,
-                    domains,
+                    &domains,
                     handle,
                     notifier,
                     heartbeat,
@@ -375,10 +399,10 @@ async fn run_env_mode(
                     sleep(std::time::Duration::from_secs(jitter_secs)).await;
                 }
 
-                let domains = domains_chan.borrow_and_update().clone();
+                let domains = domains_chan.borrow_and_update();
                 updater::update_once(
                     config,
-                    domains,
+                    &domains,
                     handle,
                     notifier,
                     heartbeat,
@@ -446,8 +470,8 @@ pub(crate) fn test_client() -> reqwest::Client {
 #[cfg(test)]
 mod tests {
     use crate::config::{
-        LegacyAuthentication, LegacyCloudflareEntry, LegacyConfig, LegacySubdomainEntry,
-        parse_legacy_config,
+        parse_legacy_config, LegacyAuthentication, LegacyCloudflareEntry, LegacyConfig,
+        LegacySubdomainEntry,
     };
     use crate::provider::parse_trace_ip;
     use reqwest::Client;
@@ -693,8 +717,7 @@ mod tests {
                             println!("[DRY RUN] Would add new record {fqdn} -> {ip}");
                         } else {
                             println!("Adding new record {fqdn} -> {ip}");
-                            let create_endpoint =
-                                format!("zones/{}/dns_records", entry.zone_id);
+                            let create_endpoint = format!("zones/{}/dns_records", entry.zone_id);
                             let _: Option<serde_json::Value> = self
                                 .cf_api(
                                     &create_endpoint,
@@ -823,8 +846,15 @@ mod tests {
 
         let ddns = TestDdnsClient::new(&mock_server.uri());
         let config = test_config(zone_id);
-        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false, &mut std::collections::HashSet::new())
-            .await;
+        ddns.commit_record(
+            "198.51.100.7",
+            "A",
+            &config.cloudflare,
+            300,
+            false,
+            &mut std::collections::HashSet::new(),
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -872,8 +902,15 @@ mod tests {
 
         let ddns = TestDdnsClient::new(&mock_server.uri());
         let config = test_config(zone_id);
-        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false, &mut std::collections::HashSet::new())
-            .await;
+        ddns.commit_record(
+            "198.51.100.7",
+            "A",
+            &config.cloudflare,
+            300,
+            false,
+            &mut std::collections::HashSet::new(),
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -915,8 +952,15 @@ mod tests {
 
         let ddns = TestDdnsClient::new(&mock_server.uri());
         let config = test_config(zone_id);
-        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false, &mut std::collections::HashSet::new())
-            .await;
+        ddns.commit_record(
+            "198.51.100.7",
+            "A",
+            &config.cloudflare,
+            300,
+            false,
+            &mut std::collections::HashSet::new(),
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -949,8 +993,15 @@ mod tests {
 
         let ddns = TestDdnsClient::new(&mock_server.uri()).dry_run();
         let config = test_config(zone_id);
-        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, false, &mut std::collections::HashSet::new())
-            .await;
+        ddns.commit_record(
+            "198.51.100.7",
+            "A",
+            &config.cloudflare,
+            300,
+            false,
+            &mut std::collections::HashSet::new(),
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -1006,8 +1057,15 @@ mod tests {
             ip4_provider: None,
             ip6_provider: None,
         };
-        ddns.commit_record("198.51.100.7", "A", &config.cloudflare, 300, true, &mut std::collections::HashSet::new())
-            .await;
+        ddns.commit_record(
+            "198.51.100.7",
+            "A",
+            &config.cloudflare,
+            300,
+            true,
+            &mut std::collections::HashSet::new(),
+        )
+        .await;
     }
 
     // --- jitter_duration tests ---
@@ -1131,7 +1189,14 @@ mod tests {
             ip6_provider: None,
         };
 
-        ddns.commit_record("203.0.113.99", "A", &config.cloudflare, 300, false, &mut std::collections::HashSet::new())
-            .await;
+        ddns.commit_record(
+            "203.0.113.99",
+            "A",
+            &config.cloudflare,
+            300,
+            false,
+            &mut std::collections::HashSet::new(),
+        )
+        .await;
     }
 }

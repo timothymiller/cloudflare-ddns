@@ -8,12 +8,88 @@ use std::{
 };
 
 use bollard::{errors::Error, query_parameters::ListContainersOptionsBuilder, Docker};
-use tokio::{sync::watch::Sender, time::sleep};
+use tokio::{
+    sync::watch::{Receiver, Sender},
+    time::sleep,
+};
 
 use crate::{
+    cloudflare::CloudflareHandle,
+    config::AppConfig,
+    notifier::{CompositeNotifier, Message},
     pp::{self, PP},
     provider::IpType,
 };
+
+pub async fn spawn_domain_cleanup(
+    config: &AppConfig,
+    domains_rx: &mut Receiver<HashMap<IpType, Vec<String>>>,
+    running: Arc<AtomicBool>,
+    ppfmt: &PP,
+    handle: &CloudflareHandle,
+    notifier: &CompositeNotifier,
+) -> Result<(), Error> {
+    if !config.delete_on_stop || config.legacy_mode {
+        return Ok(());
+    }
+
+    let ppfmt_owned = ppfmt.clone();
+    let handle_owned = handle.clone();
+    let notifier_owned = notifier.clone();
+    let mut domains_rx = domains_rx.clone();
+
+    tokio::spawn(async move {
+        let mut current_domains = domains_rx.borrow_and_update().clone();
+        while running.load(Ordering::SeqCst) {
+            loop {
+                if !running.load(Ordering::SeqCst) {
+                    return;
+                }
+
+                match domains_rx.has_changed() {
+                    Ok(true) => break, // Changed
+                    Ok(false) => {}    // No change yet
+                    Err(_) => return,  // channel closed
+                }
+
+                sleep(Duration::from_secs(1)).await;
+            }
+
+            let mut messages = Vec::new();
+            let new_domains = domains_rx.borrow_and_update().clone();
+
+            for (ip_type, old_domains_list) in current_domains.iter() {
+                let record_type = ip_type.record_type();
+                let new_domains_list = new_domains.get(ip_type).unwrap_or(old_domains_list);
+                let domains_diff = old_domains_list
+                    .into_iter()
+                    .filter(|d| !new_domains_list.contains(d));
+
+                for domain_str in domains_diff {
+                    // Use the owned handle
+                    if let Some(zone_id) = handle_owned
+                        .zone_id_of_domain(domain_str, &ppfmt_owned)
+                        .await
+                    {
+                        handle_owned
+                            .final_delete(&zone_id, domain_str, record_type, &ppfmt_owned)
+                            .await;
+                        messages.push(Message::new_ok(&format!(
+                            "Deleted records for {domain_str}"
+                        )));
+                    }
+                }
+            }
+
+            let msg = Message::merge(messages);
+            notifier_owned.send(&msg).await;
+
+            current_domains = new_domains;
+        }
+    });
+
+    return Ok(());
+}
 
 pub async fn spawn_docker_domain_scanner(
     static_domains: HashMap<IpType, Vec<String>>,
