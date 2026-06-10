@@ -236,6 +236,7 @@ Heartbeats are sent after each update cycle. On failure, a fail signal is sent. 
 | `DOMAINS` | — | 🌐 Domains for both IPv4 and IPv6 |
 | `IP4_DOMAINS` | — | 4️⃣ IPv4-only domains |
 | `IP6_DOMAINS` | — | 6️⃣ IPv6-only domains |
+| `DOCKER_HOST` | — | 🐳 Docker socket path for domain discovery |
 | `IP4_PROVIDER` | `ipify` | 🔍 IPv4 detection provider |
 | `IP6_PROVIDER` | `cloudflare.trace` | 🔍 IPv6 detection provider |
 | `UPDATE_CRON` | `@every 5m` | ⏱️ Update schedule |
