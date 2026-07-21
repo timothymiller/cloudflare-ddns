@@ -1,0 +1,54 @@
+name: Publish cloudflare-ddns Helm chart
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint charts/cloudflare-ddns
+
+      - name: Package chart
+        run: |
+          mkdir -p /tmp/helm-charts
+          helm package charts/cloudflare-ddns --destination /tmp/helm-charts
+
+      - name: Extract chart version
+        id: chart_version
+        run: |
+          VERSION=$(grep '^version:' charts/cloudflare-ddns/Chart.yaml | awk '{print $2}')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" \
+            --password-stdin
+
+      - name: Push chart to GHCR
+        if: github.event_name != 'pull_request'
+        run: |
+          helm push /tmp/helm-charts/cloudflare-ddns-${{ steps.chart_version.outputs.version }}.tgz \
+            oci://ghcr.io/${{ github.repository_owner }}
