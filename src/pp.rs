@@ -33,7 +33,11 @@ pub struct PP {
 impl PP {
     pub fn new(emoji: bool, quiet: bool) -> Self {
         Self {
-            verbosity: if quiet { Verbosity::Quiet } else { Verbosity::Verbose },
+            verbosity: if quiet {
+                Verbosity::Quiet
+            } else {
+                Verbosity::Verbose
+            },
             emoji,
             indent: 0,
         }

@@ -48,7 +48,8 @@ managedRecordsCommentRegex: ""
 wafLists: ""
 
 # --- Notifications (Shoutrrr) ---
-# Newline-separated URLs: discord://, slack://, telegram://, generic+https://...
+# Newline-separated URLs: discord://, slack://, telegram://, gotify://,
+# pushover://, zulip://, generic+https://...
 shoutrrr: ""
 
 # --- Heartbeat Monitoring ---

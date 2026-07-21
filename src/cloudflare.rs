@@ -64,12 +64,17 @@ impl WAFList {
     pub fn parse(input: &str) -> Result<Self, String> {
         let parts: Vec<&str> = input.splitn(2, '/').collect();
         if parts.len() != 2 {
-            return Err(format!("WAF list must be in format 'account-id/list-name': {input}"));
+            return Err(format!(
+                "WAF list must be in format 'account-id/list-name': {input}"
+            ));
         }
         let account_id = parts[0].trim().to_string();
         let list_name = parts[1].trim().to_string();
 
-        if !list_name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+        if !list_name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        {
             return Err(format!("WAF list name must match [a-z0-9_]+: {list_name}"));
         }
 
@@ -178,10 +183,7 @@ impl CloudflareHandle {
     }
 
     #[cfg(test)]
-    pub fn with_base_url(
-        base_url: &str,
-        auth: Auth,
-    ) -> Self {
+    pub fn with_base_url(base_url: &str, auth: Auth) -> Self {
         crate::init_crypto();
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
@@ -220,12 +222,18 @@ impl CloudflareHandle {
                 } else {
                     let url_str = resp.url().to_string();
                     let text = resp.text().await.unwrap_or_default();
-                    ppfmt.errorf(pp::EMOJI_ERROR, &format!("API {method} '{url_str}' failed: {text}"));
+                    ppfmt.errorf(
+                        pp::EMOJI_ERROR,
+                        &format!("API {method} '{url_str}' failed: {text}"),
+                    );
                     None
                 }
             }
             Err(e) => {
-                ppfmt.errorf(pp::EMOJI_ERROR, &format!("API {method} '{path}' error: {e}"));
+                ppfmt.errorf(
+                    pp::EMOJI_ERROR,
+                    &format!("API {method} '{path}' error: {e}"),
+                );
                 None
             }
         }
@@ -238,7 +246,12 @@ impl CloudflareHandle {
         let mut current = domain.to_string();
         loop {
             let resp: Option<CfListResponse<ZoneResult>> = self
-                .api_request(reqwest::Method::GET, &format!("zones?name={current}"), None::<&()>, ppfmt)
+                .api_request(
+                    reqwest::Method::GET,
+                    &format!("zones?name={current}"),
+                    None::<&()>,
+                    ppfmt,
+                )
                 .await;
             if let Some(r) = resp {
                 if let Some(zones) = r.result {
@@ -269,7 +282,9 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> Vec<DnsRecord> {
         let path = format!("zones/{zone_id}/dns_records?per_page=100&type={record_type}");
-        let resp: Option<CfListResponse<DnsRecord>> = self.api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt).await;
+        let resp: Option<CfListResponse<DnsRecord>> = self
+            .api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt)
+            .await;
         resp.and_then(|r| r.result).unwrap_or_default()
     }
 
@@ -309,7 +324,9 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> Option<DnsRecord> {
         let path = format!("zones/{zone_id}/dns_records");
-        let resp: Option<CfResponse<DnsRecord>> = self.api_request(reqwest::Method::POST, &path, Some(payload), ppfmt).await;
+        let resp: Option<CfResponse<DnsRecord>> = self
+            .api_request(reqwest::Method::POST, &path, Some(payload), ppfmt)
+            .await;
         resp.and_then(|r| r.result)
     }
 
@@ -321,18 +338,17 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> Option<DnsRecord> {
         let path = format!("zones/{zone_id}/dns_records/{record_id}");
-        let resp: Option<CfResponse<DnsRecord>> = self.api_request(reqwest::Method::PUT, &path, Some(payload), ppfmt).await;
+        let resp: Option<CfResponse<DnsRecord>> = self
+            .api_request(reqwest::Method::PUT, &path, Some(payload), ppfmt)
+            .await;
         resp.and_then(|r| r.result)
     }
 
-    pub async fn delete_record(
-        &self,
-        zone_id: &str,
-        record_id: &str,
-        ppfmt: &PP,
-    ) -> bool {
+    pub async fn delete_record(&self, zone_id: &str, record_id: &str, ppfmt: &PP) -> bool {
         let path = format!("zones/{zone_id}/dns_records/{record_id}");
-        let resp: Option<CfResponse<serde_json::Value>> = self.api_request(reqwest::Method::DELETE, &path, None::<&()>, ppfmt).await;
+        let resp: Option<CfResponse<serde_json::Value>> = self
+            .api_request(reqwest::Method::DELETE, &path, None::<&()>, ppfmt)
+            .await;
         resp.is_some()
     }
 
@@ -349,8 +365,13 @@ impl CloudflareHandle {
         dry_run: bool,
         ppfmt: &PP,
     ) -> SetResult {
-        let existing = self.list_records_by_name(zone_id, record_type, fqdn, ppfmt).await;
-        let managed: Vec<&DnsRecord> = existing.iter().filter(|r| self.is_managed_record(r)).collect();
+        let existing = self
+            .list_records_by_name(zone_id, record_type, fqdn, ppfmt)
+            .await;
+        let managed: Vec<&DnsRecord> = existing
+            .iter()
+            .filter(|r| self.is_managed_record(r))
+            .collect();
 
         if ips.is_empty() {
             // Delete all managed records
@@ -359,9 +380,15 @@ impl CloudflareHandle {
             }
             for record in &managed {
                 if dry_run {
-                    ppfmt.noticef(pp::EMOJI_DELETE, &format!("[DRY RUN] Would delete record {fqdn} ({})", record.content));
+                    ppfmt.noticef(
+                        pp::EMOJI_DELETE,
+                        &format!("[DRY RUN] Would delete record {fqdn} ({})", record.content),
+                    );
                 } else {
-                    ppfmt.noticef(pp::EMOJI_DELETE, &format!("Deleting record {fqdn} ({})", record.content));
+                    ppfmt.noticef(
+                        pp::EMOJI_DELETE,
+                        &format!("Deleting record {fqdn} ({})", record.content),
+                    );
                     self.delete_record(zone_id, &record.id, ppfmt).await;
                 }
             }
@@ -376,9 +403,9 @@ impl CloudflareHandle {
             let ip_str = ip.to_string();
 
             // Find existing record with this IP
-            let matching = managed.iter().find(|r| {
-                r.content == ip_str && !used_record_ids.contains(&&r.id)
-            });
+            let matching = managed
+                .iter()
+                .find(|r| r.content == ip_str && !used_record_ids.contains(&&r.id));
 
             if let Some(record) = matching {
                 used_record_ids.push(&record.id);
@@ -398,19 +425,24 @@ impl CloudflareHandle {
                         comment: comment.map(|s| s.to_string()),
                     };
                     if dry_run {
-                        ppfmt.noticef(pp::EMOJI_UPDATE, &format!("[DRY RUN] Would update record {fqdn} -> {ip_str}"));
+                        ppfmt.noticef(
+                            pp::EMOJI_UPDATE,
+                            &format!("[DRY RUN] Would update record {fqdn} -> {ip_str}"),
+                        );
                     } else {
-                        ppfmt.noticef(pp::EMOJI_UPDATE, &format!("Updating record {fqdn} -> {ip_str}"));
-                        self.update_record(zone_id, &record.id, &payload, ppfmt).await;
+                        ppfmt.noticef(
+                            pp::EMOJI_UPDATE,
+                            &format!("Updating record {fqdn} -> {ip_str}"),
+                        );
+                        self.update_record(zone_id, &record.id, &payload, ppfmt)
+                            .await;
                     }
                 } else {
                     // Caller handles "up to date" logging based on SetResult::Noop
                 }
             } else {
                 // Find an existing managed record to update, or create new
-                let reusable = managed.iter().find(|r| {
-                    !used_record_ids.contains(&&r.id)
-                });
+                let reusable = managed.iter().find(|r| !used_record_ids.contains(&&r.id));
 
                 let payload = DnsRecordPayload {
                     record_type: record_type.to_string(),
@@ -425,17 +457,30 @@ impl CloudflareHandle {
                     used_record_ids.push(&record.id);
                     any_change = true;
                     if dry_run {
-                        ppfmt.noticef(pp::EMOJI_UPDATE, &format!("[DRY RUN] Would update record {fqdn} -> {ip_str}"));
+                        ppfmt.noticef(
+                            pp::EMOJI_UPDATE,
+                            &format!("[DRY RUN] Would update record {fqdn} -> {ip_str}"),
+                        );
                     } else {
-                        ppfmt.noticef(pp::EMOJI_UPDATE, &format!("Updating record {fqdn} -> {ip_str}"));
-                        self.update_record(zone_id, &record.id, &payload, ppfmt).await;
+                        ppfmt.noticef(
+                            pp::EMOJI_UPDATE,
+                            &format!("Updating record {fqdn} -> {ip_str}"),
+                        );
+                        self.update_record(zone_id, &record.id, &payload, ppfmt)
+                            .await;
                     }
                 } else {
                     any_change = true;
                     if dry_run {
-                        ppfmt.noticef(pp::EMOJI_CREATE, &format!("[DRY RUN] Would add new record {fqdn} -> {ip_str}"));
+                        ppfmt.noticef(
+                            pp::EMOJI_CREATE,
+                            &format!("[DRY RUN] Would add new record {fqdn} -> {ip_str}"),
+                        );
                     } else {
-                        ppfmt.noticef(pp::EMOJI_CREATE, &format!("Adding new record {fqdn} -> {ip_str}"));
+                        ppfmt.noticef(
+                            pp::EMOJI_CREATE,
+                            &format!("Adding new record {fqdn} -> {ip_str}"),
+                        );
                         self.create_record(zone_id, &payload, ppfmt).await;
                     }
                 }
@@ -447,9 +492,18 @@ impl CloudflareHandle {
             if !used_record_ids.contains(&&record.id) {
                 any_change = true;
                 if dry_run {
-                    ppfmt.noticef(pp::EMOJI_DELETE, &format!("[DRY RUN] Would delete stale record {} ({})", fqdn, record.content));
+                    ppfmt.noticef(
+                        pp::EMOJI_DELETE,
+                        &format!(
+                            "[DRY RUN] Would delete stale record {} ({})",
+                            fqdn, record.content
+                        ),
+                    );
                 } else {
-                    ppfmt.noticef(pp::EMOJI_DELETE, &format!("Deleting stale record {} ({})", fqdn, record.content));
+                    ppfmt.noticef(
+                        pp::EMOJI_DELETE,
+                        &format!("Deleting stale record {} ({})", fqdn, record.content),
+                    );
                     self.delete_record(zone_id, &record.id, ppfmt).await;
                 }
             }
@@ -463,17 +517,16 @@ impl CloudflareHandle {
     }
 
     /// Delete all managed records for a specific domain/record type.
-    pub async fn final_delete(
-        &self,
-        zone_id: &str,
-        fqdn: &str,
-        record_type: &str,
-        ppfmt: &PP,
-    ) {
-        let existing = self.list_records_by_name(zone_id, record_type, fqdn, ppfmt).await;
+    pub async fn final_delete(&self, zone_id: &str, fqdn: &str, record_type: &str, ppfmt: &PP) {
+        let existing = self
+            .list_records_by_name(zone_id, record_type, fqdn, ppfmt)
+            .await;
         for record in &existing {
             if self.is_managed_record(record) {
-                ppfmt.noticef(pp::EMOJI_DELETE, &format!("Deleting record {fqdn} ({})", record.content));
+                ppfmt.noticef(
+                    pp::EMOJI_DELETE,
+                    &format!("Deleting record {fqdn} ({})", record.content),
+                );
                 self.delete_record(zone_id, &record.id, ppfmt).await;
             }
         }
@@ -481,13 +534,11 @@ impl CloudflareHandle {
 
     // --- WAF List Operations ---
 
-    pub async fn find_waf_list(
-        &self,
-        waf_list: &WAFList,
-        ppfmt: &PP,
-    ) -> Option<WAFListMeta> {
+    pub async fn find_waf_list(&self, waf_list: &WAFList, ppfmt: &PP) -> Option<WAFListMeta> {
         let path = format!("accounts/{}/rules/lists", waf_list.account_id);
-        let resp: Option<CfListResponse<WAFListMeta>> = self.api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt).await;
+        let resp: Option<CfListResponse<WAFListMeta>> = self
+            .api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt)
+            .await;
         resp.and_then(|r| r.result)
             .and_then(|lists| lists.into_iter().find(|l| l.name == waf_list.list_name))
     }
@@ -499,7 +550,9 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> Vec<WAFListItem> {
         let path = format!("accounts/{account_id}/rules/lists/{list_id}/items");
-        let resp: Option<CfListResponse<WAFListItem>> = self.api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt).await;
+        let resp: Option<CfListResponse<WAFListItem>> = self
+            .api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt)
+            .await;
         resp.and_then(|r| r.result).unwrap_or_default()
     }
 
@@ -511,7 +564,9 @@ impl CloudflareHandle {
         ppfmt: &PP,
     ) -> bool {
         let path = format!("accounts/{account_id}/rules/lists/{list_id}/items");
-        let resp: Option<CfResponse<serde_json::Value>> = self.api_request(reqwest::Method::POST, &path, Some(&items), ppfmt).await;
+        let resp: Option<CfResponse<serde_json::Value>> = self
+            .api_request(reqwest::Method::POST, &path, Some(&items), ppfmt)
+            .await;
         resp.is_some()
     }
 
@@ -528,11 +583,17 @@ impl CloudflareHandle {
             .map(|id| serde_json::json!({ "id": id }))
             .collect();
         let url = self.api_url(&path);
-        let req = self.auth.apply(self.client.delete(&url)).json(&serde_json::json!({ "items": body }));
+        let req = self
+            .auth
+            .apply(self.client.delete(&url))
+            .json(&serde_json::json!({ "items": body }));
         match req.send().await {
             Ok(resp) => resp.status().is_success(),
             Err(e) => {
-                ppfmt.errorf(pp::EMOJI_ERROR, &format!("WAF list items DELETE error: {e}"));
+                ppfmt.errorf(
+                    pp::EMOJI_ERROR,
+                    &format!("WAF list items DELETE error: {e}"),
+                );
                 false
             }
         }
@@ -566,14 +627,12 @@ impl CloudflareHandle {
         // Filter to managed items
         let managed_items: Vec<&WAFListItem> = existing_items
             .iter()
-            .filter(|item| {
-                match &self.managed_waf_comment_regex {
-                    Some(regex) => {
-                        let c = item.comment.as_deref().unwrap_or("");
-                        regex.is_match(c)
-                    }
-                    None => true,
+            .filter(|item| match &self.managed_waf_comment_regex {
+                Some(regex) => {
+                    let c = item.comment.as_deref().unwrap_or("");
+                    regex.is_match(c)
                 }
+                None => true,
             })
             .collect();
 
@@ -599,7 +658,9 @@ impl CloudflareHandle {
         let ids_to_delete: Vec<String> = managed_items
             .iter()
             .filter(|item| {
-                item.ip.as_ref().map_or(false, |ip| ips_to_remove.contains(ip))
+                item.ip
+                    .as_ref()
+                    .map_or(false, |ip| ips_to_remove.contains(ip))
             })
             .map(|item| item.id.clone())
             .collect();
@@ -613,13 +674,21 @@ impl CloudflareHandle {
             for item in &to_add {
                 ppfmt.noticef(
                     pp::EMOJI_CREATE,
-                    &format!("[DRY RUN] Would add {} to WAF list {}", item.ip, waf_list.describe()),
+                    &format!(
+                        "[DRY RUN] Would add {} to WAF list {}",
+                        item.ip,
+                        waf_list.describe()
+                    ),
                 );
             }
             for ip in &ips_to_remove {
                 ppfmt.noticef(
                     pp::EMOJI_DELETE,
-                    &format!("[DRY RUN] Would remove {} from WAF list {}", ip, waf_list.describe()),
+                    &format!(
+                        "[DRY RUN] Would remove {} from WAF list {}",
+                        ip,
+                        waf_list.describe()
+                    ),
                 );
             }
             return SetResult::Updated;
@@ -665,11 +734,7 @@ impl CloudflareHandle {
     }
 
     /// Clear all managed items from a WAF list (for shutdown).
-    pub async fn final_clear_waf_list(
-        &self,
-        waf_list: &WAFList,
-        ppfmt: &PP,
-    ) {
+    pub async fn final_clear_waf_list(&self, waf_list: &WAFList, ppfmt: &PP) {
         let list_meta = match self.find_waf_list(waf_list, ppfmt).await {
             Some(meta) => meta,
             None => return,
@@ -681,14 +746,12 @@ impl CloudflareHandle {
 
         let managed_ids: Vec<String> = items
             .iter()
-            .filter(|item| {
-                match &self.managed_waf_comment_regex {
-                    Some(regex) => {
-                        let c = item.comment.as_deref().unwrap_or("");
-                        regex.is_match(c)
-                    }
-                    None => true,
+            .filter(|item| match &self.managed_waf_comment_regex {
+                Some(regex) => {
+                    let c = item.comment.as_deref().unwrap_or("");
+                    regex.is_match(c)
                 }
+                None => true,
             })
             .map(|item| item.id.clone())
             .collect();
@@ -696,7 +759,11 @@ impl CloudflareHandle {
         if !managed_ids.is_empty() {
             ppfmt.noticef(
                 pp::EMOJI_DELETE,
-                &format!("Clearing {} items from WAF list {}", managed_ids.len(), waf_list.describe()),
+                &format!(
+                    "Clearing {} items from WAF list {}",
+                    managed_ids.len(),
+                    waf_list.describe()
+                ),
             );
             self.delete_waf_list_items(&waf_list.account_id, &list_meta.id, &managed_ids, ppfmt)
                 .await;
@@ -716,7 +783,10 @@ mod tests {
     use super::*;
     use crate::pp::PP;
     use std::net::IpAddr;
-    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::{method, path, query_param}};
+    use wiremock::{
+        matchers::{method, path, query_param},
+        Mock, MockServer, ResponseTemplate,
+    };
 
     fn pp() -> PP {
         PP::new(false, false)
@@ -855,7 +925,12 @@ mod tests {
         serde_json::json!({ "result": [] })
     }
 
-    fn dns_record_json(id: &str, name: &str, content: &str, comment: Option<&str>) -> serde_json::Value {
+    fn dns_record_json(
+        id: &str,
+        name: &str,
+        content: &str,
+        comment: Option<&str>,
+    ) -> serde_json::Value {
         serde_json::json!({
             "id": id,
             "name": name,
@@ -888,7 +963,9 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/zones"))
             .and(query_param("name", "example.com"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(zone_response("zone-1", "example.com")))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(zone_response("zone-1", "example.com")),
+            )
             .mount(&server)
             .await;
 
@@ -940,9 +1017,7 @@ mod tests {
     #[tokio::test]
     async fn list_records_by_name_case_insensitive() {
         let server = MockServer::start().await;
-        let body = dns_list_response(vec![
-            dns_record_json("r1", "example.com", "1.2.3.4", None),
-        ]);
+        let body = dns_list_response(vec![dns_record_json("r1", "example.com", "1.2.3.4", None)]);
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
@@ -971,7 +1046,9 @@ mod tests {
             .await;
 
         let h = handle(&server.uri());
-        let records = h.list_records_by_name("z1", "A", "a.example.com", &pp()).await;
+        let records = h
+            .list_records_by_name("z1", "A", "a.example.com", &pp())
+            .await;
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].content, "1.2.3.4");
     }
@@ -1035,7 +1112,10 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("DELETE"))
             .and(path("/zones/z1/dns_records/r1"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": { "id": "r1" } })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "result": { "id": "r1" } })),
+            )
             .mount(&server)
             .await;
 
@@ -1057,16 +1137,31 @@ mod tests {
         // create
         Mock::given(method("POST"))
             .and(path("/zones/z1/dns_records"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                dns_single_response(dns_record_json("new1", "a.example.com", "1.2.3.4", None)),
-            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_single_response(dns_record_json(
+                    "new1",
+                    "a.example.com",
+                    "1.2.3.4",
+                    None,
+                ))),
+            )
             .mount(&server)
             .await;
 
         let h = handle(&server.uri());
         let ips: Vec<IpAddr> = vec!["1.2.3.4".parse().unwrap()];
         let result = h
-            .set_ips("z1", "a.example.com", "A", &ips, false, TTL::AUTO, None, false, &pp())
+            .set_ips(
+                "z1",
+                "a.example.com",
+                "A",
+                &ips,
+                false,
+                TTL::AUTO,
+                None,
+                false,
+                &pp(),
+            )
             .await;
         assert_eq!(result, SetResult::Updated);
     }
@@ -1078,16 +1173,31 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
-                dns_record_json("r1", "a.example.com", "1.2.3.4", None),
-            ])))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_list_response(vec![dns_record_json(
+                    "r1",
+                    "a.example.com",
+                    "1.2.3.4",
+                    None,
+                )])),
+            )
             .mount(&server)
             .await;
 
         let h = handle(&server.uri());
         let ips: Vec<IpAddr> = vec!["1.2.3.4".parse().unwrap()];
         let result = h
-            .set_ips("z1", "a.example.com", "A", &ips, false, TTL::AUTO, None, false, &pp())
+            .set_ips(
+                "z1",
+                "a.example.com",
+                "A",
+                &ips,
+                false,
+                TTL::AUTO,
+                None,
+                false,
+                &pp(),
+            )
             .await;
         assert_eq!(result, SetResult::Noop);
     }
@@ -1099,23 +1209,43 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
-                dns_record_json("r1", "a.example.com", "9.9.9.9", None),
-            ])))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_list_response(vec![dns_record_json(
+                    "r1",
+                    "a.example.com",
+                    "9.9.9.9",
+                    None,
+                )])),
+            )
             .mount(&server)
             .await;
         Mock::given(method("PUT"))
             .and(path("/zones/z1/dns_records/r1"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                dns_single_response(dns_record_json("r1", "a.example.com", "1.2.3.4", None)),
-            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_single_response(dns_record_json(
+                    "r1",
+                    "a.example.com",
+                    "1.2.3.4",
+                    None,
+                ))),
+            )
             .mount(&server)
             .await;
 
         let h = handle(&server.uri());
         let ips: Vec<IpAddr> = vec!["1.2.3.4".parse().unwrap()];
         let result = h
-            .set_ips("z1", "a.example.com", "A", &ips, false, TTL::AUTO, None, false, &pp())
+            .set_ips(
+                "z1",
+                "a.example.com",
+                "A",
+                &ips,
+                false,
+                TTL::AUTO,
+                None,
+                false,
+                &pp(),
+            )
             .await;
         assert_eq!(result, SetResult::Updated);
     }
@@ -1127,22 +1257,37 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
-                dns_record_json("r1", "a.example.com", "1.2.3.4", None),
-                dns_record_json("r2", "a.example.com", "5.5.5.5", None),
-            ])))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
+                    dns_record_json("r1", "a.example.com", "1.2.3.4", None),
+                    dns_record_json("r2", "a.example.com", "5.5.5.5", None),
+                ])),
+            )
             .mount(&server)
             .await;
         Mock::given(method("DELETE"))
             .and(path("/zones/z1/dns_records/r2"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": { "id": "r2" } })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "result": { "id": "r2" } })),
+            )
             .mount(&server)
             .await;
 
         let h = handle(&server.uri());
         let ips: Vec<IpAddr> = vec!["1.2.3.4".parse().unwrap()];
         let result = h
-            .set_ips("z1", "a.example.com", "A", &ips, false, TTL::AUTO, None, false, &pp())
+            .set_ips(
+                "z1",
+                "a.example.com",
+                "A",
+                &ips,
+                false,
+                TTL::AUTO,
+                None,
+                false,
+                &pp(),
+            )
             .await;
         assert_eq!(result, SetResult::Updated);
     }
@@ -1154,21 +1299,39 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
-                dns_record_json("r1", "a.example.com", "1.2.3.4", None),
-            ])))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_list_response(vec![dns_record_json(
+                    "r1",
+                    "a.example.com",
+                    "1.2.3.4",
+                    None,
+                )])),
+            )
             .mount(&server)
             .await;
         Mock::given(method("DELETE"))
             .and(path("/zones/z1/dns_records/r1"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": { "id": "r1" } })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "result": { "id": "r1" } })),
+            )
             .mount(&server)
             .await;
 
         let h = handle(&server.uri());
         let ips: Vec<IpAddr> = vec![];
         let result = h
-            .set_ips("z1", "a.example.com", "A", &ips, false, TTL::AUTO, None, false, &pp())
+            .set_ips(
+                "z1",
+                "a.example.com",
+                "A",
+                &ips,
+                false,
+                TTL::AUTO,
+                None,
+                false,
+                &pp(),
+            )
             .await;
         assert_eq!(result, SetResult::Updated);
     }
@@ -1188,7 +1351,17 @@ mod tests {
         let h = handle(&server.uri());
         let ips: Vec<IpAddr> = vec!["1.2.3.4".parse().unwrap()];
         let result = h
-            .set_ips("z1", "a.example.com", "A", &ips, false, TTL::AUTO, None, true, &pp())
+            .set_ips(
+                "z1",
+                "a.example.com",
+                "A",
+                &ips,
+                false,
+                TTL::AUTO,
+                None,
+                true,
+                &pp(),
+            )
             .await;
         assert_eq!(result, SetResult::Updated);
     }
@@ -1258,21 +1431,29 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
-                dns_record_json("r1", "a.example.com", "1.2.3.4", None),
-                dns_record_json("r2", "a.example.com", "5.6.7.8", None),
-            ])))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
+                    dns_record_json("r1", "a.example.com", "1.2.3.4", None),
+                    dns_record_json("r2", "a.example.com", "5.6.7.8", None),
+                ])),
+            )
             .mount(&server)
             .await;
         Mock::given(method("DELETE"))
             .and(path("/zones/z1/dns_records/r1"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": { "id": "r1" } })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "result": { "id": "r1" } })),
+            )
             .expect(1)
             .mount(&server)
             .await;
         Mock::given(method("DELETE"))
             .and(path("/zones/z1/dns_records/r2"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": { "id": "r2" } })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "result": { "id": "r2" } })),
+            )
             .expect(1)
             .mount(&server)
             .await;
@@ -1344,13 +1525,17 @@ mod tests {
         // list items - empty
         Mock::given(method("GET"))
             .and(path("/accounts/acct1/rules/lists/wl-1/items"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": [] })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": [] })),
+            )
             .mount(&server)
             .await;
         // create items
         Mock::given(method("POST"))
             .and(path("/accounts/acct1/rules/lists/wl-1/items"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": {} })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": {} })),
+            )
             .mount(&server)
             .await;
 
@@ -1360,7 +1545,9 @@ mod tests {
             list_name: "mylist".to_string(),
         };
         let ips: Vec<IpAddr> = vec!["10.0.0.1".parse().unwrap()];
-        let result = h.set_waf_list(&wl, &ips, Some("ddns"), None, false, &pp()).await;
+        let result = h
+            .set_waf_list(&wl, &ips, Some("ddns"), None, false, &pp())
+            .await;
         assert_eq!(result, SetResult::Updated);
     }
 
@@ -1404,7 +1591,9 @@ mod tests {
 
         let h = handle(&server.uri());
         let pp = PP::new(false, true); // quiet
-        let result: Option<CfListResponse<ZoneResult>> = h.api_request(reqwest::Method::GET, "zones", None::<&()>, &pp).await;
+        let result: Option<CfListResponse<ZoneResult>> = h
+            .api_request(reqwest::Method::GET, "zones", None::<&()>, &pp)
+            .await;
         assert!(result.is_none());
     }
 
@@ -1419,7 +1608,9 @@ mod tests {
         let h = handle(&server.uri());
         let pp = PP::new(false, true);
         let body = serde_json::json!({"test": true});
-        let result: Option<CfResponse<serde_json::Value>> = h.api_request(reqwest::Method::POST, "endpoint", Some(&body), &pp).await;
+        let result: Option<CfResponse<serde_json::Value>> = h
+            .api_request(reqwest::Method::POST, "endpoint", Some(&body), &pp)
+            .await;
         assert!(result.is_none());
     }
 
@@ -1434,7 +1625,9 @@ mod tests {
         let h = handle(&server.uri());
         let pp = PP::new(false, true);
         let body = serde_json::json!({"test": true});
-        let result: Option<CfResponse<serde_json::Value>> = h.api_request(reqwest::Method::PUT, "endpoint", Some(&body), &pp).await;
+        let result: Option<CfResponse<serde_json::Value>> = h
+            .api_request(reqwest::Method::PUT, "endpoint", Some(&body), &pp)
+            .await;
         assert!(result.is_none());
     }
 
@@ -1458,23 +1651,30 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
-                serde_json::json!({
-                    "id": "r1",
-                    "name": "a.example.com",
-                    "content": "1.2.3.4",
-                    "proxied": false,
-                    "ttl": 1,
-                    "comment": null
-                }),
-            ])))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
+                    serde_json::json!({
+                        "id": "r1",
+                        "name": "a.example.com",
+                        "content": "1.2.3.4",
+                        "proxied": false,
+                        "ttl": 1,
+                        "comment": null
+                    }),
+                ])),
+            )
             .mount(&server)
             .await;
         Mock::given(method("PUT"))
             .and(path("/zones/z1/dns_records/r1"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                dns_single_response(dns_record_json("r1", "a.example.com", "1.2.3.4", None)),
-            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_single_response(dns_record_json(
+                    "r1",
+                    "a.example.com",
+                    "1.2.3.4",
+                    None,
+                ))),
+            )
             .expect(1)
             .mount(&server)
             .await;
@@ -1483,7 +1683,17 @@ mod tests {
         let ips: Vec<IpAddr> = vec!["1.2.3.4".parse().unwrap()];
         // proxied=true but record has proxied=false -> should update
         let result = h
-            .set_ips("z1", "a.example.com", "A", &ips, true, TTL::AUTO, None, false, &pp())
+            .set_ips(
+                "z1",
+                "a.example.com",
+                "A",
+                &ips,
+                true,
+                TTL::AUTO,
+                None,
+                false,
+                &pp(),
+            )
             .await;
         assert_eq!(result, SetResult::Updated);
     }
@@ -1495,16 +1705,31 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
-                dns_record_json("r1", "a.example.com", "9.9.9.9", None),
-            ])))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_list_response(vec![dns_record_json(
+                    "r1",
+                    "a.example.com",
+                    "9.9.9.9",
+                    None,
+                )])),
+            )
             .mount(&server)
             .await;
 
         let h = handle(&server.uri());
         let ips: Vec<IpAddr> = vec!["1.2.3.4".parse().unwrap()];
         let result = h
-            .set_ips("z1", "a.example.com", "A", &ips, false, TTL::AUTO, None, true, &pp())
+            .set_ips(
+                "z1",
+                "a.example.com",
+                "A",
+                &ips,
+                false,
+                TTL::AUTO,
+                None,
+                true,
+                &pp(),
+            )
             .await;
         assert_eq!(result, SetResult::Updated);
     }
@@ -1523,7 +1748,17 @@ mod tests {
         let h = handle(&server.uri());
         let ips: Vec<IpAddr> = vec![];
         let result = h
-            .set_ips("z1", "a.example.com", "A", &ips, false, TTL::AUTO, None, false, &pp())
+            .set_ips(
+                "z1",
+                "a.example.com",
+                "A",
+                &ips,
+                false,
+                TTL::AUTO,
+                None,
+                false,
+                &pp(),
+            )
             .await;
         assert_eq!(result, SetResult::Noop);
     }
@@ -1535,16 +1770,31 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
-                dns_record_json("r1", "a.example.com", "1.2.3.4", None),
-            ])))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_list_response(vec![dns_record_json(
+                    "r1",
+                    "a.example.com",
+                    "1.2.3.4",
+                    None,
+                )])),
+            )
             .mount(&server)
             .await;
 
         let h = handle(&server.uri());
         let ips: Vec<IpAddr> = vec![];
         let result = h
-            .set_ips("z1", "a.example.com", "A", &ips, false, TTL::AUTO, None, true, &pp())
+            .set_ips(
+                "z1",
+                "a.example.com",
+                "A",
+                &ips,
+                false,
+                TTL::AUTO,
+                None,
+                true,
+                &pp(),
+            )
             .await;
         assert_eq!(result, SetResult::Updated);
     }
@@ -1659,7 +1909,9 @@ mod tests {
             .await;
         Mock::given(method("DELETE"))
             .and(path("/accounts/acct1/rules/lists/wl-1/items"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": {} })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": {} })),
+            )
             .expect(1)
             .mount(&server)
             .await;
@@ -1716,7 +1968,9 @@ mod tests {
         // delete items
         Mock::given(method("DELETE"))
             .and(path("/accounts/acct1/rules/lists/wl-1/items"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": {} })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": {} })),
+            )
             .mount(&server)
             .await;
 

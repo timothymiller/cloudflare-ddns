@@ -18,7 +18,7 @@ Configure everything with environment variables. Supports notifications, heartbe
 - 🃏 **Wildcard domains** — Support for `*.example.com` records
 - 🌍 **Internationalized domain names** — Full IDN/punycode support (e.g. `münchen.de`)
 - 🛡️ **WAF list management** — Automatically update Cloudflare WAF IP lists
-- 🔔 **Notifications** — Shoutrrr-compatible notifications (Discord, Slack, Telegram, Gotify, Pushover, generic webhooks)
+- 🔔 **Notifications** — Shoutrrr-compatible notifications (Discord, Slack, Telegram, Gotify, Pushover, Zulip, generic webhooks)
 - 💓 **Heartbeat monitoring** — Healthchecks.io and Uptime Kuma integration
 - ⏱️ **Cron scheduling** — Flexible update intervals via cron expressions
 - 🧪 **Dry-run mode** — Preview changes without modifying DNS records
@@ -29,6 +29,7 @@ Configure everything with environment variables. Supports notifications, heartbe
 - 🔒 **Zero-log IP detection** — Uses Cloudflare's [cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace) by default
 - 🏠 **CGNAT-aware local detection** — Filters out shared address space (100.64.0.0/10) and private ranges
 - 🚫 **Cloudflare IP rejection** — Automatically rejects Cloudflare anycast IPs to prevent incorrect DNS updates
+- 🛟 **Outage-proof updates** — Transient IP detection failures never delete or overwrite existing DNS records
 - 🤏 **Tiny static binary** — ~1.1 MB Docker image built from scratch, zero runtime dependencies
 
 ## 🚀 Quick Start
@@ -108,7 +109,7 @@ To disable this protection, set `REJECT_CLOUDFLARE_IPS=false`.
 | `UPDATE_CRON` | `@every 5m` | Update schedule |
 | `UPDATE_ON_START` | `true` | Run an update immediately on startup |
 | `DELETE_ON_STOP` | `false` | Delete managed DNS records on shutdown |
-| `DELETE_ON_FAILURE` | `true` | Delete managed DNS records when failed to obtain IP from provider |
+| `DELETE_ON_FAILURE` | `false` | Delete managed DNS records when a provider definitively reports no address of that family (see below) |
 
 Schedule formats:
 
@@ -118,6 +119,13 @@ Schedule formats:
 - `@once` — Run once and exit
 
 When `UPDATE_CRON=@once`, `UPDATE_ON_START` must be `true` and `DELETE_ON_STOP` must be `false`.
+
+### 🛟 Detection Failure Behavior
+
+A failed IP detection never breaks your DNS. Two cases are distinguished:
+
+- **Transient failure** — a network-based provider (`cloudflare.trace`, `cloudflare.doh`, `ipify`, `url:`) errored, or all detected IPs were rejected as Cloudflare IPs. The real IP is unknown, so the update is skipped and existing DNS records and WAF list items are always preserved, regardless of `DELETE_ON_FAILURE`. If detection fails for one address family, WAF list updates are skipped entirely so the failed family's IPs aren't stripped from the list.
+- **Definitive absence** — a deterministic provider (`none`, `literal:`, `local`, `local.iface:`) reports that the host has no address of that family. With `DELETE_ON_FAILURE=true` the managed records for that family are deleted; with the default `false` the update is skipped and existing records are preserved.
 
 ## 📝 DNS Record Settings
 
@@ -167,7 +175,12 @@ Supported services:
 | ✈️ Telegram | `telegram://bot-token@telegram?chats=chat-id` |
 | 📡 Gotify | `gotify://host/path?token=app-token` |
 | 📲 Pushover | `pushover://user-key@api-token` |
+| 💬 Zulip | `zulip://bot-mail:bot-key@host/?stream=stream-name&topic=topic-name` |
 | 🌐 Generic webhook | `generic://host/path` or `generic+https://host/path` |
+
+For Zulip, the `@` in the bot email may be written literally or percent-encoded (`%40`), and `topic` is optional (defaults to `Cloudflare DDNS`).
+
+Generic webhooks send a JSON payload of `{"message": "..."}`. Use `?messagekey=<field>` to rename the field, e.g. `generic://host/path?messagekey=text` for services expecting Slack-style payloads.
 
 Notifications are sent when DNS records are updated, created, deleted, or when errors occur.
 
@@ -215,7 +228,7 @@ Heartbeats are sent after each update cycle. On failure, a fail signal is sent. 
 | `UPDATE_CRON` | `@every 5m` | ⏱️ Update schedule |
 | `UPDATE_ON_START` | `true` | 🚀 Update on startup |
 | `DELETE_ON_STOP` | `false` | 🧹 Delete records on shutdown |
-| `DELETE_ON_FAILURE` | `true` | 🧹 Delete records if failed to obtain new records |
+| `DELETE_ON_FAILURE` | `false` | 🧹 Delete records when provider definitively reports no IP |
 | `TTL` | `1` | ⏳ DNS record TTL |
 | `PROXIED` | `false` | ☁️ Proxied expression |
 | `RECORD_COMMENT` | — | 💬 DNS record comment |

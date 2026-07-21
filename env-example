@@ -39,6 +39,12 @@ DOMAINS=example.com,www.example.com
 # Delete managed DNS records on shutdown (default: false)
 # DELETE_ON_STOP=false
 
+# Delete managed DNS records when a provider definitively reports no address
+# of that family, e.g. "none" or an interface without one (default: false).
+# Transient detection errors (network failures) always preserve existing
+# records, regardless of this setting.
+# DELETE_ON_FAILURE=false
+
 # === DNS Records ===
 
 # TTL in seconds: 1=auto, or 30-86400 (default: 1)

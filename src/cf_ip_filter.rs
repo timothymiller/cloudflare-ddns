@@ -78,9 +78,7 @@ impl CloudflareIpFilter {
                                 None => {
                                     ppfmt.warningf(
                                         pp::EMOJI_WARNING,
-                                        &format!(
-                                            "Failed to parse Cloudflare IP range '{line}'"
-                                        ),
+                                        &format!("Failed to parse Cloudflare IP range '{line}'"),
                                     );
                                 }
                             }

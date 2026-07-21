@@ -89,12 +89,22 @@ struct ShoutrrrService {
 }
 
 enum ShoutrrrServiceType {
-    Generic,
+    Generic {
+        // JSON field name for the message body ("message" unless overridden
+        // via ?messagekey=..., e.g. "text" for slack-compatible endpoints).
+        message_key: String,
+    },
     Discord,
     Slack,
     Telegram,
     Gotify,
     Pushover,
+    Zulip {
+        email: String,
+        api_key: String,
+        stream: String,
+        topic: String,
+    },
     Other(String),
 }
 
@@ -126,12 +136,13 @@ impl ShoutrrrNotifier {
             .urls
             .iter()
             .map(|s| match &s.service_type {
-                ShoutrrrServiceType::Generic => "generic webhook".to_string(),
+                ShoutrrrServiceType::Generic { .. } => "generic webhook".to_string(),
                 ShoutrrrServiceType::Discord => "Discord".to_string(),
                 ShoutrrrServiceType::Slack => "Slack".to_string(),
                 ShoutrrrServiceType::Telegram => "Telegram".to_string(),
                 ShoutrrrServiceType::Gotify => "Gotify".to_string(),
                 ShoutrrrServiceType::Pushover => "Pushover".to_string(),
+                ShoutrrrServiceType::Zulip { .. } => "Zulip".to_string(),
                 ShoutrrrServiceType::Other(name) => name.clone(),
             })
             .collect();
@@ -147,8 +158,13 @@ impl ShoutrrrNotifier {
         let mut all_ok = true;
         for service in &self.urls {
             let ok = match &service.service_type {
-                ShoutrrrServiceType::Generic => self.send_generic(&service.webhook_url, &text).await,
-                ShoutrrrServiceType::Discord => self.send_discord(&service.webhook_url, &text).await,
+                ShoutrrrServiceType::Generic { message_key } => {
+                    self.send_generic(&service.webhook_url, message_key, &text)
+                        .await
+                }
+                ShoutrrrServiceType::Discord => {
+                    self.send_discord(&service.webhook_url, &text).await
+                }
                 ShoutrrrServiceType::Slack => self.send_slack(&service.webhook_url, &text).await,
                 ShoutrrrServiceType::Telegram => {
                     self.send_telegram(&service.webhook_url, &text).await
@@ -157,7 +173,19 @@ impl ShoutrrrNotifier {
                 ShoutrrrServiceType::Pushover => {
                     self.send_pushover(&service.webhook_url, &text).await
                 }
-                ShoutrrrServiceType::Other(_) => self.send_generic(&service.webhook_url, &text).await,
+                ShoutrrrServiceType::Zulip {
+                    email,
+                    api_key,
+                    stream,
+                    topic,
+                } => {
+                    self.send_zulip(&service.webhook_url, email, api_key, stream, topic, &text)
+                        .await
+                }
+                ShoutrrrServiceType::Other(_) => {
+                    self.send_generic(&service.webhook_url, "message", &text)
+                        .await
+                }
             };
             if !ok {
                 ppfmt.warningf(
@@ -170,11 +198,39 @@ impl ShoutrrrNotifier {
         all_ok
     }
 
-    async fn send_generic(&self, url: &str, text: &str) -> bool {
-        let body = serde_json::json!({ "message": text });
+    async fn send_generic(&self, url: &str, message_key: &str, text: &str) -> bool {
+        let mut body = serde_json::Map::new();
+        body.insert(message_key.to_string(), serde_json::Value::from(text));
         self.client
             .post(url)
-            .json(&body)
+            .json(&serde_json::Value::Object(body))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    }
+
+    async fn send_zulip(
+        &self,
+        api_url: &str,
+        email: &str,
+        api_key: &str,
+        stream: &str,
+        topic: &str,
+        text: &str,
+    ) -> bool {
+        // Zulip API: POST /api/v1/messages with Basic auth (bot email + API key)
+        // and form-encoded fields. https://zulip.com/api/send-message
+        let params = [
+            ("type", "stream"),
+            ("to", stream),
+            ("topic", topic),
+            ("content", text),
+        ];
+        self.client
+            .post(api_url)
+            .basic_auth(email, Some(api_key))
+            .form(&params)
             .send()
             .await
             .map(|r| r.status().is_success())
@@ -358,12 +414,133 @@ fn parse_gotify_url(
     })
 }
 
+/// Decode %XX percent-escapes. Unlike form decoding, '+' stays literal so
+/// bot emails like "ddns+bot@example.com" survive; use %20 for spaces.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (
+                (bytes[i + 1] as char).to_digit(16),
+                (bytes[i + 2] as char).to_digit(16),
+            ) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Pull the shoutrrr generic `messagekey` prop out of the query string,
+/// returning the URL remainder (with that pair removed) and the JSON field
+/// name to use for the message body.
+fn extract_messagekey(rest: &str) -> (String, String) {
+    let (path, query) = match rest.split_once('?') {
+        Some((p, q)) => (p, q),
+        None => return (rest.to_string(), "message".to_string()),
+    };
+
+    let mut message_key = "message".to_string();
+    let mut kept = Vec::new();
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        match pair.split_once('=') {
+            Some(("messagekey", v)) if !v.is_empty() => message_key = percent_decode(v),
+            _ => kept.push(pair),
+        }
+    }
+
+    let rest = if kept.is_empty() {
+        path.to_string()
+    } else {
+        format!("{path}?{}", kept.join("&"))
+    };
+    (rest, message_key)
+}
+
+/// Build a Zulip service from a shoutrrr-style URL.
+///
+/// Format: zulip://botmail:botkey@host/?stream=STREAM[&topic=TOPIC]
+///
+/// The '@' in the bot email may be given literally or percent-encoded (%40);
+/// the LAST '@' separates credentials from the host. Messages are sent to
+/// https://host/api/v1/messages with Basic auth (issue #271).
+fn parse_zulip_url(original: &str, rest: &str) -> Result<ShoutrrrService, String> {
+    let (creds, host_part) = rest.rsplit_once('@').ok_or_else(|| {
+        format!(
+            "Invalid Zulip shoutrrr URL (expected zulip://botmail:botkey@host/?stream=...): {original}"
+        )
+    })?;
+    let (email, api_key) = creds.rsplit_once(':').ok_or_else(|| {
+        format!("Invalid Zulip shoutrrr URL (missing botkey after ':'): {original}")
+    })?;
+    let email = percent_decode(email);
+    let api_key = percent_decode(api_key);
+    if email.is_empty() || api_key.is_empty() {
+        return Err(format!(
+            "Invalid Zulip shoutrrr URL (empty botmail or botkey): {original}"
+        ));
+    }
+
+    let (host, query) = match host_part.split_once('?') {
+        Some((h, q)) => (h, q),
+        None => (host_part, ""),
+    };
+    let host = host.trim_end_matches('/');
+    if host.is_empty() {
+        return Err(format!(
+            "Invalid Zulip shoutrrr URL (missing host): {original}"
+        ));
+    }
+
+    let mut stream = None;
+    let mut topic = None;
+    for pair in query.split('&') {
+        if let Some((k, v)) = pair.split_once('=') {
+            match k {
+                "stream" => stream = Some(percent_decode(v)),
+                "topic" => topic = Some(percent_decode(v)),
+                _ => {}
+            }
+        }
+    }
+
+    let stream = match stream {
+        Some(s) if !s.is_empty() => s,
+        _ => {
+            return Err(format!(
+                "Invalid Zulip shoutrrr URL (missing ?stream=...): {original}"
+            ));
+        }
+    };
+    let topic = topic
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| "Cloudflare DDNS".to_string());
+
+    Ok(ShoutrrrService {
+        original_url: original.to_string(),
+        service_type: ShoutrrrServiceType::Zulip {
+            email,
+            api_key,
+            stream,
+            topic,
+        },
+        webhook_url: format!("https://{host}/api/v1/messages"),
+    })
+}
+
 fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
     // Shoutrrr URL formats:
     // discord://token@id -> https://discord.com/api/webhooks/id/token
     // slack://token-a/token-b/token-c -> https://hooks.slack.com/services/token-a/token-b/token-c
     // telegram://token@telegram?chats=chatid -> https://api.telegram.org/bot{token}/sendMessage?chat_id={chatid}
     // gotify://host/path?token=TOKEN -> https://host/path/message?token=TOKEN
+    // zulip://botmail:botkey@host/?stream=STREAM&topic=TOPIC -> https://host/api/v1/messages
     // generic://host/path -> https://host/path
     // generic+https://host/path -> https://host/path
 
@@ -427,21 +604,27 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
         return parse_gotify_url(url_str, rest, default_scheme);
     }
 
+    if let Some(rest) = url_str.strip_prefix("zulip://") {
+        return parse_zulip_url(url_str, rest);
+    }
+
     if let Some(rest) = url_str
         .strip_prefix("generic://")
         .or_else(|| url_str.strip_prefix("generic+https://"))
     {
+        let (rest, message_key) = extract_messagekey(rest);
         return Ok(ShoutrrrService {
             original_url: url_str.to_string(),
-            service_type: ShoutrrrServiceType::Generic,
+            service_type: ShoutrrrServiceType::Generic { message_key },
             webhook_url: format!("https://{rest}"),
         });
     }
 
     if let Some(rest) = url_str.strip_prefix("generic+http://") {
+        let (rest, message_key) = extract_messagekey(rest);
         return Ok(ShoutrrrService {
             original_url: url_str.to_string(),
-            service_type: ShoutrrrServiceType::Generic,
+            service_type: ShoutrrrServiceType::Generic { message_key },
             webhook_url: format!("http://{rest}"),
         });
     }
@@ -479,7 +662,9 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
     if url_str.starts_with("http://") || url_str.starts_with("https://") {
         return Ok(ShoutrrrService {
             original_url: url_str.to_string(),
-            service_type: ShoutrrrServiceType::Generic,
+            service_type: ShoutrrrServiceType::Generic {
+                message_key: "message".to_string(),
+            },
             webhook_url: url_str.to_string(),
         });
     }
@@ -508,9 +693,7 @@ pub trait HeartbeatMonitor: Send + Sync {
         &'a self,
         msg: &'a Message,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>;
-    fn start(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>>;
+    fn start(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>>;
     fn exit<'a>(
         &'a self,
         msg: &'a Message,
@@ -594,9 +777,7 @@ impl HeartbeatMonitor for HealthchecksMonitor {
         })
     }
 
-    fn start(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+    fn start(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
         Box::pin(async move { self.send_ping("start", None).await })
     }
 
@@ -656,9 +837,7 @@ impl HeartbeatMonitor for UptimeKumaMonitor {
         })
     }
 
-    fn start(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+    fn start(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
         Box::pin(async move {
             let url = format!("{}?status=up&msg=Starting", self.base_url);
             self.client
@@ -812,16 +991,12 @@ mod tests {
 
     #[test]
     fn test_parse_telegram() {
-        let result =
-            parse_shoutrrr_url("telegram://bottoken123@telegram?chats=12345").unwrap();
+        let result = parse_shoutrrr_url("telegram://bottoken123@telegram?chats=12345").unwrap();
         assert_eq!(
             result.webhook_url,
             "https://api.telegram.org/botbottoken123/sendMessage?chat_id=12345"
         );
-        assert!(matches!(
-            result.service_type,
-            ShoutrrrServiceType::Telegram
-        ));
+        assert!(matches!(result.service_type, ShoutrrrServiceType::Telegram));
     }
 
     #[test]
@@ -844,9 +1019,10 @@ mod tests {
     #[test]
     fn test_parse_gotify_token_query_param() {
         // Older "gotify://host?token=..." form (issue #262).
-        let result =
-            parse_shoutrrr_url("gotify://192.168.178.222:9090?token=AtE2tUGQig67b0J&disabletls=yes")
-                .unwrap();
+        let result = parse_shoutrrr_url(
+            "gotify://192.168.178.222:9090?token=AtE2tUGQig67b0J&disabletls=yes",
+        )
+        .unwrap();
         assert_eq!(
             result.webhook_url,
             "http://192.168.178.222:9090/message?token=AtE2tUGQig67b0J"
@@ -855,8 +1031,7 @@ mod tests {
 
     #[test]
     fn test_parse_gotify_disabletls_switches_to_http() {
-        let result =
-            parse_shoutrrr_url("gotify://10.0.0.1:8080/TOKEN123?disabletls=yes").unwrap();
+        let result = parse_shoutrrr_url("gotify://10.0.0.1:8080/TOKEN123?disabletls=yes").unwrap();
         assert_eq!(
             result.webhook_url,
             "http://10.0.0.1:8080/message?token=TOKEN123"
@@ -882,23 +1057,30 @@ mod tests {
     fn test_parse_generic() {
         let result = parse_shoutrrr_url("generic://example.com/webhook").unwrap();
         assert_eq!(result.webhook_url, "https://example.com/webhook");
-        assert!(matches!(result.service_type, ShoutrrrServiceType::Generic));
+        assert!(matches!(
+            result.service_type,
+            ShoutrrrServiceType::Generic { .. }
+        ));
     }
 
     #[test]
     fn test_parse_generic_plus_https() {
-        let result =
-            parse_shoutrrr_url("generic+https://example.com/webhook").unwrap();
+        let result = parse_shoutrrr_url("generic+https://example.com/webhook").unwrap();
         assert_eq!(result.webhook_url, "https://example.com/webhook");
-        assert!(matches!(result.service_type, ShoutrrrServiceType::Generic));
+        assert!(matches!(
+            result.service_type,
+            ShoutrrrServiceType::Generic { .. }
+        ));
     }
 
     #[test]
     fn test_parse_generic_plus_http() {
-        let result =
-            parse_shoutrrr_url("generic+http://example.com/webhook").unwrap();
+        let result = parse_shoutrrr_url("generic+http://example.com/webhook").unwrap();
         assert_eq!(result.webhook_url, "http://example.com/webhook");
-        assert!(matches!(result.service_type, ShoutrrrServiceType::Generic));
+        assert!(matches!(
+            result.service_type,
+            ShoutrrrServiceType::Generic { .. }
+        ));
     }
 
     #[test]
@@ -908,18 +1090,14 @@ mod tests {
             result.webhook_url,
             "https://api.pushover.net/1/messages.json?token=apitoken&user=userkey"
         );
-        assert!(matches!(
-            result.service_type,
-            ShoutrrrServiceType::Pushover
-        ));
+        assert!(matches!(result.service_type, ShoutrrrServiceType::Pushover));
     }
 
     #[test]
     fn test_parse_pushover_shoutrrr_canonical_form() {
         // Shoutrrr's canonical URL has a literal "shoutrrr:" username.
         // Issue #258: parser must strip this prefix or Pushover rejects the token.
-        let result =
-            parse_shoutrrr_url("pushover://shoutrrr:apitoken@userkey").unwrap();
+        let result = parse_shoutrrr_url("pushover://shoutrrr:apitoken@userkey").unwrap();
         assert_eq!(
             result.webhook_url,
             "https://api.pushover.net/1/messages.json?token=apitoken&user=userkey"
@@ -930,8 +1108,7 @@ mod tests {
     fn test_parse_pushover_strips_query_params() {
         // Optional shoutrrr query params (devices, priority) should not break parsing.
         let result =
-            parse_shoutrrr_url("pushover://shoutrrr:tok@user/?devices=phone&priority=1")
-                .unwrap();
+            parse_shoutrrr_url("pushover://shoutrrr:tok@user/?devices=phone&priority=1").unwrap();
         assert_eq!(
             result.webhook_url,
             "https://api.pushover.net/1/messages.json?token=tok&user=user"
@@ -951,19 +1128,143 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_plain_https_url() {
+    fn test_parse_zulip_basic() {
+        // Shoutrrr canonical format: zulip://botmail:botkey@host/?stream=...&topic=...
+        let result = parse_shoutrrr_url(
+            "zulip://bot%40example.com:APIKEY123@zulip.example.com/?stream=alerts&topic=ddns",
+        )
+        .unwrap();
+        assert_eq!(
+            result.webhook_url,
+            "https://zulip.example.com/api/v1/messages"
+        );
+        match &result.service_type {
+            ShoutrrrServiceType::Zulip {
+                email,
+                api_key,
+                stream,
+                topic,
+            } => {
+                assert_eq!(email, "bot@example.com");
+                assert_eq!(api_key, "APIKEY123");
+                assert_eq!(stream, "alerts");
+                assert_eq!(topic, "ddns");
+            }
+            _ => panic!("expected Zulip service type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_zulip_unencoded_bot_email() {
+        // A literal '@' in the bot email must not break host detection:
+        // the LAST '@' separates credentials from host.
         let result =
-            parse_shoutrrr_url("https://hooks.example.com/notify").unwrap();
+            parse_shoutrrr_url("zulip://ddns-bot@example.com:secret@chat.example.com/?stream=ops")
+                .unwrap();
+        match &result.service_type {
+            ShoutrrrServiceType::Zulip { email, api_key, .. } => {
+                assert_eq!(email, "ddns-bot@example.com");
+                assert_eq!(api_key, "secret");
+            }
+            _ => panic!("expected Zulip service type"),
+        }
+        assert_eq!(
+            result.webhook_url,
+            "https://chat.example.com/api/v1/messages"
+        );
+    }
+
+    #[test]
+    fn test_parse_zulip_default_topic() {
+        let result =
+            parse_shoutrrr_url("zulip://bot%40x.com:key@zulip.x.com/?stream=general").unwrap();
+        match &result.service_type {
+            ShoutrrrServiceType::Zulip { topic, .. } => assert_eq!(topic, "Cloudflare DDNS"),
+            _ => panic!("expected Zulip service type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_zulip_percent_encoded_stream_and_topic() {
+        let result = parse_shoutrrr_url(
+            "zulip://bot%40x.com:key@zulip.x.com/?stream=home%20lab&topic=dns%20updates",
+        )
+        .unwrap();
+        match &result.service_type {
+            ShoutrrrServiceType::Zulip { stream, topic, .. } => {
+                assert_eq!(stream, "home lab");
+                assert_eq!(topic, "dns updates");
+            }
+            _ => panic!("expected Zulip service type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_zulip_missing_stream_errors() {
+        assert!(parse_shoutrrr_url("zulip://bot%40x.com:key@zulip.x.com/").is_err());
+        assert!(parse_shoutrrr_url("zulip://bot%40x.com:key@zulip.x.com/?topic=t").is_err());
+    }
+
+    #[test]
+    fn test_parse_zulip_missing_credentials_errors() {
+        // No credentials at all
+        assert!(parse_shoutrrr_url("zulip://zulip.x.com/?stream=s").is_err());
+        // Email but no key
+        assert!(parse_shoutrrr_url("zulip://bot%40x.com@zulip.x.com/?stream=s").is_err());
+        // Empty key
+        assert!(parse_shoutrrr_url("zulip://bot%40x.com:@zulip.x.com/?stream=s").is_err());
+    }
+
+    #[test]
+    fn test_parse_generic_custom_messagekey() {
+        // Shoutrrr generic "messagekey" prop renames the JSON payload field
+        // (issue #271: Zulip's slack-compatible endpoints expect "text").
+        let result = parse_shoutrrr_url("generic://example.com/hook?messagekey=text").unwrap();
+        assert_eq!(result.webhook_url, "https://example.com/hook");
+        match &result.service_type {
+            ShoutrrrServiceType::Generic { message_key } => assert_eq!(message_key, "text"),
+            _ => panic!("expected Generic service type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_generic_messagekey_keeps_other_query_params() {
+        let result =
+            parse_shoutrrr_url("generic://example.com/hook?messagekey=text&foo=bar").unwrap();
+        assert_eq!(result.webhook_url, "https://example.com/hook?foo=bar");
+        match &result.service_type {
+            ShoutrrrServiceType::Generic { message_key } => assert_eq!(message_key, "text"),
+            _ => panic!("expected Generic service type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_generic_default_messagekey() {
+        let result = parse_shoutrrr_url("generic://example.com/hook").unwrap();
+        match &result.service_type {
+            ShoutrrrServiceType::Generic { message_key } => assert_eq!(message_key, "message"),
+            _ => panic!("expected Generic service type"),
+        }
+    }
+
+    #[test]
+    fn test_parse_plain_https_url() {
+        let result = parse_shoutrrr_url("https://hooks.example.com/notify").unwrap();
         assert_eq!(result.webhook_url, "https://hooks.example.com/notify");
-        assert!(matches!(result.service_type, ShoutrrrServiceType::Generic));
+        assert!(matches!(
+            result.service_type,
+            ShoutrrrServiceType::Generic { .. }
+        ));
     }
 
     #[test]
     fn test_parse_plain_http_url() {
-        let result =
-            parse_shoutrrr_url("http://hooks.example.com/notify").unwrap();
+        let result = parse_shoutrrr_url("http://hooks.example.com/notify").unwrap();
         assert_eq!(result.webhook_url, "http://hooks.example.com/notify");
-        assert!(matches!(result.service_type, ShoutrrrServiceType::Generic));
+        assert!(matches!(
+            result.service_type,
+            ShoutrrrServiceType::Generic { .. }
+        ));
     }
 
     #[test]
@@ -1227,7 +1528,9 @@ mod tests {
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "generic://example.com/hook".to_string(),
-                service_type: ShoutrrrServiceType::Generic,
+                service_type: ShoutrrrServiceType::Generic {
+                    message_key: "message".to_string(),
+                },
                 webhook_url: format!("{}/hook", server.uri()),
             }],
         };
@@ -1243,7 +1546,10 @@ mod tests {
             client: crate::test_client(),
             urls: vec![],
         };
-        let msg = Message { lines: Vec::new(), ok: true };
+        let msg = Message {
+            lines: Vec::new(),
+            ok: true,
+        };
         let pp = PP::default_pp();
         // Empty message should return true immediately
         let result = notifier.send(&msg, &pp).await;
@@ -1254,14 +1560,21 @@ mod tests {
 
     #[test]
     fn test_shoutrrr_notifier_new_valid() {
-        let urls = vec!["discord://token@id".to_string(), "slack://a/b/c".to_string()];
+        let urls = vec![
+            "discord://token@id".to_string(),
+            "slack://a/b/c".to_string(),
+        ];
         let notifier = ShoutrrrNotifier::new(&urls).unwrap();
         assert_eq!(notifier.urls.len(), 2);
     }
 
     #[test]
     fn test_shoutrrr_notifier_new_skips_empty() {
-        let urls = vec!["".to_string(), "  ".to_string(), "discord://token@id".to_string()];
+        let urls = vec![
+            "".to_string(),
+            "  ".to_string(),
+            "discord://token@id".to_string(),
+        ];
         let notifier = ShoutrrrNotifier::new(&urls).unwrap();
         assert_eq!(notifier.urls.len(), 1);
     }
@@ -1304,8 +1617,20 @@ mod tests {
                     webhook_url: "https://example.com".to_string(),
                 },
                 ShoutrrrService {
+                    original_url: "zulip://b%40h:k@h/?stream=s".to_string(),
+                    service_type: ShoutrrrServiceType::Zulip {
+                        email: "b@h".to_string(),
+                        api_key: "k".to_string(),
+                        stream: "s".to_string(),
+                        topic: "t".to_string(),
+                    },
+                    webhook_url: "https://example.com".to_string(),
+                },
+                ShoutrrrService {
                     original_url: "generic://h/p".to_string(),
-                    service_type: ShoutrrrServiceType::Generic,
+                    service_type: ShoutrrrServiceType::Generic {
+                        message_key: "message".to_string(),
+                    },
                     webhook_url: "https://example.com".to_string(),
                 },
                 ShoutrrrService {
@@ -1316,7 +1641,10 @@ mod tests {
             ],
         };
         let desc = notifier.describe();
-        assert_eq!(desc, "Discord, Slack, Telegram, Gotify, Pushover, generic webhook, custom");
+        assert_eq!(
+            desc,
+            "Discord, Slack, Telegram, Gotify, Pushover, Zulip, generic webhook, custom"
+        );
     }
 
     // ---- send_telegram, send_gotify, send_pushover with wiremock ----
@@ -1405,6 +1733,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_shoutrrr_send_zulip() {
+        use wiremock::matchers::{body_string_contains, header_exists};
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/messages"))
+            .and(header_exists("authorization"))
+            .and(body_string_contains("type=stream"))
+            .and(body_string_contains("to=alerts"))
+            .and(body_string_contains("content=zulip+test"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let notifier = ShoutrrrNotifier {
+            client: crate::test_client(),
+            urls: vec![ShoutrrrService {
+                original_url: "zulip://bot%40x.com:key@host/?stream=alerts".to_string(),
+                service_type: ShoutrrrServiceType::Zulip {
+                    email: "bot@x.com".to_string(),
+                    api_key: "key".to_string(),
+                    stream: "alerts".to_string(),
+                    topic: "ddns".to_string(),
+                },
+                webhook_url: format!("{}/api/v1/messages", server.uri()),
+            }],
+        };
+        let msg = Message::new_ok("zulip test");
+        let pp = PP::new(false, true);
+        let result = notifier.send(&msg, &pp).await;
+        assert!(result);
+    }
+
+    #[tokio::test]
+    async fn test_shoutrrr_send_generic_custom_messagekey() {
+        use wiremock::matchers::body_partial_json;
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(body_partial_json(
+                serde_json::json!({ "text": "generic test" }),
+            ))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let notifier = ShoutrrrNotifier {
+            client: crate::test_client(),
+            urls: vec![ShoutrrrService {
+                original_url: "generic://example.com/hook?messagekey=text".to_string(),
+                service_type: ShoutrrrServiceType::Generic {
+                    message_key: "text".to_string(),
+                },
+                webhook_url: format!("{}/hook", server.uri()),
+            }],
+        };
+        let msg = Message::new_ok("generic test");
+        let pp = PP::new(false, true);
+        let result = notifier.send(&msg, &pp).await;
+        assert!(result);
+    }
+
+    #[tokio::test]
     async fn test_shoutrrr_send_failure_logs_warning() {
         let server = MockServer::start().await;
 
@@ -1463,7 +1856,9 @@ mod tests {
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "generic://example.com/hook".to_string(),
-                service_type: ShoutrrrServiceType::Generic,
+                service_type: ShoutrrrServiceType::Generic {
+                    message_key: "message".to_string(),
+                },
                 webhook_url: format!("{}/hook", server.uri()),
             }],
         };

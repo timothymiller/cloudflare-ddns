@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "cloudflare-ddns"
-version = "2.1.2"
+version = "2.2.0"
 dependencies = [
  "if-addrs",
  "rand",

@@ -26,7 +26,6 @@ impl IpType {
             IpType::V6 => "AAAA",
         }
     }
-
 }
 
 /// All supported provider types
@@ -119,6 +118,38 @@ impl ProviderType {
         }
     }
 
+    /// Detect IPs using this provider, distinguishing a transient detection
+    /// failure from a definitive "this host has no address of this family".
+    ///
+    /// Network-based providers (trace, DoH, ipify, custom URL) can only fail —
+    /// an empty result means the lookup errored and the real IP is unknown, so
+    /// callers must not touch existing DNS records. Local sources (interfaces,
+    /// routing table, literals, `none`) are deterministic: an empty result is a
+    /// true absence and `delete_on_failure` semantics may apply.
+    pub async fn detect(
+        &self,
+        client: &Client,
+        ip_type: IpType,
+        timeout: Duration,
+        ppfmt: &PP,
+    ) -> DetectionOutcome {
+        let ips = self.detect_ips(client, ip_type, timeout, ppfmt).await;
+        if !ips.is_empty() {
+            return DetectionOutcome::Ips(ips);
+        }
+        match self {
+            ProviderType::None
+            | ProviderType::Literal { .. }
+            | ProviderType::Local
+            | ProviderType::LocalIface { .. }
+            | ProviderType::StableLocalIface { .. } => DetectionOutcome::NoIp,
+            ProviderType::CloudflareTrace { .. }
+            | ProviderType::CloudflareDOH
+            | ProviderType::Ipify
+            | ProviderType::CustomURL { .. } => DetectionOutcome::Failed,
+        }
+    }
+
     /// Detect IPs using this provider.
     pub async fn detect_ips(
         &self,
@@ -136,9 +167,7 @@ impl ProviderType {
             }
             ProviderType::Ipify => detect_ipify(client, ip_type, timeout, ppfmt).await,
             ProviderType::Local => detect_local(ip_type, ppfmt),
-            ProviderType::LocalIface { interface } => {
-                detect_local_iface(interface, ip_type, ppfmt)
-            }
+            ProviderType::LocalIface { interface } => detect_local_iface(interface, ip_type, ppfmt),
             ProviderType::StableLocalIface { interface } => {
                 detect_stable_local_iface(interface, ip_type, ppfmt)
             }
@@ -149,6 +178,18 @@ impl ProviderType {
             ProviderType::None => Vec::new(),
         }
     }
+}
+
+/// Result of a provider detection attempt (see [`ProviderType::detect`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DetectionOutcome {
+    /// One or more addresses of the requested family were detected.
+    Ips(Vec<IpAddr>),
+    /// The provider ran and definitively reports no address of this family.
+    NoIp,
+    /// Detection errored (network failure, bad response); the real IP is
+    /// unknown and existing DNS records must be preserved.
+    Failed,
 }
 
 // --- Cloudflare Trace ---
@@ -213,7 +254,8 @@ impl Resolve for FilteredResolver {
                 return Err(Box::new(std::io::Error::new(
                     std::io::ErrorKind::AddrNotAvailable,
                     format!("no {} addresses found", ip_type.describe()),
-                )) as Box<dyn std::error::Error + Send + Sync>);
+                ))
+                    as Box<dyn std::error::Error + Send + Sync>);
             }
             Ok(Box::new(addrs.into_iter()) as Addrs)
         })
@@ -250,7 +292,10 @@ async fn detect_cloudflare_trace(
         }
         ppfmt.warningf(
             pp::EMOJI_WARNING,
-            &format!("{} not detected via custom Cloudflare trace URL", ip_type.describe()),
+            &format!(
+                "{} not detected via custom Cloudflare trace URL",
+                ip_type.describe()
+            ),
         );
         return Vec::new();
     }
@@ -263,7 +308,10 @@ async fn detect_cloudflare_trace(
     }
     ppfmt.warningf(
         pp::EMOJI_WARNING,
-        &format!("{} not detected via primary, trying fallback", ip_type.describe()),
+        &format!(
+            "{} not detected via primary, trying fallback",
+            ip_type.describe()
+        ),
     );
 
     // Try fallback (hostname-based — works when literal IPs are intercepted by WARP/Zero Trust)
@@ -318,7 +366,10 @@ async fn detect_cloudflare_doh(
         Err(e) => {
             ppfmt.warningf(
                 pp::EMOJI_WARNING,
-                &format!("{} not detected via Cloudflare DoH: {e}", ip_type.describe()),
+                &format!(
+                    "{} not detected via Cloudflare DoH: {e}",
+                    ip_type.describe()
+                ),
             );
         }
     }
@@ -335,7 +386,7 @@ fn build_dns_query(name: &[u8], qtype: u16, qclass: u16) -> Vec<u8> {
     buf.extend_from_slice(&[0x00, 0x00]); // Answer RRs: 0
     buf.extend_from_slice(&[0x00, 0x00]); // Authority RRs: 0
     buf.extend_from_slice(&[0x00, 0x00]); // Additional RRs: 0
-    // Question section
+                                          // Question section
     buf.extend_from_slice(name);
     buf.extend_from_slice(&qtype.to_be_bytes());
     buf.extend_from_slice(&qclass.to_be_bytes());
@@ -495,7 +546,10 @@ fn detect_local(ip_type: IpType, ppfmt: &PP) -> Vec<IpAddr> {
         Err(e) => {
             ppfmt.warningf(
                 pp::EMOJI_WARNING,
-                &format!("Failed to bind socket for {} detection: {e}", ip_type.describe()),
+                &format!(
+                    "Failed to bind socket for {} detection: {e}",
+                    ip_type.describe()
+                ),
             );
             Vec::new()
         }
@@ -684,7 +738,8 @@ fn validate_detected_ip(ip: &IpAddr, ip_type: IpType, ppfmt: &PP) -> bool {
             pp::EMOJI_WARNING,
             &format!(
                 "Detected IP {} does not match expected type {}",
-                ip, ip_type.describe()
+                ip,
+                ip_type.describe()
             ),
         );
         return false;
@@ -694,7 +749,8 @@ fn validate_detected_ip(ip: &IpAddr, ip_type: IpType, ppfmt: &PP) -> bool {
             pp::EMOJI_WARNING,
             &format!(
                 "Detected {} address {} is not a global unicast address",
-                ip_type.describe(), ip
+                ip_type.describe(),
+                ip
             ),
         );
         return false;
@@ -874,11 +930,11 @@ mod tests {
         data.extend_from_slice(&[0x00, 0x01]); // ANCOUNT=1
         data.extend_from_slice(&[0x00, 0x00]); // NSCOUNT=0
         data.extend_from_slice(&[0x00, 0x00]); // ARCOUNT=0
-        // Question section: name = \x04test\x00
+                                               // Question section: name = \x04test\x00
         data.extend_from_slice(b"\x04test\x00");
         data.extend_from_slice(&[0x00, 0x10]); // QTYPE=TXT
         data.extend_from_slice(&[0x00, 0x01]); // QCLASS=IN
-        // Answer section: name pointer to offset 12
+                                               // Answer section: name pointer to offset 12
         data.extend_from_slice(&[0xC0, 0x0C]); // pointer to question name
         data.extend_from_slice(&[0x00, 0x10]); // TYPE=TXT
         data.extend_from_slice(&[0x00, 0x01]); // CLASS=IN
@@ -981,8 +1037,11 @@ mod tests {
 
     // ---- detect_cloudflare_trace with wiremock ----
 
-    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::{method, path}};
     use crate::pp::PP;
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
 
     #[tokio::test]
     async fn test_detect_cloudflare_trace_primary_succeeds() {
@@ -1000,14 +1059,8 @@ mod tests {
         let url = format!("{}/cdn-cgi/trace", server.uri());
         let timeout = Duration::from_secs(5);
 
-        let result = detect_cloudflare_trace(
-            &client,
-            IpType::V4,
-            timeout,
-            Some(&url),
-            &ppfmt,
-        )
-        .await;
+        let result =
+            detect_cloudflare_trace(&client, IpType::V4, timeout, Some(&url), &ppfmt).await;
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], "93.184.216.34".parse::<IpAddr>().unwrap());
@@ -1070,14 +1123,19 @@ mod tests {
         // Primary uses cloudflare.com CDN endpoint (not DNS resolver IPs).
         assert_eq!(CF_TRACE_PRIMARY, "https://cloudflare.com/cdn-cgi/trace");
         // Fallback uses api.cloudflare.com for when cloudflare.com is intercepted (WARP/Zero Trust).
-        assert_eq!(CF_TRACE_FALLBACK, "https://api.cloudflare.com/cdn-cgi/trace");
+        assert_eq!(
+            CF_TRACE_FALLBACK,
+            "https://api.cloudflare.com/cdn-cgi/trace"
+        );
     }
 
     // ---- FilteredResolver + build_split_client ----
 
     #[tokio::test]
     async fn test_filtered_resolver_v4() {
-        let resolver = FilteredResolver { ip_type: IpType::V4 };
+        let resolver = FilteredResolver {
+            ip_type: IpType::V4,
+        };
         let name: Name = "cloudflare.com".parse().unwrap();
         let addrs: Vec<SocketAddr> = resolver
             .resolve(name)
@@ -1092,7 +1150,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_filtered_resolver_v6() {
-        let resolver = FilteredResolver { ip_type: IpType::V6 };
+        let resolver = FilteredResolver {
+            ip_type: IpType::V6,
+        };
         let name: Name = "cloudflare.com".parse().unwrap();
         // IPv6 may not be available in all test environments, so we just
         // verify the resolver doesn't panic and returns only v6 if any.
@@ -1145,9 +1205,7 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_string("2606:4700:4700::1111\n"),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_string("2606:4700:4700::1111\n"))
             .mount(&server)
             .await;
 
@@ -1207,43 +1265,91 @@ mod tests {
     #[test]
     fn test_validate_detected_ip_accepts_global() {
         let ppfmt = PP::default_pp();
-        assert!(validate_detected_ip(&"93.184.216.34".parse().unwrap(), IpType::V4, &ppfmt));
-        assert!(validate_detected_ip(&"2606:4700:4700::1111".parse().unwrap(), IpType::V6, &ppfmt));
+        assert!(validate_detected_ip(
+            &"93.184.216.34".parse().unwrap(),
+            IpType::V4,
+            &ppfmt
+        ));
+        assert!(validate_detected_ip(
+            &"2606:4700:4700::1111".parse().unwrap(),
+            IpType::V6,
+            &ppfmt
+        ));
     }
 
     #[test]
     fn test_validate_detected_ip_rejects_wrong_family() {
         let ppfmt = PP::default_pp();
-        assert!(!validate_detected_ip(&"93.184.216.34".parse().unwrap(), IpType::V6, &ppfmt));
-        assert!(!validate_detected_ip(&"2606:4700:4700::1111".parse().unwrap(), IpType::V4, &ppfmt));
+        assert!(!validate_detected_ip(
+            &"93.184.216.34".parse().unwrap(),
+            IpType::V6,
+            &ppfmt
+        ));
+        assert!(!validate_detected_ip(
+            &"2606:4700:4700::1111".parse().unwrap(),
+            IpType::V4,
+            &ppfmt
+        ));
     }
 
     #[test]
     fn test_validate_detected_ip_rejects_private() {
         let ppfmt = PP::default_pp();
-        assert!(!validate_detected_ip(&"10.0.0.1".parse().unwrap(), IpType::V4, &ppfmt));
-        assert!(!validate_detected_ip(&"192.168.1.1".parse().unwrap(), IpType::V4, &ppfmt));
-        assert!(!validate_detected_ip(&"172.16.0.1".parse().unwrap(), IpType::V4, &ppfmt));
+        assert!(!validate_detected_ip(
+            &"10.0.0.1".parse().unwrap(),
+            IpType::V4,
+            &ppfmt
+        ));
+        assert!(!validate_detected_ip(
+            &"192.168.1.1".parse().unwrap(),
+            IpType::V4,
+            &ppfmt
+        ));
+        assert!(!validate_detected_ip(
+            &"172.16.0.1".parse().unwrap(),
+            IpType::V4,
+            &ppfmt
+        ));
     }
 
     #[test]
     fn test_validate_detected_ip_rejects_loopback() {
         let ppfmt = PP::default_pp();
-        assert!(!validate_detected_ip(&"127.0.0.1".parse().unwrap(), IpType::V4, &ppfmt));
-        assert!(!validate_detected_ip(&"::1".parse().unwrap(), IpType::V6, &ppfmt));
+        assert!(!validate_detected_ip(
+            &"127.0.0.1".parse().unwrap(),
+            IpType::V4,
+            &ppfmt
+        ));
+        assert!(!validate_detected_ip(
+            &"::1".parse().unwrap(),
+            IpType::V6,
+            &ppfmt
+        ));
     }
 
     #[test]
     fn test_validate_detected_ip_rejects_link_local() {
         let ppfmt = PP::default_pp();
-        assert!(!validate_detected_ip(&"169.254.0.1".parse().unwrap(), IpType::V4, &ppfmt));
+        assert!(!validate_detected_ip(
+            &"169.254.0.1".parse().unwrap(),
+            IpType::V4,
+            &ppfmt
+        ));
     }
 
     #[test]
     fn test_validate_detected_ip_rejects_documentation() {
         let ppfmt = PP::default_pp();
-        assert!(!validate_detected_ip(&"198.51.100.1".parse().unwrap(), IpType::V4, &ppfmt));
-        assert!(!validate_detected_ip(&"203.0.113.1".parse().unwrap(), IpType::V4, &ppfmt));
+        assert!(!validate_detected_ip(
+            &"198.51.100.1".parse().unwrap(),
+            IpType::V4,
+            &ppfmt
+        ));
+        assert!(!validate_detected_ip(
+            &"203.0.113.1".parse().unwrap(),
+            IpType::V4,
+            &ppfmt
+        ));
     }
 
     #[tokio::test]
@@ -1350,9 +1456,9 @@ mod tests {
 
     #[test]
     fn test_is_global_v4_documentation() {
-        assert!(!is_global_v4(&Ipv4Addr::new(192, 0, 2, 1)));   // 192.0.2.0/24
+        assert!(!is_global_v4(&Ipv4Addr::new(192, 0, 2, 1))); // 192.0.2.0/24
         assert!(!is_global_v4(&Ipv4Addr::new(198, 51, 100, 1))); // 198.51.100.0/24
-        assert!(!is_global_v4(&Ipv4Addr::new(203, 0, 113, 1)));  // 203.0.113.0/24
+        assert!(!is_global_v4(&Ipv4Addr::new(203, 0, 113, 1))); // 203.0.113.0/24
     }
 
     #[test]
@@ -1400,18 +1506,20 @@ mod tests {
     #[test]
     fn test_is_global_v6_global() {
         // 2606:4700:4700::1111 (Cloudflare DNS)
-        assert!(is_global_v6(&Ipv6Addr::new(0x2606, 0x4700, 0x4700, 0, 0, 0, 0, 0x1111)));
+        assert!(is_global_v6(&Ipv6Addr::new(
+            0x2606, 0x4700, 0x4700, 0, 0, 0, 0, 0x1111
+        )));
         // 2001:db8::1 is documentation, but our impl doesn't explicitly exclude it
         // so it should be considered global by our function
-        assert!(is_global_v6(&Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 1)));
+        assert!(is_global_v6(&Ipv6Addr::new(
+            0x2001, 0x0db8, 0, 0, 0, 0, 0, 1
+        )));
     }
 
     #[test]
     fn test_parse_if_inet6_line() {
-        let addr = parse_if_inet6_line(
-            "20010db8000000011111222233334444 03 40 00 00   eth0",
-        )
-        .unwrap();
+        let addr =
+            parse_if_inet6_line("20010db8000000011111222233334444 03 40 00 00   eth0").unwrap();
 
         assert_eq!(
             addr.ip,
@@ -1453,30 +1561,42 @@ fdaa149d3b9900000000000000000001 0a 40 00 82 br-990e55930a86
 
     #[test]
     fn test_provider_type_name() {
-        assert_eq!(ProviderType::CloudflareTrace { url: None }.name(), "cloudflare.trace");
         assert_eq!(
-            ProviderType::CloudflareTrace { url: Some("https://x".into()) }.name(),
+            ProviderType::CloudflareTrace { url: None }.name(),
+            "cloudflare.trace"
+        );
+        assert_eq!(
+            ProviderType::CloudflareTrace {
+                url: Some("https://x".into())
+            }
+            .name(),
             "cloudflare.trace"
         );
         assert_eq!(ProviderType::CloudflareDOH.name(), "cloudflare.doh");
         assert_eq!(ProviderType::Ipify.name(), "ipify");
         assert_eq!(ProviderType::Local.name(), "local");
         assert_eq!(
-            ProviderType::LocalIface { interface: "eth0".into() }.name(),
+            ProviderType::LocalIface {
+                interface: "eth0".into()
+            }
+            .name(),
             "local.iface"
         );
         assert_eq!(
-            ProviderType::StableLocalIface { interface: "eth0".into() }.name(),
+            ProviderType::StableLocalIface {
+                interface: "eth0".into()
+            }
+            .name(),
             "local.iface.stable"
         );
         assert_eq!(
-            ProviderType::CustomURL { url: "https://x".into() }.name(),
+            ProviderType::CustomURL {
+                url: "https://x".into()
+            }
+            .name(),
             "url:"
         );
-        assert_eq!(
-            ProviderType::Literal { ips: vec![] }.name(),
-            "literal:"
-        );
+        assert_eq!(ProviderType::Literal { ips: vec![] }.name(), "literal:");
         assert_eq!(ProviderType::None.name(), "none");
     }
 
@@ -1518,7 +1638,9 @@ fdaa149d3b9900000000000000000001 0a 40 00 82 br-990e55930a86
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
 
-        let result = provider.detect_ips(&client, IpType::V4, timeout, &ppfmt).await;
+        let result = provider
+            .detect_ips(&client, IpType::V4, timeout, &ppfmt)
+            .await;
         assert_eq!(result.len(), 2);
         assert!(result.iter().all(|ip| ip.is_ipv4()));
     }
@@ -1536,7 +1658,9 @@ fdaa149d3b9900000000000000000001 0a 40 00 82 br-990e55930a86
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
 
-        let result = provider.detect_ips(&client, IpType::V6, timeout, &ppfmt).await;
+        let result = provider
+            .detect_ips(&client, IpType::V6, timeout, &ppfmt)
+            .await;
         assert_eq!(result.len(), 2);
         assert!(result.iter().all(|ip| ip.is_ipv6()));
     }
@@ -1550,10 +1674,14 @@ fdaa149d3b9900000000000000000001 0a 40 00 82 br-990e55930a86
         let ppfmt = PP::default_pp();
         let timeout = Duration::from_secs(5);
 
-        let result_v4 = provider.detect_ips(&client, IpType::V4, timeout, &ppfmt).await;
+        let result_v4 = provider
+            .detect_ips(&client, IpType::V4, timeout, &ppfmt)
+            .await;
         assert!(result_v4.is_empty());
 
-        let result_v6 = provider.detect_ips(&client, IpType::V6, timeout, &ppfmt).await;
+        let result_v6 = provider
+            .detect_ips(&client, IpType::V6, timeout, &ppfmt)
+            .await;
         assert!(result_v6.is_empty());
     }
 }

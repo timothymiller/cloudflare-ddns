@@ -13,7 +13,9 @@ pub fn make_fqdn(subdomain: &str, base_domain: &str) -> String {
 // Supports: true, false, is(domain,...), sub(domain,...), !, &&, ||, ()
 
 /// Parse and evaluate a domain expression to determine if a domain should be proxied.
-pub fn parse_proxied_expression(expr: &str) -> Result<Box<dyn Fn(&str) -> bool + Send + Sync>, String> {
+pub fn parse_proxied_expression(
+    expr: &str,
+) -> Result<Box<dyn Fn(&str) -> bool + Send + Sync>, String> {
     let expr = expr.trim();
     if expr.is_empty() || expr == "false" {
         return Ok(Box::new(|_: &str| false));
@@ -25,7 +27,10 @@ pub fn parse_proxied_expression(expr: &str) -> Result<Box<dyn Fn(&str) -> bool +
     let tokens = tokenize_expr(expr)?;
     let (predicate, rest) = parse_or_expr(&tokens)?;
     if !rest.is_empty() {
-        return Err(format!("Unexpected tokens in proxied expression: {}", rest.join(" ")));
+        return Err(format!(
+            "Unexpected tokens in proxied expression: {}",
+            rest.join(" ")
+        ));
     }
     Ok(predicate)
 }
@@ -63,7 +68,13 @@ fn tokenize_expr(input: &str) -> Result<Vec<String>, String> {
             _ => {
                 let mut word = String::new();
                 while let Some(&c) = chars.peek() {
-                    if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' || c == '*' || c == '@' {
+                    if c.is_alphanumeric()
+                        || c == '.'
+                        || c == '-'
+                        || c == '_'
+                        || c == '*'
+                        || c == '@'
+                    {
                         word.push(c);
                         chars.next();
                     } else {
@@ -144,9 +155,9 @@ fn parse_atom(tokens: &[String]) -> Result<(Predicate, &[String]), String> {
             let (domains, rest) = parse_domain_args(&tokens[1..])?;
             let pred: Predicate = Box::new(move |d: &str| {
                 let d_lower = d.to_lowercase();
-                domains.iter().any(|dom| {
-                    d_lower == *dom || d_lower.ends_with(&format!(".{dom}"))
-                })
+                domains
+                    .iter()
+                    .any(|dom| d_lower == *dom || d_lower.ends_with(&format!(".{dom}")))
             });
             Ok((pred, rest))
         }
@@ -260,7 +271,8 @@ mod tests {
         assert!(!pred("a.com"));
         assert!(!pred("b.com"));
 
-        let pred2 = parse_proxied_expression("sub(example.com) && !is(internal.example.com)").unwrap();
+        let pred2 =
+            parse_proxied_expression("sub(example.com) && !is(internal.example.com)").unwrap();
         assert!(pred2("www.example.com"));
         assert!(!pred2("internal.example.com"));
     }
@@ -278,7 +290,10 @@ mod tests {
         let result = parse_proxied_expression("(is(a.com)");
         assert!(result.is_err());
         let err = result.err().unwrap();
-        assert!(err.contains("parenthesis") || err.contains(")"), "error was: {err}");
+        assert!(
+            err.contains("parenthesis") || err.contains(")"),
+            "error was: {err}"
+        );
     }
 
     #[test]
