@@ -8,3 +8,6 @@ debug/
 
 # Git History
 **/.history/*
+
+# JetBrains IDE
+.idea/
