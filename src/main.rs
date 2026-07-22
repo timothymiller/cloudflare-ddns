@@ -421,6 +421,7 @@ mod tests {
             ttl: 300,
             ip4_provider: None,
             ip6_provider: None,
+            record_comment: None,
         }
     }
 
@@ -973,6 +974,7 @@ mod tests {
             ttl: 300,
             ip4_provider: None,
             ip6_provider: None,
+            record_comment: None,
         };
         ddns.commit_record(
             "198.51.100.7",
@@ -1104,6 +1106,7 @@ mod tests {
             ttl: 300,
             ip4_provider: None,
             ip6_provider: None,
+            record_comment: None,
         };
 
         ddns.commit_record(
