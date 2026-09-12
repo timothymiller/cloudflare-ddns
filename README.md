@@ -253,7 +253,6 @@ Heartbeats are sent after each update cycle. On failure, a fail signal is sent. 
 ### 🐳 Docker Compose
 
 ```yml
-version: '3.9'
 services:
   cloudflare-ddns:
     image: timothyjmiller/cloudflare-ddns:latest
@@ -598,7 +597,6 @@ In the legacy config file, values can reference environment variables with the `
 ### 🐳 Docker Compose (legacy config file)
 
 ```yml
-version: '3.9'
 services:
   cloudflare-ddns:
     image: timothyjmiller/cloudflare-ddns:latest
