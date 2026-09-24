@@ -174,7 +174,7 @@ Supported services:
 | 📨 Slack | `slack://token-a/token-b/token-c` |
 | ✈️ Telegram | `telegram://bot-token@telegram?chats=chat-id` |
 | 📡 Gotify | `gotify://host/path?token=app-token` |
-| 📲 Pushover | `pushover://user-key@api-token` |
+| 📲 Pushover | `pushover://api-token@user-key` |
 | 💬 Zulip | `zulip://bot-mail:bot-key@host/?stream=stream-name&topic=topic-name` |
 | 🌐 Generic webhook | `generic://host/path` or `generic+https://host/path` |
 
