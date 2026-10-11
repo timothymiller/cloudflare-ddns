@@ -35,10 +35,20 @@ impl TTL {
 
 // --- Auth ---
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Auth {
     Token(String),
     Key { api_key: String, email: String },
+}
+
+// Manual Debug so credentials can never end up in logs via `{:?}`.
+impl std::fmt::Debug for Auth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Auth::Token(_) => f.write_str("Token(<redacted>)"),
+            Auth::Key { email, .. } => write!(f, "Key {{ email: {email:?}, api_key: <redacted> }}"),
+        }
+    }
 }
 
 impl Auth {

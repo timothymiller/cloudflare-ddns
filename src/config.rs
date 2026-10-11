@@ -739,7 +739,7 @@ pub fn setup_notifiers(ppfmt: &PP) -> CompositeNotifier {
                     pp::EMOJI_NOTIFY,
                     &format!("Notifications: {}", n.describe()),
                 );
-                notifiers.push(Box::new(n));
+                notifiers.push(Box::new(n.with_pp(ppfmt.clone())));
             }
             Err(e) => {
                 ppfmt.errorf(
@@ -766,7 +766,7 @@ pub fn setup_heartbeats(ppfmt: &PP) -> Heartbeat {
         monitors.push(Box::new(UptimeKumaMonitor::new(&url)));
     }
 
-    Heartbeat::new(monitors)
+    Heartbeat::new(monitors).with_pp(ppfmt.clone())
 }
 
 // ============================================================

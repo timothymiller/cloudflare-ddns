@@ -75,9 +75,29 @@ impl CompositeNotifier {
     }
 }
 
+/// Turns an HTTP send result into `Ok` or a short reason (status code or
+/// transport error). URLs are stripped because they often embed tokens.
+async fn check_response(resp: reqwest::Result<reqwest::Response>) -> Result<(), String> {
+    match resp {
+        Ok(r) if r.status().is_success() => Ok(()),
+        Ok(r) => Err(format!("HTTP {}", r.status())),
+        Err(e) => Err(e.without_url().to_string()),
+    }
+}
+
+/// Shows only the scheme of a notification/heartbeat URL. Shoutrrr URLs carry
+/// webhook tokens, bot tokens and API keys that must never reach the logs.
+pub fn redact_url(url: &str) -> String {
+    match url.split_once("://") {
+        Some((scheme, _)) => format!("{scheme}://***"),
+        None => "***".to_string(),
+    }
+}
+
 // --- Shoutrrr Notifier ---
 
 pub struct ShoutrrrNotifier {
+    pp: PP,
     client: Client,
     urls: Vec<ShoutrrrService>,
 }
@@ -126,9 +146,16 @@ impl ShoutrrrNotifier {
         }
 
         Ok(Self {
+            pp: PP::default_pp(),
             client,
             urls: services,
         })
+    }
+
+    /// Use the configured output settings (QUIET, EMOJI) for failure warnings.
+    pub fn with_pp(mut self, pp: PP) -> Self {
+        self.pp = pp;
+        self
     }
 
     pub fn describe(&self) -> String {
@@ -187,10 +214,13 @@ impl ShoutrrrNotifier {
                         .await
                 }
             };
-            if !ok {
+            if let Err(e) = ok {
                 ppfmt.warningf(
                     pp::EMOJI_WARNING,
-                    &format!("Failed to send notification via {}", service.original_url),
+                    &format!(
+                        "Failed to send notification via {}: {e}",
+                        redact_url(&service.original_url)
+                    ),
                 );
                 all_ok = false;
             }
@@ -198,16 +228,16 @@ impl ShoutrrrNotifier {
         all_ok
     }
 
-    async fn send_generic(&self, url: &str, message_key: &str, text: &str) -> bool {
+    async fn send_generic(&self, url: &str, message_key: &str, text: &str) -> Result<(), String> {
         let mut body = serde_json::Map::new();
         body.insert(message_key.to_string(), serde_json::Value::from(text));
-        self.client
+        let resp = self
+            .client
             .post(url)
             .json(&serde_json::Value::Object(body))
             .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+            .await;
+        check_response(resp).await
     }
 
     async fn send_zulip(
@@ -218,7 +248,7 @@ impl ShoutrrrNotifier {
         stream: &str,
         topic: &str,
         text: &str,
-    ) -> bool {
+    ) -> Result<(), String> {
         // Zulip API: POST /api/v1/messages with Basic auth (bot email + API key)
         // and form-encoded fields. https://zulip.com/api/send-message
         let params = [
@@ -227,74 +257,73 @@ impl ShoutrrrNotifier {
             ("topic", topic),
             ("content", text),
         ];
-        self.client
+        let resp = self
+            .client
             .post(api_url)
             .basic_auth(email, Some(api_key))
             .form(&params)
             .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+            .await;
+        check_response(resp).await
     }
 
-    async fn send_discord(&self, webhook_url: &str, text: &str) -> bool {
+    async fn send_discord(&self, webhook_url: &str, text: &str) -> Result<(), String> {
         let body = serde_json::json!({ "content": text });
-        self.client
+        let resp = self
+            .client
             .post(webhook_url)
             .json(&body)
             .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+            .await;
+        check_response(resp).await
     }
 
-    async fn send_slack(&self, webhook_url: &str, text: &str) -> bool {
+    async fn send_slack(&self, webhook_url: &str, text: &str) -> Result<(), String> {
         let body = serde_json::json!({ "text": text });
-        self.client
+        let resp = self
+            .client
             .post(webhook_url)
             .json(&body)
             .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+            .await;
+        check_response(resp).await
     }
 
-    async fn send_telegram(&self, api_url: &str, text: &str) -> bool {
+    async fn send_telegram(&self, api_url: &str, text: &str) -> Result<(), String> {
         // api_url should be like https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>
-        let body = serde_json::json!({
-            "text": text,
-            "parse_mode": "Markdown"
-        });
-        self.client
+        // Plain text: Markdown parse mode makes Telegram reject messages that
+        // contain unbalanced '_' or '*' (common in hostnames and IPv6 zones).
+        let body = serde_json::json!({ "text": text });
+        let resp = self
+            .client
             .post(api_url)
             .json(&body)
             .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+            .await;
+        check_response(resp).await
     }
 
-    async fn send_gotify(&self, url: &str, text: &str) -> bool {
+    async fn send_gotify(&self, url: &str, text: &str) -> Result<(), String> {
         let body = serde_json::json!({
             "title": "Cloudflare DDNS",
             "message": text,
             "priority": 5
         });
-        self.client
+        let resp = self
+            .client
             .post(url)
             .json(&body)
             .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+            .await;
+        check_response(resp).await
     }
 
-    async fn send_pushover(&self, url: &str, text: &str) -> bool {
+    async fn send_pushover(&self, url: &str, text: &str) -> Result<(), String> {
         // Pushover expects form data with token, user, and message.
         // The webhook_url has token and user as query params, so we parse them out.
         let parsed = match url::Url::parse(url) {
             Ok(u) => u,
-            Err(_) => return false,
+            Err(e) => return Err(format!("invalid Pushover URL: {e}")),
         };
         let mut token = String::new();
         let mut user = String::new();
@@ -310,13 +339,13 @@ impl ShoutrrrNotifier {
             ("user", user.as_str()),
             ("message", text),
         ];
-        self.client
+        let resp = self
+            .client
             .post("https://api.pushover.net/1/messages.json")
             .form(&params)
             .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+            .await;
+        check_response(resp).await
     }
 }
 
@@ -325,8 +354,7 @@ impl NotifierDyn for ShoutrrrNotifier {
         &'a self,
         msg: &'a Message,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
-        let pp = PP::default_pp();
-        Box::pin(async move { self.send(msg, &pp).await })
+        Box::pin(async move { self.send(msg, &self.pp).await })
     }
 }
 
@@ -555,7 +583,7 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
                 webhook_url: format!("https://discord.com/api/webhooks/{id}/{token}"),
             });
         }
-        return Err(format!("Invalid Discord shoutrrr URL: {url_str}"));
+        return Err(format!("Invalid Discord shoutrrr URL: {}", redact_url(url_str)));
     }
 
     if let Some(rest) = url_str.strip_prefix("slack://") {
@@ -570,7 +598,7 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
                 ),
             });
         }
-        return Err(format!("Invalid Slack shoutrrr URL: {url_str}"));
+        return Err(format!("Invalid Slack shoutrrr URL: {}", redact_url(url_str)));
     }
 
     if let Some(rest) = url_str.strip_prefix("telegram://") {
@@ -592,7 +620,7 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
                 });
             }
         }
-        return Err(format!("Invalid Telegram shoutrrr URL: {url_str}"));
+        return Err(format!("Invalid Telegram shoutrrr URL: {}", redact_url(url_str)));
     }
 
     if let Some((rest, default_scheme)) = url_str
@@ -645,7 +673,7 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
                 .unwrap_or(parts[0]);
             let user = parts[1];
             if token.is_empty() || user.is_empty() {
-                return Err(format!("Invalid Pushover shoutrrr URL: {url_str}"));
+                return Err(format!("Invalid Pushover shoutrrr URL: {}", redact_url(url_str)));
             }
             return Ok(ShoutrrrService {
                 original_url: url_str.to_string(),
@@ -655,7 +683,7 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
                 ),
             });
         }
-        return Err(format!("Invalid Pushover shoutrrr URL: {url_str}"));
+        return Err(format!("Invalid Pushover shoutrrr URL: {}", redact_url(url_str)));
     }
 
     // Unknown scheme - treat as generic with original URL as-is if it looks like a URL
@@ -679,47 +707,68 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
         });
     }
 
-    Err(format!("Unsupported notification URL: {url_str}"))
+    Err(format!("Unsupported notification URL: {}", redact_url(url_str)))
 }
 
 // --- Heartbeat ---
 
 pub struct Heartbeat {
     monitors: Vec<Box<dyn HeartbeatMonitor>>,
+    pp: PP,
 }
 
+type HeartbeatFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>>;
+
 pub trait HeartbeatMonitor: Send + Sync {
-    fn ping<'a>(
-        &'a self,
-        msg: &'a Message,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>;
-    fn start(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>>;
-    fn exit<'a>(
-        &'a self,
-        msg: &'a Message,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>;
+    /// Human-readable service name used in failure logs (never the URL).
+    fn name(&self) -> &'static str;
+    fn ping<'a>(&'a self, msg: &'a Message) -> HeartbeatFuture<'a>;
+    fn start(&self) -> HeartbeatFuture<'_>;
+    fn exit<'a>(&'a self, msg: &'a Message) -> HeartbeatFuture<'a>;
 }
 
 impl Heartbeat {
     pub fn new(monitors: Vec<Box<dyn HeartbeatMonitor>>) -> Self {
-        Self { monitors }
+        Self {
+            monitors,
+            pp: PP::default_pp(),
+        }
+    }
+
+    /// Use the configured output settings (QUIET, EMOJI) for failure warnings.
+    pub fn with_pp(mut self, pp: PP) -> Self {
+        self.pp = pp;
+        self
+    }
+
+    fn report(&self, monitor: &dyn HeartbeatMonitor, result: Result<(), String>) {
+        if let Err(e) = result {
+            self.pp.warningf(
+                pp::EMOJI_WARNING,
+                &format!("Failed to send heartbeat to {}: {e}", monitor.name()),
+            );
+        }
     }
 
     pub async fn ping(&self, msg: &Message) {
         for monitor in &self.monitors {
-            monitor.ping(msg).await;
+            let result = monitor.ping(msg).await;
+            self.report(monitor.as_ref(), result);
         }
     }
 
     pub async fn start(&self) {
         for monitor in &self.monitors {
-            monitor.start().await;
+            let result = monitor.start().await;
+            self.report(monitor.as_ref(), result);
         }
     }
 
     pub async fn exit(&self, msg: &Message) {
         for monitor in &self.monitors {
-            monitor.exit(msg).await;
+            let result = monitor.exit(msg).await;
+            self.report(monitor.as_ref(), result);
         }
     }
 }
@@ -744,7 +793,7 @@ impl HealthchecksMonitor {
         Self { client, base_url }
     }
 
-    async fn send_ping(&self, suffix: &str, body: Option<&str>) -> bool {
+    async fn send_ping(&self, suffix: &str, body: Option<&str>) -> Result<(), String> {
         let url = if suffix.is_empty() {
             self.base_url.clone()
         } else {
@@ -757,18 +806,16 @@ impl HealthchecksMonitor {
             self.client.post(&url)
         };
 
-        req.send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+        check_response(req.send().await).await
     }
 }
 
 impl HeartbeatMonitor for HealthchecksMonitor {
-    fn ping<'a>(
-        &'a self,
-        msg: &'a Message,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+    fn name(&self) -> &'static str {
+        "Healthchecks"
+    }
+
+    fn ping<'a>(&'a self, msg: &'a Message) -> HeartbeatFuture<'a> {
         Box::pin(async move {
             let body = msg.format();
             let suffix = if msg.ok { "" } else { "fail" };
@@ -777,14 +824,11 @@ impl HeartbeatMonitor for HealthchecksMonitor {
         })
     }
 
-    fn start(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+    fn start(&self) -> HeartbeatFuture<'_> {
         Box::pin(async move { self.send_ping("start", None).await })
     }
 
-    fn exit<'a>(
-        &'a self,
-        msg: &'a Message,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+    fn exit<'a>(&'a self, msg: &'a Message) -> HeartbeatFuture<'a> {
         Box::pin(async move {
             let body = msg.format();
             self.send_ping(
@@ -810,63 +854,39 @@ impl UptimeKumaMonitor {
             .build()
             .expect("Failed to build uptime kuma client");
 
-        let base_url = url.trim_end_matches('/').to_string();
+        // Uptime Kuma's UI shows push URLs as ".../api/push/TOKEN?status=up&msg=OK&ping=".
+        // We add our own query string, so drop any the user pasted (issue #302).
+        let without_query = url.split(['?', '#']).next().unwrap_or(url);
+        let base_url = without_query.trim_end_matches('/').to_string();
 
         Self { client, base_url }
+    }
+
+    async fn push(&self, ok: bool, text: &str) -> Result<(), String> {
+        let status = if ok { "up" } else { "down" };
+        let mut url = format!("{}?status={status}", self.base_url);
+        if !text.is_empty() {
+            url.push_str(&format!("&msg={}", urlencoding(text)));
+        }
+        check_response(self.client.get(&url).send().await).await
     }
 }
 
 impl HeartbeatMonitor for UptimeKumaMonitor {
-    fn ping<'a>(
-        &'a self,
-        msg: &'a Message,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
-        Box::pin(async move {
-            let status = if msg.ok { "up" } else { "down" };
-            let text = msg.format();
-            let mut url = format!("{}?status={status}", self.base_url);
-            if !text.is_empty() {
-                url.push_str(&format!("&msg={}", urlencoding(&text)));
-            }
-            self.client
-                .get(&url)
-                .send()
-                .await
-                .map(|r| r.status().is_success())
-                .unwrap_or(false)
-        })
+    fn name(&self) -> &'static str {
+        "Uptime Kuma"
     }
 
-    fn start(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
-        Box::pin(async move {
-            let url = format!("{}?status=up&msg=Starting", self.base_url);
-            self.client
-                .get(&url)
-                .send()
-                .await
-                .map(|r| r.status().is_success())
-                .unwrap_or(false)
-        })
+    fn ping<'a>(&'a self, msg: &'a Message) -> HeartbeatFuture<'a> {
+        Box::pin(async move { self.push(msg.ok, &msg.format()).await })
     }
 
-    fn exit<'a>(
-        &'a self,
-        msg: &'a Message,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
-        Box::pin(async move {
-            let status = if msg.ok { "up" } else { "down" };
-            let text = msg.format();
-            let mut url = format!("{}?status={status}", self.base_url);
-            if !text.is_empty() {
-                url.push_str(&format!("&msg={}", urlencoding(&text)));
-            }
-            self.client
-                .get(&url)
-                .send()
-                .await
-                .map(|r| r.status().is_success())
-                .unwrap_or(false)
-        })
+    fn start(&self) -> HeartbeatFuture<'_> {
+        Box::pin(async move { self.push(true, "Starting").await })
+    }
+
+    fn exit<'a>(&'a self, msg: &'a Message) -> HeartbeatFuture<'a> {
+        Box::pin(async move { self.push(msg.ok, &msg.format()).await })
     }
 }
 
@@ -1328,7 +1348,7 @@ mod tests {
         let monitor = HealthchecksMonitor::new(&server.uri());
         let msg = Message::new_ok("all good");
         let result = monitor.ping(&msg).await;
-        assert!(result);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[tokio::test]
@@ -1345,7 +1365,7 @@ mod tests {
         let monitor = HealthchecksMonitor::new(&server.uri());
         let msg = Message::new_fail("something broke");
         let result = monitor.ping(&msg).await;
-        assert!(result);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[tokio::test]
@@ -1361,7 +1381,7 @@ mod tests {
 
         let monitor = HealthchecksMonitor::new(&server.uri());
         let result = monitor.start().await;
-        assert!(result);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[tokio::test]
@@ -1378,7 +1398,7 @@ mod tests {
         let monitor = HealthchecksMonitor::new(&server.uri());
         let msg = Message::new_ok("done");
         let result = monitor.exit(&msg).await;
-        assert!(result);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[tokio::test]
@@ -1395,7 +1415,7 @@ mod tests {
         let monitor = HealthchecksMonitor::new(&server.uri());
         let msg = Message::new_fail("exit with error");
         let result = monitor.exit(&msg).await;
-        assert!(result);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     // ---- UptimeKumaMonitor with wiremock ----
@@ -1413,7 +1433,7 @@ mod tests {
         let monitor = UptimeKumaMonitor::new(&server.uri());
         let msg = Message::new_ok("up and running");
         let result = monitor.ping(&msg).await;
-        assert!(result);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[tokio::test]
@@ -1429,7 +1449,7 @@ mod tests {
         let monitor = UptimeKumaMonitor::new(&server.uri());
         let msg = Message::new_fail("down");
         let result = monitor.ping(&msg).await;
-        assert!(result);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[tokio::test]
@@ -1444,7 +1464,7 @@ mod tests {
 
         let monitor = UptimeKumaMonitor::new(&server.uri());
         let result = monitor.start().await;
-        assert!(result);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[tokio::test]
@@ -1460,7 +1480,7 @@ mod tests {
         let monitor = UptimeKumaMonitor::new(&server.uri());
         let msg = Message::new_ok("exiting cleanly");
         let result = monitor.exit(&msg).await;
-        assert!(result);
+        assert!(result.is_ok(), "{result:?}");
     }
 
     // ---- ShoutrrrNotifier with wiremock ----
@@ -1477,6 +1497,7 @@ mod tests {
 
         // Build a notifier that points discord webhook at our mock server
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "discord://token@id".to_string(),
@@ -1501,6 +1522,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "slack://a/b/c".to_string(),
@@ -1525,6 +1547,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "generic://example.com/hook".to_string(),
@@ -1543,6 +1566,7 @@ mod tests {
     #[tokio::test]
     async fn test_shoutrrr_send_empty_message() {
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![],
         };
@@ -1589,6 +1613,7 @@ mod tests {
     #[test]
     fn test_shoutrrr_notifier_describe() {
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![
                 ShoutrrrService {
@@ -1660,6 +1685,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "telegram://token@telegram?chats=123".to_string(),
@@ -1684,6 +1710,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "gotify://host/path".to_string(),
@@ -1719,6 +1746,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "custom://host/path".to_string(),
@@ -1749,6 +1777,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "zulip://bot%40x.com:key@host/?stream=alerts".to_string(),
@@ -1782,6 +1811,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "generic://example.com/hook?messagekey=text".to_string(),
@@ -1808,6 +1838,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "discord://t@i".to_string(),
@@ -1853,6 +1884,7 @@ mod tests {
             .await;
 
         let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
             client: crate::test_client(),
             urls: vec![ShoutrrrService {
                 original_url: "generic://example.com/hook".to_string(),
@@ -1866,5 +1898,81 @@ mod tests {
         let pp = PP::default_pp();
         let result = notifier.send(&msg, &pp).await;
         assert!(!result);
+    }
+
+    // ---- Regression tests: #302, error reporting, redaction ----
+
+    #[tokio::test]
+    async fn test_uptime_kuma_strips_pasted_query_string() {
+        use wiremock::matchers::query_param;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/push/abc"))
+            .and(query_param("status", "up"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Exactly what Uptime Kuma's UI shows for a push monitor.
+        let url = format!("{}/api/push/abc?status=up&msg=OK&ping=", server.uri());
+        let monitor = UptimeKumaMonitor::new(&url);
+        assert_eq!(monitor.base_url, format!("{}/api/push/abc", server.uri()));
+        let result = monitor.ping(&Message::new_ok("ok")).await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_error_reports_http_status() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        let monitor = UptimeKumaMonitor::new(&server.uri());
+        let err = monitor.ping(&Message::new_ok("x")).await.unwrap_err();
+        assert!(err.contains("404"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn test_transport_error_does_not_leak_url() {
+        // Port 9 (discard) on localhost: connection refused, URL contains a secret.
+        let monitor = HealthchecksMonitor::new("http://127.0.0.1:9/secret-uuid");
+        let err = monitor.start().await.unwrap_err();
+        assert!(!err.contains("secret-uuid"), "{err}");
+    }
+
+    #[test]
+    fn test_redact_url_hides_credentials() {
+        assert_eq!(redact_url("discord://token@id"), "discord://***");
+        assert_eq!(redact_url("https://hooks.example/abc"), "https://***");
+        assert_eq!(redact_url("garbage"), "***");
+    }
+
+    #[test]
+    fn test_invalid_shoutrrr_url_error_is_redacted() {
+        let err = parse_shoutrrr_url("discord://no-at-sign-secret").err().unwrap();
+        assert!(!err.contains("no-at-sign-secret"), "{err}");
+        let err = parse_shoutrrr_url("weird:secret-thing").err().unwrap();
+        assert!(!err.contains("secret-thing"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn test_telegram_sends_plain_text() {
+        use wiremock::matchers::body_json;
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(body_json(serde_json::json!({ "text": "host_name *x" })))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let notifier = ShoutrrrNotifier {
+            pp: PP::default_pp(),
+            client: crate::test_client(),
+            urls: vec![],
+        };
+        let result = notifier.send_telegram(&server.uri(), "host_name *x").await;
+        assert!(result.is_ok(), "{result:?}");
     }
 }
