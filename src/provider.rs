@@ -105,7 +105,7 @@ impl ProviderType {
             }
         } else if let Some(ips_str) = input.strip_prefix("literal:") {
             let ips: Result<Vec<IpAddr>, _> = ips_str
-                .split(|c: char| c == ',' || c == ' ')
+                .split([',', ' '])
                 .filter(|s| !s.is_empty())
                 .map(|s| s.trim().parse::<IpAddr>())
                 .collect();
@@ -334,11 +334,14 @@ async fn detect_cloudflare_trace(
 // --- Cloudflare DNS over HTTPS ---
 
 async fn detect_cloudflare_doh(
-    client: &Client,
+    _client: &Client,
     ip_type: IpType,
     timeout: Duration,
     ppfmt: &PP,
 ) -> Vec<IpAddr> {
+    // Pin the address family: a shared client may connect over the other
+    // family on dual-stack hosts and then report the wrong address type.
+    let client = build_split_client(ip_type, timeout);
     // Construct a DNS query for whoami.cloudflare. TXT CH
     let query = build_dns_query(b"\x06whoami\x0Acloudflare\x00", 16, 3); // TXT=16, CH=3
 
@@ -474,11 +477,14 @@ fn rand_u16() -> u16 {
 // --- Ipify ---
 
 async fn detect_ipify(
-    client: &Client,
+    _client: &Client,
     ip_type: IpType,
     timeout: Duration,
     ppfmt: &PP,
 ) -> Vec<IpAddr> {
+    // Pin the address family: a shared client may connect over the other
+    // family on dual-stack hosts and then report the wrong address type.
+    let client = build_split_client(ip_type, timeout);
     let url = match ip_type {
         IpType::V4 => "https://api4.ipify.org",
         IpType::V6 => "https://api6.ipify.org",
@@ -567,7 +573,7 @@ fn detect_local_iface(interface: &str, ip_type: IpType, ppfmt: &PP) -> Vec<IpAdd
                 .map(|a| a.ip())
                 .filter(|ip| matches_ip_type(ip, ip_type) && ip.is_global_())
                 .collect();
-            ips.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            ips.sort_by_key(|a| a.to_string());
             ips.dedup();
             if ips.is_empty() {
                 ppfmt.warningf(
@@ -692,12 +698,15 @@ fn parse_if_inet6_line(line: &str) -> Option<IfInet6Address> {
 // --- Custom URL ---
 
 async fn detect_custom_url(
-    client: &Client,
+    _client: &Client,
     url: &str,
     ip_type: IpType,
     timeout: Duration,
     ppfmt: &PP,
 ) -> Vec<IpAddr> {
+    // Pin the address family: a shared client may connect over the other
+    // family on dual-stack hosts and then report the wrong address type.
+    let client = build_split_client(ip_type, timeout);
     match client.get(url).timeout(timeout).send().await {
         Ok(resp) => {
             if let Ok(body) = resp.text().await {
@@ -789,6 +798,10 @@ fn is_global_v4(ip: &Ipv4Addr) -> bool {
         && !ip.is_documentation()
         && !(ip.octets()[0] == 100 && ip.octets()[1] >= 64 && ip.octets()[1] <= 127) // 100.64.0.0/10 shared address space
         && !ip.octets().starts_with(&[192, 0, 0]) // 192.0.0.0/24
+        && !ip.is_multicast() // 224.0.0.0/4
+        && ip.octets()[0] < 240 // 240.0.0.0/4 reserved
+        && ip.octets()[0] != 0 // 0.0.0.0/8 "this network"
+        && !(ip.octets()[0] == 198 && (ip.octets()[1] & 0xfe) == 18) // 198.18.0.0/15 benchmarking
 }
 
 fn is_global_v6(ip: &Ipv6Addr) -> bool {
@@ -799,6 +812,8 @@ fn is_global_v6(ip: &Ipv6Addr) -> bool {
         && (ip.segments()[0] & 0xffc0) != 0xfe80
         // Not unique local (fc00::/7)
         && (ip.segments()[0] & 0xfe00) != 0xfc00
+        // Not IPv4-mapped (::ffff:0:0/96)
+        && ip.to_ipv4_mapped().is_none()
 }
 
 #[cfg(test)]
@@ -1683,5 +1698,26 @@ fdaa149d3b9900000000000000000001 0a 40 00 82 br-990e55930a86
             .detect_ips(&client, IpType::V6, timeout, &ppfmt)
             .await;
         assert!(result_v6.is_empty());
+    }
+
+    #[test]
+    fn test_non_global_special_ranges_rejected() {
+        for ip in [
+            "224.0.0.1",
+            "239.255.255.250",
+            "240.0.0.1",
+            "255.255.255.254",
+            "0.1.2.3",
+            "198.18.0.1",
+            "198.19.255.255",
+            "::ffff:198.51.100.1",
+        ] {
+            let ip: IpAddr = ip.parse().unwrap();
+            assert!(!ip.is_global_(), "{ip} must not be treated as global");
+        }
+        for ip in ["198.20.0.1", "8.8.8.8", "2606:4700::1111"] {
+            let ip: IpAddr = ip.parse().unwrap();
+            assert!(ip.is_global_(), "{ip} should be global");
+        }
     }
 }

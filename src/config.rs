@@ -106,6 +106,12 @@ pub struct AppConfig {
     pub repeat: bool,
 }
 
+/// Shortest allowed `@every` interval; anything lower hammers the Cloudflare API.
+pub const MIN_UPDATE_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Legacy-mode polling interval when the record TTL is "auto" (1).
+pub const LEGACY_AUTO_TTL_INTERVAL: Duration = Duration::from_secs(300);
+
 /// Cron schedule
 #[derive(Debug, Clone)]
 pub enum CronSchedule {
@@ -135,12 +141,14 @@ fn parse_duration_string(s: &str) -> Option<Duration> {
         minutes
             .parse::<u64>()
             .ok()
-            .map(|m| Duration::from_secs(m * 60))
+            .and_then(|m| m.checked_mul(60))
+            .map(Duration::from_secs)
     } else if let Some(hours) = s.strip_suffix('h') {
         hours
             .parse::<u64>()
             .ok()
-            .map(|h| Duration::from_secs(h * 3600))
+            .and_then(|h| h.checked_mul(3600))
+            .map(Duration::from_secs)
     } else if let Some(secs) = s.strip_suffix('s') {
         secs.parse::<u64>().ok().map(Duration::from_secs)
     } else {
@@ -167,11 +175,49 @@ fn getenv_bool(key: &str, default: bool) -> bool {
     }
 }
 
-fn getenv_duration(key: &str, default: Duration) -> Duration {
+fn getenv_duration(key: &str, default: Duration) -> Result<Duration, String> {
     match getenv(key) {
-        Some(v) => parse_duration_string(&v).unwrap_or(default),
-        None => default,
+        Some(v) => match parse_duration_string(&v) {
+            Some(d) if !d.is_zero() => Ok(d),
+            _ => Err(format!(
+                "Invalid {key}: '{v}'. Use a positive whole number with an optional s/m/h suffix (e.g. 5s)."
+            )),
+        },
+        None => Ok(default),
     }
+}
+
+/// Validate an API token and strip accidental surrounding quotes.
+///
+/// Cloudflare rejects malformed tokens with the opaque error 6111 "Invalid format
+/// for Authorization header" (issue #292). Common causes are quotes copied into a
+/// compose list entry or NAS UI, and stray whitespace. The token itself is never
+/// included in messages.
+pub(crate) fn normalize_token(raw: &str, source: &str, ppfmt: &PP) -> Result<String, String> {
+    let mut token = raw.trim();
+    for q in ['"', '\'', '`'] {
+        if token.len() >= 2 && token.starts_with(q) && token.ends_with(q) {
+            ppfmt.warningf(
+                pp::EMOJI_WARNING,
+                &format!("{source} is wrapped in quotes; ignoring them. Remove the quotes from your configuration."),
+            );
+            token = token[1..token.len() - 1].trim();
+        }
+    }
+    if token.is_empty() {
+        return Err(format!("{source} is empty"));
+    }
+    if let Some((pos, _)) = token
+        .char_indices()
+        .find(|(_, c)| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')))
+    {
+        return Err(format!(
+            "{source} contains an invalid character at position {} (length {}). API tokens only contain letters, digits, '-' and '_'. Check for quotes, spaces, line breaks or an unsubstituted ${{...}} placeholder.",
+            pos + 1,
+            token.len()
+        ));
+    }
+    Ok(token.to_string())
 }
 
 fn getenv_list(key: &str, sep: char) -> Vec<String> {
@@ -204,7 +250,13 @@ fn read_auth_from_env(ppfmt: &PP) -> Option<Auth> {
             );
             return None;
         }
-        return Some(Auth::Token(token));
+        return match normalize_token(&token, "CLOUDFLARE_API_TOKEN", ppfmt) {
+            Ok(t) => Some(Auth::Token(t)),
+            Err(e) => {
+                ppfmt.errorf(pp::EMOJI_ERROR, &e);
+                None
+            }
+        };
     }
 
     // Try reading from file
@@ -220,9 +272,14 @@ fn read_auth_from_env(ppfmt: &PP) -> Option<Auth> {
     }) {
         match std::fs::read_to_string(&path) {
             Ok(content) => {
-                let token = content.trim().to_string();
-                if !token.is_empty() {
-                    return Some(Auth::Token(token));
+                if !content.trim().is_empty() {
+                    return match normalize_token(&content, "API token file", ppfmt) {
+                        Ok(t) => Some(Auth::Token(t)),
+                        Err(e) => {
+                            ppfmt.errorf(pp::EMOJI_ERROR, &e);
+                            None
+                        }
+                    };
                 }
             }
             Err(e) => {
@@ -311,18 +368,11 @@ fn read_domains_from_env(_ppfmt: &PP) -> HashMap<IpType, Vec<String>> {
     domains
 }
 
-fn read_waf_lists_from_env(ppfmt: &PP) -> Vec<WAFList> {
-    let list_strs = getenv_list("WAF_LISTS", ',');
-    let mut lists = Vec::new();
-    for s in list_strs {
-        match WAFList::parse(&s) {
-            Ok(list) => lists.push(list),
-            Err(e) => {
-                ppfmt.errorf(pp::EMOJI_ERROR, &format!("Invalid WAF_LISTS entry: {e}"));
-            }
-        }
-    }
-    lists
+fn read_waf_lists_from_env() -> Result<Vec<WAFList>, String> {
+    getenv_list("WAF_LISTS", ',')
+        .iter()
+        .map(|s| WAFList::parse(s).map_err(|e| format!("Invalid WAF_LISTS entry: {e}")))
+        .collect()
 }
 
 fn read_cron_from_env(ppfmt: &PP) -> Result<CronSchedule, String> {
@@ -339,6 +389,16 @@ fn read_cron_from_env(ppfmt: &PP) -> Result<CronSchedule, String> {
                 Ok(CronSchedule::Once)
             } else if let Some(rest) = s.strip_prefix("@every ") {
                 match parse_duration_string(rest) {
+                    Some(d) if d < MIN_UPDATE_INTERVAL => {
+                        ppfmt.warningf(
+                            pp::EMOJI_WARNING,
+                            &format!(
+                                "UPDATE_CRON={s} is below the minimum interval; using @every {}s",
+                                MIN_UPDATE_INTERVAL.as_secs()
+                            ),
+                        );
+                        Ok(CronSchedule::Every(MIN_UPDATE_INTERVAL))
+                    }
                     Some(d) => Ok(CronSchedule::Every(d)),
                     None => Err(format!("Invalid duration in UPDATE_CRON: {s}")),
                 }
@@ -352,16 +412,14 @@ fn read_cron_from_env(ppfmt: &PP) -> Result<CronSchedule, String> {
     }
 }
 
-fn read_regex(key: &str, ppfmt: &PP) -> Option<regex_lite::Regex> {
+/// Reads an optional regex. An invalid regex is a hard error: falling back to
+/// `None` would mean "manage every record", which can delete hand-made records.
+fn read_regex(key: &str) -> Result<Option<regex_lite::Regex>, String> {
     match getenv(key) {
-        Some(s) if !s.is_empty() => match regex_lite::Regex::new(&s) {
-            Ok(r) => Some(r),
-            Err(e) => {
-                ppfmt.errorf(pp::EMOJI_ERROR, &format!("Invalid regex in {key}: {e}"));
-                None
-            }
-        },
-        _ => None,
+        Some(s) => regex_lite::Regex::new(&s)
+            .map(Some)
+            .map_err(|e| format!("Invalid regex in {key}: {e}")),
+        None => Ok(None),
     }
 }
 
@@ -371,11 +429,19 @@ fn read_regex(key: &str, ppfmt: &PP) -> Option<regex_lite::Regex> {
 
 fn substitute_env_vars(input: &str) -> String {
     let mut result = input.to_string();
-    for (key, value) in env::vars() {
-        if key.starts_with("CF_DDNS_") {
-            result = result.replace(&format!("${key}"), value.as_str());
-            result = result.replace(&format!("${{{key}}}"), value.as_str());
-        }
+    // Longest names first so $CF_DDNS_TOKEN never clobbers part of $CF_DDNS_TOKEN_2.
+    let mut vars: Vec<(String, String)> = env::vars()
+        .filter(|(k, _)| k.starts_with("CF_DDNS_"))
+        .collect();
+    vars.sort_by_key(|(k, _)| std::cmp::Reverse(k.len()));
+    for (key, value) in vars {
+        result = result.replace(&format!("${{{key}}}"), value.as_str());
+        result = result.replace(&format!("${key}"), value.as_str());
+    }
+    if result.contains("$CF_DDNS_") || result.contains("${CF_DDNS_") {
+        eprintln!(
+            "Warning: config.json references a CF_DDNS_* environment variable that is not set"
+        );
     }
     result
 }
@@ -414,10 +480,26 @@ pub fn parse_legacy_config(content: &str) -> Result<LegacyConfig, String> {
 
 /// Convert a legacy config into a unified AppConfig
 fn legacy_to_app_config(
-    legacy: LegacyConfig,
+    mut legacy: LegacyConfig,
     dry_run: bool,
     repeat: bool,
 ) -> Result<AppConfig, String> {
+    // Validate every entry's credentials up front; an empty token used to become
+    // a bare "Bearer " header and fail every cycle with Cloudflare error 6111.
+    let ppfmt = PP::new(false, false);
+    for (i, entry) in legacy.cloudflare.iter_mut().enumerate() {
+        let auth = &mut entry.authentication;
+        let has_token = !auth.api_token.trim().is_empty() && auth.api_token != "api_token_here";
+        if has_token {
+            auth.api_token =
+                normalize_token(&auth.api_token, &format!("cloudflare[{i}].authentication.api_token"), &ppfmt)?;
+        } else if auth.api_key.is_none() {
+            return Err(format!(
+                "config.json: cloudflare[{i}] has no api_token or api_key credentials"
+            ));
+        }
+    }
+
     // Extract auth from first entry
     let auth = if let Some(entry) = legacy.cloudflare.first() {
         if !entry.authentication.api_token.is_empty()
@@ -461,8 +543,14 @@ fn legacy_to_app_config(
 
     let ttl = TTL::new(legacy.ttl);
     let schedule = if repeat {
-        // Use TTL as interval in legacy mode
-        CronSchedule::Every(Duration::from_secs(legacy.ttl.max(1) as u64))
+        // Legacy mode polls every TTL seconds. TTL 1 means "auto" (and any TTL
+        // below 30 is rewritten to 1), which must not become a 1-second loop.
+        let secs = if legacy.ttl < MIN_UPDATE_INTERVAL.as_secs() as i64 {
+            LEGACY_AUTO_TTL_INTERVAL
+        } else {
+            Duration::from_secs(legacy.ttl as u64)
+        };
+        CronSchedule::Every(secs)
     } else {
         CronSchedule::Once
     };
@@ -522,38 +610,40 @@ pub fn load_env_config(ppfmt: &PP) -> Result<AppConfig, String> {
     }
 
     let auth = read_auth_from_env(ppfmt)
-        .ok_or_else(|| "No authentication configured. Set CLOUDFLARE_API_TOKEN.".to_string())?;
+        .ok_or_else(|| "No valid authentication configured. Set CLOUDFLARE_API_TOKEN.".to_string())?;
 
     let providers = read_providers_from_env(ppfmt)?;
     let domains = read_domains_from_env(ppfmt);
-    let waf_lists = read_waf_lists_from_env(ppfmt);
+    let waf_lists = read_waf_lists_from_env()?;
     let update_cron = read_cron_from_env(ppfmt)?;
     let update_on_start = getenv_bool("UPDATE_ON_START", true);
     let delete_on_stop = getenv_bool("DELETE_ON_STOP", false);
     let delete_on_failure = getenv_bool("DELETE_ON_FAILURE", false);
 
-    let ttl_val = getenv("TTL")
-        .and_then(|s| s.parse::<i64>().ok())
-        .unwrap_or(1);
+    let ttl_val = match getenv("TTL") {
+        Some(s) => s
+            .parse::<i64>()
+            .map_err(|_| format!("Invalid TTL: '{s}'. Use 1 (auto) or a number of seconds."))?,
+        None => 1,
+    };
     let ttl = TTL::new(ttl_val);
 
     let proxied_expr_str = getenv("PROXIED").unwrap_or_else(|| "false".to_string());
-    let proxied_expression = match domain::parse_proxied_expression(&proxied_expr_str) {
-        Ok(pred) => Some(pred),
-        Err(e) => {
-            ppfmt.errorf(pp::EMOJI_ERROR, &format!("Invalid PROXIED expression: {e}"));
-            None
-        }
-    };
+    // An invalid expression must not silently fall back to "not proxied": that
+    // would expose the origin IP the user meant to hide.
+    let proxied_expression = Some(
+        domain::parse_proxied_expression(&proxied_expr_str)
+            .map_err(|e| format!("Invalid PROXIED expression: {e}"))?,
+    );
 
     let record_comment = getenv("RECORD_COMMENT");
-    let managed_comment_regex = read_regex("MANAGED_RECORDS_COMMENT_REGEX", ppfmt);
+    let managed_comment_regex = read_regex("MANAGED_RECORDS_COMMENT_REGEX")?;
     let waf_list_description = getenv("WAF_LIST_DESCRIPTION");
     let waf_list_item_comment = getenv("WAF_LIST_ITEM_COMMENT");
-    let managed_waf_comment_regex = read_regex("MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX", ppfmt);
+    let managed_waf_comment_regex = read_regex("MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX")?;
 
-    let detection_timeout = getenv_duration("DETECTION_TIMEOUT", Duration::from_secs(5));
-    let update_timeout = getenv_duration("UPDATE_TIMEOUT", Duration::from_secs(30));
+    let detection_timeout = getenv_duration("DETECTION_TIMEOUT", Duration::from_secs(5))?;
+    let update_timeout = getenv_duration("UPDATE_TIMEOUT", Duration::from_secs(30))?;
 
     let emoji = getenv_bool("EMOJI", true);
     let quiet = getenv_bool("QUIET", false);
@@ -649,7 +739,7 @@ pub fn setup_notifiers(ppfmt: &PP) -> CompositeNotifier {
                     pp::EMOJI_NOTIFY,
                     &format!("Notifications: {}", n.describe()),
                 );
-                notifiers.push(Box::new(n));
+                notifiers.push(Box::new(n.with_pp(same_output(ppfmt))));
             }
             Err(e) => {
                 ppfmt.errorf(
@@ -661,6 +751,11 @@ pub fn setup_notifiers(ppfmt: &PP) -> CompositeNotifier {
     }
 
     CompositeNotifier::new(notifiers)
+}
+
+/// A top-level printer with the same QUIET/EMOJI settings as `ppfmt`.
+fn same_output(ppfmt: &PP) -> PP {
+    PP::new(ppfmt.emoji, ppfmt.verbosity == pp::Verbosity::Quiet)
 }
 
 pub fn setup_heartbeats(ppfmt: &PP) -> Heartbeat {
@@ -676,7 +771,7 @@ pub fn setup_heartbeats(ppfmt: &PP) -> Heartbeat {
         monitors.push(Box::new(UptimeKumaMonitor::new(&url)));
     }
 
-    Heartbeat::new(monitors)
+    Heartbeat::new(monitors).with_pp(same_output(ppfmt))
 }
 
 // ============================================================
@@ -833,6 +928,7 @@ mod tests {
 
     #[test]
     fn test_read_cron_default() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         // No env var set -> default 5m
         std::env::remove_var("UPDATE_CRON");
         let pp = PP::new(false, false);
@@ -842,6 +938,7 @@ mod tests {
 
     #[test]
     fn test_read_cron_once() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("UPDATE_CRON", "@once");
         let pp = PP::new(false, false);
         let sched = read_cron_from_env(&pp).unwrap();
@@ -851,6 +948,7 @@ mod tests {
 
     #[test]
     fn test_read_cron_every() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("UPDATE_CRON", "@every 10m");
         let pp = PP::new(false, false);
         let sched = read_cron_from_env(&pp).unwrap();
@@ -860,6 +958,7 @@ mod tests {
 
     #[test]
     fn test_read_cron_deprecated_disabled() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("UPDATE_CRON", "@disabled");
         let pp = PP::new(false, false);
         let sched = read_cron_from_env(&pp).unwrap();
@@ -869,6 +968,7 @@ mod tests {
 
     #[test]
     fn test_read_cron_unsupported_format() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("UPDATE_CRON", "*/5 * * * *");
         let pp = PP::new(false, false);
         let result = read_cron_from_env(&pp);
@@ -902,19 +1002,19 @@ mod tests {
     #[test]
     fn test_getenv_bool_true_values() {
         for val in &["true", "1", "yes", "True", "YES"] {
-            std::env::set_var("TEST_BOOL", val);
-            assert!(getenv_bool("TEST_BOOL", false));
+            std::env::set_var("TEST_BOOL_TRUE", val);
+            assert!(getenv_bool("TEST_BOOL_TRUE", false));
         }
-        std::env::remove_var("TEST_BOOL");
+        std::env::remove_var("TEST_BOOL_TRUE");
     }
 
     #[test]
     fn test_getenv_bool_false_values() {
         for val in &["false", "0", "no", "anything"] {
-            std::env::set_var("TEST_BOOL", val);
-            assert!(!getenv_bool("TEST_BOOL", true));
+            std::env::set_var("TEST_BOOL_FALSE", val);
+            assert!(!getenv_bool("TEST_BOOL_FALSE", true));
         }
-        std::env::remove_var("TEST_BOOL");
+        std::env::remove_var("TEST_BOOL_FALSE");
     }
 
     #[test]
@@ -928,15 +1028,31 @@ mod tests {
     fn test_getenv_duration_valid() {
         std::env::set_var("TEST_DUR", "10s");
         let d = getenv_duration("TEST_DUR", Duration::from_secs(99));
-        assert_eq!(d, Duration::from_secs(10));
+        assert_eq!(d, Ok(Duration::from_secs(10)));
         std::env::remove_var("TEST_DUR");
+    }
+
+    #[test]
+    fn test_getenv_duration_invalid_is_error() {
+        for bad in ["500ms", "abc", "0", "0s"] {
+            std::env::set_var("TEST_DUR_BAD", bad);
+            let err = getenv_duration("TEST_DUR_BAD", Duration::from_secs(5)).unwrap_err();
+            assert!(err.contains("TEST_DUR_BAD"), "{bad}: {err}");
+        }
+        std::env::remove_var("TEST_DUR_BAD");
+    }
+
+    #[test]
+    fn test_parse_duration_overflow_is_none() {
+        assert_eq!(parse_duration_string(&format!("{}h", u64::MAX)), None);
+        assert_eq!(parse_duration_string(&format!("{}m", u64::MAX)), None);
     }
 
     #[test]
     fn test_getenv_duration_default() {
         std::env::remove_var("TEST_DUR_MISSING");
         let d = getenv_duration("TEST_DUR_MISSING", Duration::from_secs(42));
-        assert_eq!(d, Duration::from_secs(42));
+        assert_eq!(d, Ok(Duration::from_secs(42)));
     }
 
     #[test]
@@ -959,27 +1075,25 @@ mod tests {
     #[test]
     fn test_read_regex_valid() {
         std::env::set_var("TEST_REGEX", "cloudflare-ddns");
-        let pp = PP::new(false, false);
-        let regex = read_regex("TEST_REGEX", &pp);
+        let regex = read_regex("TEST_REGEX").unwrap();
         assert!(regex.is_some());
         assert!(regex.unwrap().is_match("managed by cloudflare-ddns"));
         std::env::remove_var("TEST_REGEX");
     }
 
     #[test]
-    fn test_read_regex_invalid() {
+    fn test_read_regex_invalid_is_error() {
+        // Fail closed: an invalid regex must not mean "manage all records".
         std::env::set_var("TEST_REGEX_BAD", "[invalid(");
-        let pp = PP::new(false, false);
-        let regex = read_regex("TEST_REGEX_BAD", &pp);
-        assert!(regex.is_none());
+        let err = read_regex("TEST_REGEX_BAD").unwrap_err();
+        assert!(err.contains("TEST_REGEX_BAD"));
         std::env::remove_var("TEST_REGEX_BAD");
     }
 
     #[test]
     fn test_read_regex_empty() {
         std::env::set_var("TEST_REGEX_E", "");
-        let pp = PP::new(false, false);
-        let regex = read_regex("TEST_REGEX_E", &pp);
+        let regex = read_regex("TEST_REGEX_E").unwrap();
         assert!(regex.is_none());
         std::env::remove_var("TEST_REGEX_E");
     }
@@ -988,6 +1102,7 @@ mod tests {
 
     #[test]
     fn test_read_domains_both() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("DOMAINS", "example.com,www.example.com");
         std::env::remove_var("IP4_DOMAINS");
         std::env::remove_var("IP6_DOMAINS");
@@ -1000,6 +1115,7 @@ mod tests {
 
     #[test]
     fn test_read_domains_ip4_only() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("DOMAINS");
         std::env::set_var("IP4_DOMAINS", "v4.example.com");
         std::env::remove_var("IP6_DOMAINS");
@@ -1015,6 +1131,7 @@ mod tests {
 
     #[test]
     fn test_read_domains_empty() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("DOMAINS");
         std::env::remove_var("IP4_DOMAINS");
         std::env::remove_var("IP6_DOMAINS");
@@ -1027,9 +1144,9 @@ mod tests {
 
     #[test]
     fn test_read_waf_lists_valid() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("WAF_LISTS", "acc123/my_list");
-        let pp = PP::new(false, false);
-        let lists = read_waf_lists_from_env(&pp);
+        let lists = read_waf_lists_from_env().unwrap();
         assert_eq!(lists.len(), 1);
         assert_eq!(lists[0].account_id, "acc123");
         assert_eq!(lists[0].list_name, "my_list");
@@ -1037,11 +1154,10 @@ mod tests {
     }
 
     #[test]
-    fn test_read_waf_lists_invalid_skipped() {
+    fn test_read_waf_lists_invalid_is_error() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("WAF_LISTS", "no-slash");
-        let pp = PP::new(false, false);
-        let lists = read_waf_lists_from_env(&pp);
-        assert!(lists.is_empty());
+        assert!(read_waf_lists_from_env().is_err());
         std::env::remove_var("WAF_LISTS");
     }
 
@@ -1284,6 +1400,7 @@ mod tests {
 
     #[test]
     fn test_is_env_config_mode_with_token() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("CLOUDFLARE_API_TOKEN", "test");
         assert!(is_env_config_mode());
         std::env::remove_var("CLOUDFLARE_API_TOKEN");
@@ -1291,6 +1408,7 @@ mod tests {
 
     #[test]
     fn test_is_env_config_mode_with_domains() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("CLOUDFLARE_API_TOKEN");
         std::env::remove_var("CF_API_TOKEN");
         std::env::remove_var("CLOUDFLARE_API_TOKEN_FILE");
@@ -1488,7 +1606,7 @@ mod tests {
 
     impl EnvGuard {
         fn set(key: &str, value: &str) -> Self {
-            let lock = ENV_MUTEX.lock().unwrap();
+            let lock = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
             std::env::set_var(key, value);
             Self {
                 keys: vec![key.to_string()],
@@ -2198,5 +2316,143 @@ mod tests {
         };
         let pp = PP::new(false, true);
         print_config_summary(&config, &pp); // must not panic
+    }
+
+    // ============================================================
+    // Fail-closed validation and token normalization
+    // ============================================================
+
+    /// Minimal valid env config with every optional knob cleared.
+    fn base_env_guard() -> EnvGuard {
+        let mut g = EnvGuard::set("CLOUDFLARE_API_TOKEN", "tok-validate");
+        g.add("DOMAINS", "example.com");
+        for k in [
+            "CF_API_TOKEN", "CLOUDFLARE_API_TOKEN_FILE", "CF_API_TOKEN_FILE", "CF_ACCOUNT_ID",
+            "IP4_DOMAINS", "IP6_DOMAINS", "WAF_LISTS", "UPDATE_CRON", "UPDATE_ON_START",
+            "DELETE_ON_STOP", "TTL", "PROXIED", "IP4_PROVIDER", "IP4_POLICY", "IP6_PROVIDER",
+            "IP6_POLICY", "PUID", "PGID", "MANAGED_RECORDS_COMMENT_REGEX",
+            "MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX", "DETECTION_TIMEOUT", "UPDATE_TIMEOUT",
+        ] {
+            g.remove(k);
+        }
+        g
+    }
+
+    #[test]
+    fn test_load_env_config_rejects_invalid_values() {
+        let cases = [
+            ("PROXIED", "sub(example.com", "PROXIED"),
+            ("MANAGED_RECORDS_COMMENT_REGEX", "^ddns-(", "MANAGED_RECORDS_COMMENT_REGEX"),
+            ("MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX", "[", "MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX"),
+            ("WAF_LISTS", "missing-slash", "WAF_LISTS"),
+            ("TTL", "abc", "TTL"),
+            ("DETECTION_TIMEOUT", "500ms", "DETECTION_TIMEOUT"),
+            ("UPDATE_TIMEOUT", "0", "UPDATE_TIMEOUT"),
+        ];
+        for (key, value, expected) in cases {
+            let mut g = base_env_guard();
+            g.add(key, value);
+            let err = load_env_config(&PP::new(false, true)).err();
+            drop(g);
+            let err = err.unwrap_or_else(|| panic!("{key}={value} should be rejected"));
+            assert!(err.contains(expected), "{key}: {err}");
+        }
+    }
+
+    #[test]
+    fn test_update_cron_below_minimum_is_clamped() {
+        let mut g = base_env_guard();
+        g.add("UPDATE_CRON", "@every 0s");
+        let config = load_env_config(&PP::new(false, true)).unwrap_or_else(|e| panic!("{e}"));
+        drop(g);
+        assert!(matches!(config.update_cron, CronSchedule::Every(d) if d == MIN_UPDATE_INTERVAL));
+    }
+
+    #[test]
+    fn test_normalize_token_strips_quotes() {
+        let pp = PP::new(false, true);
+        assert_eq!(normalize_token("\"abc-123_x\"", "T", &pp).unwrap(), "abc-123_x");
+        assert_eq!(normalize_token("'abc'", "T", &pp).unwrap(), "abc");
+        assert_eq!(normalize_token("  abc\n", "T", &pp).unwrap(), "abc");
+    }
+
+    #[test]
+    fn test_normalize_token_rejects_bad_chars_without_leaking() {
+        let pp = PP::new(false, true);
+        for bad in ["abc def", "abc\ndef", "${CF_DDNS_TOKEN}", "Bearer abc", "\"\"", "tök"] {
+            let err = normalize_token(bad, "CLOUDFLARE_API_TOKEN", &pp).unwrap_err();
+            assert!(err.contains("CLOUDFLARE_API_TOKEN"), "{bad}: {err}");
+            if bad.len() > 3 {
+                assert!(!err.contains(bad), "error must not echo the token: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_read_auth_quoted_token_is_normalized() {
+        let mut g = base_env_guard();
+        g.add("CLOUDFLARE_API_TOKEN", "\"quoted-token\"");
+        let auth = read_auth_from_env(&PP::new(false, true));
+        drop(g);
+        assert!(matches!(auth, Some(Auth::Token(ref t)) if t == "quoted-token"));
+    }
+
+    fn legacy_with(api_token: &str, ttl: i64) -> LegacyConfig {
+        LegacyConfig {
+            cloudflare: vec![LegacyCloudflareEntry {
+                authentication: LegacyAuthentication {
+                    api_token: api_token.to_string(),
+                    api_key: None,
+                },
+                zone_id: "zone1".to_string(),
+                subdomains: vec![LegacySubdomainEntry::Simple("@".to_string())],
+                proxied: false,
+            }],
+            a: true,
+            aaaa: false,
+            purge_unknown_records: false,
+            ttl,
+            ip4_provider: None,
+            ip6_provider: None,
+            record_comment: None,
+        }
+    }
+
+    #[test]
+    fn test_legacy_missing_credentials_is_error() {
+        for token in ["", "api_token_here"] {
+            let err = legacy_to_app_config(legacy_with(token, 300), false, false)
+                .err()
+                .expect("missing credentials must be rejected");
+            assert!(err.contains("cloudflare[0]"), "{err}");
+        }
+    }
+
+    #[test]
+    fn test_legacy_token_is_normalized() {
+        let config = legacy_with(" 'tok-legacy' ", 300);
+        let config = legacy_to_app_config(config, false, false).unwrap();
+        assert!(matches!(config.auth, Auth::Token(ref t) if t == "tok-legacy"));
+        let legacy = config.legacy_config.unwrap();
+        assert_eq!(legacy.cloudflare[0].authentication.api_token, "tok-legacy");
+    }
+
+    #[test]
+    fn test_legacy_auto_ttl_does_not_poll_every_second() {
+        let config = legacy_to_app_config(legacy_with("tok", 1), false, true).unwrap();
+        assert!(
+            matches!(config.update_cron, CronSchedule::Every(d) if d == LEGACY_AUTO_TTL_INTERVAL)
+        );
+        let config = legacy_to_app_config(legacy_with("tok", 600), false, true).unwrap();
+        assert!(matches!(config.update_cron, CronSchedule::Every(d) if d == Duration::from_secs(600)));
+    }
+
+    #[test]
+    fn test_substitute_env_vars_prefers_longest_name() {
+        let mut g = EnvGuard::set("CF_DDNS_SUBST", "short");
+        g.add("CF_DDNS_SUBST_2", "long");
+        let out = substitute_env_vars("$CF_DDNS_SUBST_2 ${CF_DDNS_SUBST}");
+        drop(g);
+        assert_eq!(out, "long short");
     }
 }

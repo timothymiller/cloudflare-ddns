@@ -1,7 +1,9 @@
 use crate::pp::{self, PP};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::Mutex;
 use std::time::Duration;
 
 // --- TTL ---
@@ -35,10 +37,20 @@ impl TTL {
 
 // --- Auth ---
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Auth {
     Token(String),
     Key { api_key: String, email: String },
+}
+
+// Manual Debug so credentials can never end up in logs via `{:?}`.
+impl std::fmt::Debug for Auth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Auth::Token(_) => f.write_str("Token(<redacted>)"),
+            Auth::Key { email, .. } => write!(f, "Key {{ email: {email:?}, api_key: <redacted> }}"),
+        }
+    }
 }
 
 impl Auth {
@@ -85,7 +97,8 @@ impl WAFList {
     }
 
     pub fn describe(&self) -> String {
-        format!("{}/{}", self.account_id, self.list_name)
+        // Account IDs are kept out of logs and notifications.
+        self.list_name.clone()
     }
 }
 
@@ -99,6 +112,23 @@ pub struct CfResponse<T> {
 #[derive(Debug, Deserialize)]
 pub struct CfListResponse<T> {
     pub result: Option<Vec<T>>,
+}
+
+/// List response with cursor pagination (used by WAF list items).
+#[derive(Debug, Deserialize)]
+pub struct CfCursorListResponse<T> {
+    pub result: Option<Vec<T>>,
+    pub result_info: Option<CfResultInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CfResultInfo {
+    pub cursors: Option<CfCursors>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CfCursors {
+    pub after: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,6 +176,14 @@ pub struct WAFListItem {
 }
 
 #[derive(Debug, Serialize)]
+pub struct WAFListCreate<'a> {
+    pub name: &'a str,
+    pub kind: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<&'a str>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct WAFListCreateItem {
     pub ip: String,
     pub comment: Option<String>,
@@ -159,6 +197,8 @@ pub struct CloudflareHandle {
     auth: Auth,
     managed_comment_regex: Option<regex_lite::Regex>,
     managed_waf_comment_regex: Option<regex_lite::Regex>,
+    /// domain -> zone ID. Zones essentially never move, so look each up once.
+    zone_cache: Mutex<HashMap<String, String>>,
 }
 
 impl CloudflareHandle {
@@ -179,6 +219,7 @@ impl CloudflareHandle {
             auth,
             managed_comment_regex,
             managed_waf_comment_regex,
+            zone_cache: Mutex::default(),
         }
     }
 
@@ -196,6 +237,7 @@ impl CloudflareHandle {
             auth,
             managed_comment_regex: None,
             managed_waf_comment_regex: None,
+            zone_cache: Mutex::default(),
         }
     }
 
@@ -203,10 +245,13 @@ impl CloudflareHandle {
         format!("{}/{path}", self.base_url)
     }
 
+    /// Sends an API request. `what` describes the operation for error logs;
+    /// raw URLs are not logged because they carry zone and account IDs.
     async fn api_request<T: serde::de::DeserializeOwned>(
         &self,
         method: reqwest::Method,
         path: &str,
+        what: &str,
         body: Option<&impl Serialize>,
         ppfmt: &PP,
     ) -> Option<T> {
@@ -218,13 +263,22 @@ impl CloudflareHandle {
         match req.send().await {
             Ok(resp) => {
                 if resp.status().is_success() {
-                    resp.json::<T>().await.ok()
+                    match resp.json::<T>().await {
+                        Ok(v) => Some(v),
+                        Err(e) => {
+                            ppfmt.errorf(
+                                pp::EMOJI_ERROR,
+                                &format!("Failed to {what}: unexpected API response: {e}"),
+                            );
+                            None
+                        }
+                    }
                 } else {
-                    let url_str = resp.url().to_string();
+                    let status = resp.status();
                     let text = resp.text().await.unwrap_or_default();
                     ppfmt.errorf(
                         pp::EMOJI_ERROR,
-                        &format!("API {method} '{url_str}' failed: {text}"),
+                        &format!("Failed to {what} (API {method}, HTTP {status}): {text}"),
                     );
                     None
                 }
@@ -232,7 +286,7 @@ impl CloudflareHandle {
             Err(e) => {
                 ppfmt.errorf(
                     pp::EMOJI_ERROR,
-                    &format!("API {method} '{path}' error: {e}"),
+                    &format!("Failed to {what} (API {method}): {}", e.without_url()),
                 );
                 None
             }
@@ -242,6 +296,16 @@ impl CloudflareHandle {
     // --- Zone Operations ---
 
     pub async fn zone_id_of_domain(&self, domain: &str, ppfmt: &PP) -> Option<String> {
+        let key = domain.to_ascii_lowercase();
+        if let Some(id) = self.zone_cache.lock().unwrap().get(&key) {
+            return Some(id.clone());
+        }
+        let id = self.lookup_zone_id(&key, ppfmt).await?;
+        self.zone_cache.lock().unwrap().insert(key, id.clone());
+        Some(id)
+    }
+
+    async fn lookup_zone_id(&self, domain: &str, ppfmt: &PP) -> Option<String> {
         // Try to find zone by iterating parent domains
         let mut current = domain.to_string();
         loop {
@@ -249,6 +313,7 @@ impl CloudflareHandle {
                 .api_request(
                     reqwest::Method::GET,
                     &format!("zones?name={current}"),
+                    &format!("look up zone {current}"),
                     None::<&()>,
                     ppfmt,
                 )
@@ -275,36 +340,41 @@ impl CloudflareHandle {
 
     // --- DNS Record Operations ---
 
-    pub async fn list_records(
-        &self,
-        zone_id: &str,
-        record_type: &str,
-        ppfmt: &PP,
-    ) -> Vec<DnsRecord> {
-        let path = format!("zones/{zone_id}/dns_records?per_page=100&type={record_type}");
-        let resp: Option<CfListResponse<DnsRecord>> = self
-            .api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt)
-            .await;
-        resp.and_then(|r| r.result).unwrap_or_default()
-    }
-
+    /// Lists records of one type and name. Returns `None` if the API call failed,
+    /// so callers never mistake an error for "no records" and create duplicates.
     pub async fn list_records_by_name(
         &self,
         zone_id: &str,
         record_type: &str,
         name: &str,
         ppfmt: &PP,
-    ) -> Vec<DnsRecord> {
-        // Cloudflare normalizes DNS record names to lowercase server-side, so a
-        // case-sensitive match against the user-supplied name (e.g. ExaMple.com)
-        // would never find existing records and trigger 81058 duplicate-create
-        // errors on every cycle. Match case-insensitively to mirror Cloudflare's
-        // own comparison rules.
-        let records = self.list_records(zone_id, record_type, ppfmt).await;
-        records
-            .into_iter()
-            .filter(|r| r.name.eq_ignore_ascii_case(name))
-            .collect()
+    ) -> Option<Vec<DnsRecord>> {
+        // Filter by name server-side: an unfiltered listing is capped at one page,
+        // so in zones with more than 100 records the target could be missed.
+        // Cloudflare normalizes DNS record names to lowercase, so query and match
+        // case-insensitively (a case-sensitive match would trigger 81058
+        // duplicate-create errors on every cycle).
+        let lower = name.to_ascii_lowercase();
+        let path = format!(
+            "zones/{zone_id}/dns_records?per_page=100&type={record_type}&name={}",
+            encode_query_value(&lower)
+        );
+        let resp: CfListResponse<DnsRecord> = self
+            .api_request(
+                reqwest::Method::GET,
+                &path,
+                &format!("list {record_type} records for {name}"),
+                None::<&()>,
+                ppfmt,
+            )
+            .await?;
+        Some(
+            resp.result
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|r| r.name.eq_ignore_ascii_case(name))
+                .collect(),
+        )
     }
 
     fn is_managed_record(&self, record: &DnsRecord) -> bool {
@@ -325,7 +395,13 @@ impl CloudflareHandle {
     ) -> Option<DnsRecord> {
         let path = format!("zones/{zone_id}/dns_records");
         let resp: Option<CfResponse<DnsRecord>> = self
-            .api_request(reqwest::Method::POST, &path, Some(payload), ppfmt)
+            .api_request(
+                reqwest::Method::POST,
+                &path,
+                &format!("create {} record {}", payload.record_type, payload.name),
+                Some(payload),
+                ppfmt,
+            )
             .await;
         resp.and_then(|r| r.result)
     }
@@ -339,7 +415,13 @@ impl CloudflareHandle {
     ) -> Option<DnsRecord> {
         let path = format!("zones/{zone_id}/dns_records/{record_id}");
         let resp: Option<CfResponse<DnsRecord>> = self
-            .api_request(reqwest::Method::PUT, &path, Some(payload), ppfmt)
+            .api_request(
+                reqwest::Method::PUT,
+                &path,
+                &format!("update {} record {}", payload.record_type, payload.name),
+                Some(payload),
+                ppfmt,
+            )
             .await;
         resp.and_then(|r| r.result)
     }
@@ -347,7 +429,13 @@ impl CloudflareHandle {
     pub async fn delete_record(&self, zone_id: &str, record_id: &str, ppfmt: &PP) -> bool {
         let path = format!("zones/{zone_id}/dns_records/{record_id}");
         let resp: Option<CfResponse<serde_json::Value>> = self
-            .api_request(reqwest::Method::DELETE, &path, None::<&()>, ppfmt)
+            .api_request(
+                reqwest::Method::DELETE,
+                &path,
+                "delete DNS record",
+                None::<&()>,
+                ppfmt,
+            )
             .await;
         resp.is_some()
     }
@@ -365,9 +453,13 @@ impl CloudflareHandle {
         dry_run: bool,
         ppfmt: &PP,
     ) -> SetResult {
-        let existing = self
+        let Some(existing) = self
             .list_records_by_name(zone_id, record_type, fqdn, ppfmt)
-            .await;
+            .await
+        else {
+            return SetResult::Failed;
+        };
+        let mut failed = false;
         let managed: Vec<&DnsRecord> = existing
             .iter()
             .filter(|r| self.is_managed_record(r))
@@ -389,10 +481,14 @@ impl CloudflareHandle {
                         pp::EMOJI_DELETE,
                         &format!("Deleting record {fqdn} ({})", record.content),
                     );
-                    self.delete_record(zone_id, &record.id, ppfmt).await;
+                    failed |= !self.delete_record(zone_id, &record.id, ppfmt).await;
                 }
             }
-            return SetResult::Updated;
+            return if failed {
+                SetResult::Failed
+            } else {
+                SetResult::Updated
+            };
         }
 
         // For each IP, find or create a record
@@ -434,8 +530,10 @@ impl CloudflareHandle {
                             pp::EMOJI_UPDATE,
                             &format!("Updating record {fqdn} -> {ip_str}"),
                         );
-                        self.update_record(zone_id, &record.id, &payload, ppfmt)
-                            .await;
+                        failed |= self
+                            .update_record(zone_id, &record.id, &payload, ppfmt)
+                            .await
+                            .is_none();
                     }
                 } else {
                     // Caller handles "up to date" logging based on SetResult::Noop
@@ -466,8 +564,10 @@ impl CloudflareHandle {
                             pp::EMOJI_UPDATE,
                             &format!("Updating record {fqdn} -> {ip_str}"),
                         );
-                        self.update_record(zone_id, &record.id, &payload, ppfmt)
-                            .await;
+                        failed |= self
+                            .update_record(zone_id, &record.id, &payload, ppfmt)
+                            .await
+                            .is_none();
                     }
                 } else {
                     any_change = true;
@@ -481,7 +581,7 @@ impl CloudflareHandle {
                             pp::EMOJI_CREATE,
                             &format!("Adding new record {fqdn} -> {ip_str}"),
                         );
-                        self.create_record(zone_id, &payload, ppfmt).await;
+                        failed |= self.create_record(zone_id, &payload, ppfmt).await.is_none();
                     }
                 }
             }
@@ -504,12 +604,14 @@ impl CloudflareHandle {
                         pp::EMOJI_DELETE,
                         &format!("Deleting stale record {} ({})", fqdn, record.content),
                     );
-                    self.delete_record(zone_id, &record.id, ppfmt).await;
+                    failed |= !self.delete_record(zone_id, &record.id, ppfmt).await;
                 }
             }
         }
 
-        if any_change {
+        if failed {
+            SetResult::Failed
+        } else if any_change {
             SetResult::Updated
         } else {
             SetResult::Noop
@@ -517,19 +619,31 @@ impl CloudflareHandle {
     }
 
     /// Delete all managed records for a specific domain/record type.
-    pub async fn final_delete(&self, zone_id: &str, fqdn: &str, record_type: &str, ppfmt: &PP) {
-        let existing = self
+    /// Returns `false` if listing or any deletion failed.
+    pub async fn final_delete(
+        &self,
+        zone_id: &str,
+        fqdn: &str,
+        record_type: &str,
+        ppfmt: &PP,
+    ) -> bool {
+        let Some(existing) = self
             .list_records_by_name(zone_id, record_type, fqdn, ppfmt)
-            .await;
+            .await
+        else {
+            return false;
+        };
+        let mut ok = true;
         for record in &existing {
             if self.is_managed_record(record) {
                 ppfmt.noticef(
                     pp::EMOJI_DELETE,
                     &format!("Deleting record {fqdn} ({})", record.content),
                 );
-                self.delete_record(zone_id, &record.id, ppfmt).await;
+                ok &= self.delete_record(zone_id, &record.id, ppfmt).await;
             }
         }
+        ok
     }
 
     // --- WAF List Operations ---
@@ -537,23 +651,76 @@ impl CloudflareHandle {
     pub async fn find_waf_list(&self, waf_list: &WAFList, ppfmt: &PP) -> Option<WAFListMeta> {
         let path = format!("accounts/{}/rules/lists", waf_list.account_id);
         let resp: Option<CfListResponse<WAFListMeta>> = self
-            .api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt)
+            .api_request(
+                reqwest::Method::GET,
+                &path,
+                &format!("look up WAF list {}", waf_list.list_name),
+                None::<&()>,
+                ppfmt,
+            )
             .await;
         resp.and_then(|r| r.result)
             .and_then(|lists| lists.into_iter().find(|l| l.name == waf_list.list_name))
     }
 
+    /// Lists all items, following cursor pagination. `None` if any page failed.
     pub async fn list_waf_list_items(
         &self,
         account_id: &str,
         list_id: &str,
         ppfmt: &PP,
-    ) -> Vec<WAFListItem> {
-        let path = format!("accounts/{account_id}/rules/lists/{list_id}/items");
-        let resp: Option<CfListResponse<WAFListItem>> = self
-            .api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt)
-            .await;
-        resp.and_then(|r| r.result).unwrap_or_default()
+    ) -> Option<Vec<WAFListItem>> {
+        let base = format!("accounts/{account_id}/rules/lists/{list_id}/items");
+        let mut items = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let path = match &cursor {
+                Some(c) => format!("{base}?cursor={}", encode_query_value(c)),
+                None => base.clone(),
+            };
+            let resp: CfCursorListResponse<WAFListItem> = self
+                .api_request(
+                    reqwest::Method::GET,
+                    &path,
+                    "list WAF list items",
+                    None::<&()>,
+                    ppfmt,
+                )
+                .await?;
+            items.extend(resp.result.unwrap_or_default());
+            cursor = resp
+                .result_info
+                .and_then(|i| i.cursors)
+                .and_then(|c| c.after)
+                .filter(|c| !c.is_empty());
+            if cursor.is_none() {
+                return Some(items);
+            }
+        }
+    }
+
+    pub async fn create_waf_list(
+        &self,
+        waf_list: &WAFList,
+        description: Option<&str>,
+        ppfmt: &PP,
+    ) -> Option<WAFListMeta> {
+        let path = format!("accounts/{}/rules/lists", waf_list.account_id);
+        let body = WAFListCreate {
+            name: &waf_list.list_name,
+            kind: "ip",
+            description,
+        };
+        let resp: CfResponse<WAFListMeta> = self
+            .api_request(
+                reqwest::Method::POST,
+                &path,
+                &format!("create WAF list {}", waf_list.list_name),
+                Some(&body),
+                ppfmt,
+            )
+            .await?;
+        resp.result
     }
 
     pub async fn create_waf_list_items(
@@ -565,7 +732,13 @@ impl CloudflareHandle {
     ) -> bool {
         let path = format!("accounts/{account_id}/rules/lists/{list_id}/items");
         let resp: Option<CfResponse<serde_json::Value>> = self
-            .api_request(reqwest::Method::POST, &path, Some(&items), ppfmt)
+            .api_request(
+                reqwest::Method::POST,
+                &path,
+                "add WAF list items",
+                Some(&items),
+                ppfmt,
+            )
             .await;
         resp.is_some()
     }
@@ -582,21 +755,16 @@ impl CloudflareHandle {
             .iter()
             .map(|id| serde_json::json!({ "id": id }))
             .collect();
-        let url = self.api_url(&path);
-        let req = self
-            .auth
-            .apply(self.client.delete(&url))
-            .json(&serde_json::json!({ "items": body }));
-        match req.send().await {
-            Ok(resp) => resp.status().is_success(),
-            Err(e) => {
-                ppfmt.errorf(
-                    pp::EMOJI_ERROR,
-                    &format!("WAF list items DELETE error: {e}"),
-                );
-                false
-            }
-        }
+        let resp: Option<CfResponse<serde_json::Value>> = self
+            .api_request(
+                reqwest::Method::DELETE,
+                &path,
+                "remove WAF list items",
+                Some(&serde_json::json!({ "items": body })),
+                ppfmt,
+            )
+            .await;
+        resp.is_some()
     }
 
     /// Set WAF list to contain exactly the given IPs.
@@ -605,24 +773,47 @@ impl CloudflareHandle {
         waf_list: &WAFList,
         ips: &[IpAddr],
         comment: Option<&str>,
-        _description: Option<&str>,
+        description: Option<&str>,
         dry_run: bool,
         ppfmt: &PP,
     ) -> SetResult {
-        let list_meta = match self.find_waf_list(waf_list, ppfmt).await {
-            Some(meta) => meta,
-            None => {
-                ppfmt.errorf(
-                    pp::EMOJI_ERROR,
-                    &format!("WAF list {} not found", waf_list.describe()),
+        let (list_meta, existing_items) = match self.find_waf_list(waf_list, ppfmt).await {
+            Some(meta) => {
+                let Some(items) = self
+                    .list_waf_list_items(&waf_list.account_id, &meta.id, ppfmt)
+                    .await
+                else {
+                    return SetResult::Failed;
+                };
+                (meta, items)
+            }
+            None if dry_run => {
+                ppfmt.noticef(
+                    pp::EMOJI_CREATE,
+                    &format!("[DRY RUN] Would create WAF list {}", waf_list.describe()),
                 );
-                return SetResult::Failed;
+                return SetResult::Updated;
+            }
+            None => {
+                ppfmt.noticef(
+                    pp::EMOJI_CREATE,
+                    &format!("Creating WAF list {}", waf_list.describe()),
+                );
+                match self.create_waf_list(waf_list, description, ppfmt).await {
+                    Some(meta) => (meta, Vec::new()),
+                    None => {
+                        ppfmt.errorf(
+                            pp::EMOJI_ERROR,
+                            &format!(
+                                "WAF list {} not found and could not be created",
+                                waf_list.describe()
+                            ),
+                        );
+                        return SetResult::Failed;
+                    }
+                }
             }
         };
-
-        let existing_items = self
-            .list_waf_list_items(&waf_list.account_id, &list_meta.id, ppfmt)
-            .await;
 
         // Filter to managed items
         let managed_items: Vec<&WAFListItem> = existing_items
@@ -660,7 +851,7 @@ impl CloudflareHandle {
             .filter(|item| {
                 item.ip
                     .as_ref()
-                    .map_or(false, |ip| ips_to_remove.contains(ip))
+                    .is_some_and(|ip| ips_to_remove.contains(ip))
             })
             .map(|item| item.id.clone())
             .collect();
@@ -734,15 +925,19 @@ impl CloudflareHandle {
     }
 
     /// Clear all managed items from a WAF list (for shutdown).
-    pub async fn final_clear_waf_list(&self, waf_list: &WAFList, ppfmt: &PP) {
+    /// Returns `false` if listing or deleting failed. A missing list is a no-op.
+    pub async fn final_clear_waf_list(&self, waf_list: &WAFList, ppfmt: &PP) -> bool {
         let list_meta = match self.find_waf_list(waf_list, ppfmt).await {
             Some(meta) => meta,
-            None => return,
+            None => return true,
         };
 
-        let items = self
+        let Some(items) = self
             .list_waf_list_items(&waf_list.account_id, &list_meta.id, ppfmt)
-            .await;
+            .await
+        else {
+            return false;
+        };
 
         let managed_ids: Vec<String> = items
             .iter()
@@ -765,10 +960,17 @@ impl CloudflareHandle {
                     waf_list.describe()
                 ),
             );
-            self.delete_waf_list_items(&waf_list.account_id, &list_meta.id, &managed_ids, ppfmt)
+            return self
+                .delete_waf_list_items(&waf_list.account_id, &list_meta.id, &managed_ids, ppfmt)
                 .await;
         }
+        true
     }
+}
+
+/// Percent-encodes a query parameter value.
+fn encode_query_value(v: &str) -> String {
+    url::form_urlencoded::byte_serialize(v.as_bytes()).collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -812,6 +1014,7 @@ mod tests {
             auth: test_auth(),
             managed_comment_regex: Some(regex_lite::Regex::new(pattern).unwrap()),
             managed_waf_comment_regex: None,
+            zone_cache: Mutex::default(),
         }
     }
 
@@ -908,7 +1111,7 @@ mod tests {
             account_id: "acct".to_string(),
             list_name: "blocklist".to_string(),
         };
-        assert_eq!(wl.describe(), "acct/blocklist");
+        assert_eq!(wl.describe(), "blocklist");
     }
 
     // -------------------------------------------------------
@@ -991,24 +1194,45 @@ mod tests {
     // --- list_records / list_records_by_name ---
 
     #[tokio::test]
-    async fn list_records_returns_all() {
+    async fn list_records_by_name_queries_by_lowercase_name() {
+        // The name filter must be sent server-side; unfiltered listings are capped
+        // at 100 records and can miss the target in large zones.
         let server = MockServer::start().await;
-        let body = dns_list_response(vec![
-            dns_record_json("r1", "a.example.com", "1.2.3.4", None),
-            dns_record_json("r2", "b.example.com", "5.6.7.8", None),
-        ]);
+        let body = dns_list_response(vec![dns_record_json(
+            "r1",
+            "a.example.com",
+            "1.2.3.4",
+            None,
+        )]);
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
             .and(query_param("type", "A"))
+            .and(query_param("name", "a.example.com"))
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .expect(1)
             .mount(&server)
             .await;
 
         let h = handle(&server.uri());
-        let records = h.list_records("z1", "A", &pp()).await;
-        assert_eq!(records.len(), 2);
-        assert_eq!(records[0].id, "r1");
-        assert_eq!(records[1].id, "r2");
+        let records = h
+            .list_records_by_name("z1", "A", "A.Example.com", &pp())
+            .await
+            .unwrap();
+        assert_eq!(records.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn list_records_by_name_api_error_is_none() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+        let h = handle(&server.uri());
+        assert!(h
+            .list_records_by_name("z1", "A", "a.example.com", &pp())
+            .await
+            .is_none());
     }
 
     // Issue #255: Cloudflare normalizes record names to lowercase, so a
@@ -1027,7 +1251,8 @@ mod tests {
         let h = handle(&server.uri());
         let records = h
             .list_records_by_name("z1", "A", "ExaMple.com", &pp())
-            .await;
+            .await
+            .unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].id, "r1");
     }
@@ -1048,7 +1273,8 @@ mod tests {
         let h = handle(&server.uri());
         let records = h
             .list_records_by_name("z1", "A", "a.example.com", &pp())
-            .await;
+            .await
+            .unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].content, "1.2.3.4");
     }
@@ -1592,7 +1818,7 @@ mod tests {
         let h = handle(&server.uri());
         let pp = PP::new(false, true); // quiet
         let result: Option<CfListResponse<ZoneResult>> = h
-            .api_request(reqwest::Method::GET, "zones", None::<&()>, &pp)
+            .api_request(reqwest::Method::GET, "zones", "test", None::<&()>, &pp)
             .await;
         assert!(result.is_none());
     }
@@ -1609,7 +1835,7 @@ mod tests {
         let pp = PP::new(false, true);
         let body = serde_json::json!({"test": true});
         let result: Option<CfResponse<serde_json::Value>> = h
-            .api_request(reqwest::Method::POST, "endpoint", Some(&body), &pp)
+            .api_request(reqwest::Method::POST, "endpoint", "test", Some(&body), &pp)
             .await;
         assert!(result.is_none());
     }
@@ -1626,7 +1852,7 @@ mod tests {
         let pp = PP::new(false, true);
         let body = serde_json::json!({"test": true});
         let result: Option<CfResponse<serde_json::Value>> = h
-            .api_request(reqwest::Method::PUT, "endpoint", Some(&body), &pp)
+            .api_request(reqwest::Method::PUT, "endpoint", "test", Some(&body), &pp)
             .await;
         assert!(result.is_none());
     }
@@ -1982,5 +2208,198 @@ mod tests {
         let ips: Vec<IpAddr> = vec![]; // no desired IPs -> should delete the existing one
         let result = h.set_waf_list(&wl, &ips, None, None, false, &pp()).await;
         assert_eq!(result, SetResult::Updated);
+    }
+
+    // --- Write failures, caching, pagination, list creation ---
+
+    async fn mount_one_record(server: &MockServer, id: &str, ip: &str) {
+        Mock::given(method("GET"))
+            .and(path("/zones/z1/dns_records"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_list_response(vec![dns_record_json(
+                    id,
+                    "a.example.com",
+                    ip,
+                    None,
+                )])),
+            )
+            .mount(server)
+            .await;
+    }
+
+    async fn set_a(h: &CloudflareHandle, ip: &str) -> SetResult {
+        let ips: Vec<IpAddr> = vec![ip.parse().unwrap()];
+        h.set_ips(
+            "z1",
+            "a.example.com",
+            "A",
+            &ips,
+            false,
+            TTL::AUTO,
+            None,
+            false,
+            &pp(),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn set_ips_update_rejected_returns_failed() {
+        let server = MockServer::start().await;
+        mount_one_record(&server, "r1", "1.1.1.1").await;
+        Mock::given(method("PUT"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "success": false, "errors": [{ "code": 10000, "message": "Authentication error" }]
+            })))
+            .mount(&server)
+            .await;
+        assert_eq!(
+            set_a(&handle(&server.uri()), "2.2.2.2").await,
+            SetResult::Failed
+        );
+    }
+
+    #[tokio::test]
+    async fn set_ips_create_rejected_returns_failed() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/zones/z1/dns_records"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(dns_list_response(vec![])))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(400))
+            .mount(&server)
+            .await;
+        assert_eq!(
+            set_a(&handle(&server.uri()), "2.2.2.2").await,
+            SetResult::Failed
+        );
+    }
+
+    #[tokio::test]
+    async fn set_ips_list_failure_does_not_create() {
+        // A failed listing must not be mistaken for "no records" (duplicate creates).
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+        assert_eq!(
+            set_a(&handle(&server.uri()), "2.2.2.2").await,
+            SetResult::Failed
+        );
+    }
+
+    #[tokio::test]
+    async fn final_delete_reports_failure() {
+        let server = MockServer::start().await;
+        mount_one_record(&server, "r1", "1.1.1.1").await;
+        Mock::given(method("DELETE"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+        let h = handle(&server.uri());
+        assert!(!h.final_delete("z1", "a.example.com", "A", &pp()).await);
+    }
+
+    #[tokio::test]
+    async fn zone_id_is_cached() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/zones"))
+            .and(query_param("name", "example.com"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(zone_response("zone-1", "example.com")),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let h = handle(&server.uri());
+        for _ in 0..3 {
+            assert_eq!(
+                h.zone_id_of_domain("Example.com", &pp()).await,
+                Some("zone-1".to_string())
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn waf_list_items_follow_cursor_pagination() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/accounts/acct1/rules/lists/wl-1/items"))
+            .and(query_param("cursor", "next1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": [{ "id": "i2", "ip": "10.0.0.2", "comment": null }],
+                "result_info": { "cursors": { "before": "x" } }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/accounts/acct1/rules/lists/wl-1/items"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": [{ "id": "i1", "ip": "10.0.0.1", "comment": null }],
+                "result_info": { "cursors": { "after": "next1" } }
+            })))
+            .mount(&server)
+            .await;
+        let h = handle(&server.uri());
+        let items = h.list_waf_list_items("acct1", "wl-1", &pp()).await.unwrap();
+        let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, vec!["i1", "i2"]);
+    }
+
+    #[tokio::test]
+    async fn set_waf_list_creates_missing_list_with_description() {
+        use wiremock::matchers::body_json;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/accounts/acct1/rules/lists"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": [] })),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/accounts/acct1/rules/lists"))
+            .and(body_json(serde_json::json!({
+                "name": "home", "kind": "ip", "description": "Home IPs"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": { "id": "wl-new", "name": "home" }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/accounts/acct1/rules/lists/wl-new/items"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "result": {} })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let h = handle(&server.uri());
+        let wl = WAFList {
+            account_id: "acct1".to_string(),
+            list_name: "home".to_string(),
+        };
+        let ips: Vec<IpAddr> = vec!["10.0.0.1".parse().unwrap()];
+        let result = h
+            .set_waf_list(&wl, &ips, None, Some("Home IPs"), false, &pp())
+            .await;
+        assert_eq!(result, SetResult::Updated);
+    }
+
+    #[test]
+    fn auth_debug_is_redacted() {
+        let dbg = format!("{:?}", Auth::Token("super-secret".to_string()));
+        assert!(!dbg.contains("super-secret"), "{dbg}");
     }
 }
