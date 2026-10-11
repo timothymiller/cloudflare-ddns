@@ -97,7 +97,8 @@ impl WAFList {
     }
 
     pub fn describe(&self) -> String {
-        format!("{}/{}", self.account_id, self.list_name)
+        // Account IDs are kept out of logs and notifications.
+        self.list_name.clone()
     }
 }
 
@@ -244,10 +245,13 @@ impl CloudflareHandle {
         format!("{}/{path}", self.base_url)
     }
 
+    /// Sends an API request. `what` describes the operation for error logs;
+    /// raw URLs are not logged because they carry zone and account IDs.
     async fn api_request<T: serde::de::DeserializeOwned>(
         &self,
         method: reqwest::Method,
         path: &str,
+        what: &str,
         body: Option<&impl Serialize>,
         ppfmt: &PP,
     ) -> Option<T> {
@@ -264,17 +268,17 @@ impl CloudflareHandle {
                         Err(e) => {
                             ppfmt.errorf(
                                 pp::EMOJI_ERROR,
-                                &format!("API {method} '{path}' returned an unexpected response: {e}"),
+                                &format!("Failed to {what}: unexpected API response: {e}"),
                             );
                             None
                         }
                     }
                 } else {
-                    let url_str = resp.url().to_string();
+                    let status = resp.status();
                     let text = resp.text().await.unwrap_or_default();
                     ppfmt.errorf(
                         pp::EMOJI_ERROR,
-                        &format!("API {method} '{url_str}' failed: {text}"),
+                        &format!("Failed to {what} (API {method}, HTTP {status}): {text}"),
                     );
                     None
                 }
@@ -282,7 +286,7 @@ impl CloudflareHandle {
             Err(e) => {
                 ppfmt.errorf(
                     pp::EMOJI_ERROR,
-                    &format!("API {method} '{path}' error: {e}"),
+                    &format!("Failed to {what} (API {method}): {}", e.without_url()),
                 );
                 None
             }
@@ -309,6 +313,7 @@ impl CloudflareHandle {
                 .api_request(
                     reqwest::Method::GET,
                     &format!("zones?name={current}"),
+                    &format!("look up zone {current}"),
                     None::<&()>,
                     ppfmt,
                 )
@@ -355,7 +360,13 @@ impl CloudflareHandle {
             encode_query_value(&lower)
         );
         let resp: CfListResponse<DnsRecord> = self
-            .api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt)
+            .api_request(
+                reqwest::Method::GET,
+                &path,
+                &format!("list {record_type} records for {name}"),
+                None::<&()>,
+                ppfmt,
+            )
             .await?;
         Some(
             resp.result
@@ -384,7 +395,13 @@ impl CloudflareHandle {
     ) -> Option<DnsRecord> {
         let path = format!("zones/{zone_id}/dns_records");
         let resp: Option<CfResponse<DnsRecord>> = self
-            .api_request(reqwest::Method::POST, &path, Some(payload), ppfmt)
+            .api_request(
+                reqwest::Method::POST,
+                &path,
+                &format!("create {} record {}", payload.record_type, payload.name),
+                Some(payload),
+                ppfmt,
+            )
             .await;
         resp.and_then(|r| r.result)
     }
@@ -398,7 +415,13 @@ impl CloudflareHandle {
     ) -> Option<DnsRecord> {
         let path = format!("zones/{zone_id}/dns_records/{record_id}");
         let resp: Option<CfResponse<DnsRecord>> = self
-            .api_request(reqwest::Method::PUT, &path, Some(payload), ppfmt)
+            .api_request(
+                reqwest::Method::PUT,
+                &path,
+                &format!("update {} record {}", payload.record_type, payload.name),
+                Some(payload),
+                ppfmt,
+            )
             .await;
         resp.and_then(|r| r.result)
     }
@@ -406,7 +429,13 @@ impl CloudflareHandle {
     pub async fn delete_record(&self, zone_id: &str, record_id: &str, ppfmt: &PP) -> bool {
         let path = format!("zones/{zone_id}/dns_records/{record_id}");
         let resp: Option<CfResponse<serde_json::Value>> = self
-            .api_request(reqwest::Method::DELETE, &path, None::<&()>, ppfmt)
+            .api_request(
+                reqwest::Method::DELETE,
+                &path,
+                "delete DNS record",
+                None::<&()>,
+                ppfmt,
+            )
             .await;
         resp.is_some()
     }
@@ -622,7 +651,13 @@ impl CloudflareHandle {
     pub async fn find_waf_list(&self, waf_list: &WAFList, ppfmt: &PP) -> Option<WAFListMeta> {
         let path = format!("accounts/{}/rules/lists", waf_list.account_id);
         let resp: Option<CfListResponse<WAFListMeta>> = self
-            .api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt)
+            .api_request(
+                reqwest::Method::GET,
+                &path,
+                &format!("look up WAF list {}", waf_list.list_name),
+                None::<&()>,
+                ppfmt,
+            )
             .await;
         resp.and_then(|r| r.result)
             .and_then(|lists| lists.into_iter().find(|l| l.name == waf_list.list_name))
@@ -644,7 +679,13 @@ impl CloudflareHandle {
                 None => base.clone(),
             };
             let resp: CfCursorListResponse<WAFListItem> = self
-                .api_request(reqwest::Method::GET, &path, None::<&()>, ppfmt)
+                .api_request(
+                    reqwest::Method::GET,
+                    &path,
+                    "list WAF list items",
+                    None::<&()>,
+                    ppfmt,
+                )
                 .await?;
             items.extend(resp.result.unwrap_or_default());
             cursor = resp
@@ -671,7 +712,13 @@ impl CloudflareHandle {
             description,
         };
         let resp: CfResponse<WAFListMeta> = self
-            .api_request(reqwest::Method::POST, &path, Some(&body), ppfmt)
+            .api_request(
+                reqwest::Method::POST,
+                &path,
+                &format!("create WAF list {}", waf_list.list_name),
+                Some(&body),
+                ppfmt,
+            )
             .await?;
         resp.result
     }
@@ -685,7 +732,13 @@ impl CloudflareHandle {
     ) -> bool {
         let path = format!("accounts/{account_id}/rules/lists/{list_id}/items");
         let resp: Option<CfResponse<serde_json::Value>> = self
-            .api_request(reqwest::Method::POST, &path, Some(&items), ppfmt)
+            .api_request(
+                reqwest::Method::POST,
+                &path,
+                "add WAF list items",
+                Some(&items),
+                ppfmt,
+            )
             .await;
         resp.is_some()
     }
@@ -706,6 +759,7 @@ impl CloudflareHandle {
             .api_request(
                 reqwest::Method::DELETE,
                 &path,
+                "remove WAF list items",
                 Some(&serde_json::json!({ "items": body })),
                 ppfmt,
             )
@@ -1057,7 +1111,7 @@ mod tests {
             account_id: "acct".to_string(),
             list_name: "blocklist".to_string(),
         };
-        assert_eq!(wl.describe(), "acct/blocklist");
+        assert_eq!(wl.describe(), "blocklist");
     }
 
     // -------------------------------------------------------
@@ -1759,7 +1813,7 @@ mod tests {
         let h = handle(&server.uri());
         let pp = PP::new(false, true); // quiet
         let result: Option<CfListResponse<ZoneResult>> = h
-            .api_request(reqwest::Method::GET, "zones", None::<&()>, &pp)
+            .api_request(reqwest::Method::GET, "zones", "test", None::<&()>, &pp)
             .await;
         assert!(result.is_none());
     }
@@ -1776,7 +1830,7 @@ mod tests {
         let pp = PP::new(false, true);
         let body = serde_json::json!({"test": true});
         let result: Option<CfResponse<serde_json::Value>> = h
-            .api_request(reqwest::Method::POST, "endpoint", Some(&body), &pp)
+            .api_request(reqwest::Method::POST, "endpoint", "test", Some(&body), &pp)
             .await;
         assert!(result.is_none());
     }
@@ -1793,7 +1847,7 @@ mod tests {
         let pp = PP::new(false, true);
         let body = serde_json::json!({"test": true});
         let result: Option<CfResponse<serde_json::Value>> = h
-            .api_request(reqwest::Method::PUT, "endpoint", Some(&body), &pp)
+            .api_request(reqwest::Method::PUT, "endpoint", "test", Some(&body), &pp)
             .await;
         assert!(result.is_none());
     }

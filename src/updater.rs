@@ -276,7 +276,7 @@ pub async fn update_once(
                 )
                 .await;
 
-            let noop_key = format!("waf:{}", waf_list.describe());
+            let noop_key = format!("waf:{}/{}", waf_list.account_id, waf_list.list_name);
             match result {
                 SetResult::Updated => {
                     noop_reported.remove(&noop_key);
