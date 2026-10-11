@@ -137,9 +137,10 @@ CF_DDNS_API_TOKEN=... cloudflare-ddns
 ```
 
 Only `CF_DDNS_`-prefixed variables are substituted; other references are
-left as-is. Prefer `${VAR}` when another `CF_DDNS_` variable name is a
-prefix of this one (`$CF_DDNS_TOKEN` would also match the start of
-`$CF_DDNS_TOKEN_2`).
+left as-is. Both `$VAR` and `${VAR}` work, and longer names are substituted
+first, so `$CF_DDNS_TOKEN_2` is never clobbered by `$CF_DDNS_TOKEN`. A
+reference to an unset `CF_DDNS_` variable is left in place and logs a warning;
+the token check at startup then reports the malformed token.
 
 ## `purgeUnknownRecords`
 
@@ -150,8 +151,8 @@ When `true`:
    others are deleted.
 2. **Definitive absence.** If a deterministic provider (`literal:`, `local`,
    `local.iface:`, `local.iface.stable:`) reports no address for a family,
-   **every record of that type (A or AAAA) in each configured zone is
-   deleted** — not just the configured subdomains. Use with care.
+   the records of that type (A or AAAA) for the **configured subdomains** are
+   deleted. Other records in the zone are never touched.
 
 Transient detection failures (`cloudflare.trace`, `cloudflare.doh`, `ipify`,
 `url:` erroring) never delete anything; the cycle is skipped and records are

@@ -27,10 +27,10 @@ Docker images are published as `timothyjmiller/cloudflare-ddns:<version>`
   any `ttl` below 30 now polls every 300s instead of every second.
 - **Exit code.** One-shot runs (`UPDATE_CRON=@once`, or legacy mode without
   `--repeat`) exit with code 1 if the update failed.
-- **Uptime Kuma URL.** A query string on `UPTIMEKUMA` (such as the
+- **Uptime Kuma URL (#302).** A query string on `UPTIMEKUMA` (such as the
   `?status=up&msg=OK&ping=` that Uptime Kuma shows) is stripped
   automatically, so both the bare push URL and the copied URL work.
-- **API token validation.** Surrounding quotes on the token are stripped
+- **API token validation (#292).** Surrounding quotes on the token are stripped
   with a warning; a token containing whitespace or other invalid characters
   is a clear startup error (the token itself is never printed). In legacy
   mode an empty or placeholder token is a startup error.
@@ -41,6 +41,28 @@ Docker images are published as `timothyjmiller/cloudflare-ddns:<version>`
   domain names with `_` or `*` no longer break delivery.
 - **Logging.** Heartbeat and notification failures are logged with the HTTP
   status; secrets in notification URLs are redacted in logs.
+
+### Fixes
+
+- DNS records are looked up by name server-side. Zones with more than 100
+  A/AAAA records could miss the target record and try to recreate it every
+  cycle.
+- A failed record listing is treated as a failure rather than "no records",
+  which could create duplicates.
+- Legacy mode: failed writes are reported, record names are matched
+  case-insensitively, and `purgeUnknownRecords` on definitive IP absence now
+  deletes only the configured subdomains' records instead of every A/AAAA
+  record in the zone.
+- `cloudflare.doh`, `ipify` and `url:` providers are pinned to the requested
+  address family (previously only `cloudflare.trace` was), fixing detection
+  failures on dual-stack hosts.
+- Multicast, reserved (240/4), benchmarking (198.18/15), `0.0.0.0/8` and
+  IPv4-mapped IPv6 addresses are no longer accepted as detected IPs.
+- WAF list items are read with cursor pagination; large lists were truncated.
+- `DELETE_ON_STOP` reports per-domain failures in the exit heartbeat and
+  notification (previously it always claimed success and sent two exit
+  heartbeats).
+- Zone IDs are cached instead of looked up on every cycle.
 
 ### Documentation and deployment
 
