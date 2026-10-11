@@ -2,9 +2,21 @@
 
 All notable changes to this project are documented here, newest first.
 Docker images are published as `timothyjmiller/cloudflare-ddns:<version>`
-(for example `2.2.0`, `2.2`, `2`; there is no `v` prefix).
+(for example `2.3.0`, `2.3`, `2`; there is no `v` prefix).
 
-## Unreleased
+## 2.3.0 — Multi-interface support, reliability fixes & docs overhaul
+
+### ⚠️ Upgrade notes
+
+- **Invalid settings now stop the container at startup.** Values that used to
+  be ignored or silently replaced by a default (regexes, `PROXIED`,
+  `WAF_LISTS`, `TTL`, timeouts, malformed API tokens) now produce an explicit
+  error. Check the startup log after upgrading.
+- **Docker Compose file names swapped.** `docker/docker-compose.yml` is now
+  environment-variable mode; the legacy `config.json` example is
+  `docker/docker-compose.legacy.yml`.
+- **Helm chart 0.2.1.** Notification and heartbeat URLs are stored in the
+  Secret, and the pod runs with a restricted security context.
 
 ### New features
 
@@ -44,6 +56,8 @@ Docker images are published as `timothyjmiller/cloudflare-ddns:<version>`
   with a warning; a token containing whitespace or other invalid characters
   is a clear startup error (the token itself is never printed). In legacy
   mode an empty or placeholder token is a startup error.
+  Cloudflare's "Invalid format for Authorization header" error now comes with
+  a hint that the value is likely the Global API Key or a token ID.
 - **WAF lists are created if missing.** A list named in `WAF_LISTS` that does
   not exist is created, using `WAF_LIST_DESCRIPTION` as its description
   (requires the Account Filter Lists Edit permission).
@@ -91,7 +105,7 @@ Docker images are published as `timothyjmiller/cloudflare-ddns:<version>`
 - systemd unit: absolute `ExecStart`, optional
   `EnvironmentFile=/etc/cloudflare-ddns/env` for environment-variable mode,
   and sandboxing (`DynamicUser`, `ProtectSystem=strict`, ...).
-- Helm chart 0.2.0 (appVersion 2.2.0): notification and heartbeat URLs moved
+- Helm chart 0.2.1 (appVersion 2.3.0): notification and heartbeat URLs moved
   into the Secret, `existingSecret` can carry them, new `deleteOnFailure`,
   `rejectCloudflareIps`, `wafListDescription`, `wafListItemComment` and
   `managedWafListItemsCommentRegex` values, restricted security context and

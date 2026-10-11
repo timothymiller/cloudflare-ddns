@@ -175,7 +175,7 @@ entrypoint already passes `--repeat`.
 docker run -d --name cloudflare-ddns --restart unless-stopped \
   --network host \
   -v /path/to/config.json:/config.json:ro \
-  timothyjmiller/cloudflare-ddns:2.2.0
+  timothyjmiller/cloudflare-ddns:2.3.0
 ```
 
 Compose: [`docker/docker-compose.legacy.yml`](../docker/docker-compose.legacy.yml).

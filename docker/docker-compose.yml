@@ -6,8 +6,8 @@
 # remove `network_mode: host` and set IP6_PROVIDER=none.
 services:
   cloudflare-ddns:
-    # Pin a release tag (2.2.0, 2.2, or 2) instead of `latest` for predictable upgrades.
-    image: timothyjmiller/cloudflare-ddns:2.2.0
+    # Pin a release tag (2.3.0, 2.3, or 2) instead of `latest` for predictable upgrades.
+    image: timothyjmiller/cloudflare-ddns:2.3.0
     container_name: cloudflare-ddns
     security_opt:
       - no-new-privileges:true

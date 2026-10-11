@@ -4,10 +4,10 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 2.2.x   | :white_check_mark: |
+| 2.3.x   | :white_check_mark: |
 | < 2.2   | :x:                |
 
-Only the latest release in the `2.2.x` series receives security updates. The legacy Python codebase and all `1.x` releases are **end-of-life** and will not be patched. Users on older versions should upgrade to the latest release immediately.
+Only the latest release in the `2.3.x` series receives security updates. The legacy Python codebase and all `1.x` releases are **end-of-life** and will not be patched. Users on older versions should upgrade to the latest release immediately.
 
 ## Reporting a Vulnerability
 
@@ -50,7 +50,7 @@ This project handles **Cloudflare API tokens** that grant DNS editing privileges
 
 - The Docker image runs as a **static binary from scratch** with zero runtime dependencies, which minimizes the attack surface.
 - Use `security_opt: no-new-privileges:true` in Docker Compose deployments.
-- Pin image tags to a specific version (e.g., `timothyjmiller/cloudflare-ddns:2.2.0`) rather than using `latest` in production. Images are tagged `2.2.0`, `2.2`, `2` and `latest` — there is no `v` prefix.
+- Pin image tags to a specific version (e.g., `timothyjmiller/cloudflare-ddns:2.3.0`) rather than using `latest` in production. Images are tagged `2.3.0`, `2.3`, `2` and `latest` — there is no `v` prefix.
 - The Helm chart and `k8s/` manifest run the container as a non-root user (65534) with a read-only root filesystem, no privilege escalation, all capabilities dropped and the `RuntimeDefault` seccomp profile.
 
 ### Network Security

@@ -280,6 +280,9 @@ impl CloudflareHandle {
                         pp::EMOJI_ERROR,
                         &format!("Failed to {what} (API {method}, HTTP {status}): {text}"),
                     );
+                    if let Some(hint) = api_error_hint(&text) {
+                        ppfmt.errorf(pp::EMOJI_ERROR, hint);
+                    }
                     None
                 }
             }
@@ -966,6 +969,18 @@ impl CloudflareHandle {
         }
         true
     }
+}
+
+/// Explains Cloudflare errors whose message alone is misleading.
+fn api_error_hint(body: &str) -> Option<&'static str> {
+    // 6111 is returned for any credential that isn't an API token, including a
+    // well-formed one: the Global API Key, a token ID, or a revoked/rotated value.
+    if body.contains("\"code\":6111") {
+        return Some(
+            "Cloudflare did not accept CLOUDFLARE_API_TOKEN as an API token. Use the token value shown once when the token is created (not its ID or the Global API Key), and create a new token if unsure.",
+        );
+    }
+    None
 }
 
 /// Percent-encodes a query parameter value.
@@ -2401,5 +2416,12 @@ mod tests {
     fn auth_debug_is_redacted() {
         let dbg = format!("{:?}", Auth::Token("super-secret".to_string()));
         assert!(!dbg.contains("super-secret"), "{dbg}");
+    }
+
+    #[test]
+    fn api_error_hint_for_invalid_token_format() {
+        let body = r#"{"success":false,"errors":[{"code":6003,"message":"Invalid request headers","error_chain":[{"code":6111,"message":"Invalid format for Authorization header"}]}]}"#;
+        assert!(api_error_hint(body).unwrap().contains("Global API Key"));
+        assert!(api_error_hint(r#"{"errors":[{"code":10000}]}"#).is_none());
     }
 }
