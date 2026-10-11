@@ -4,35 +4,49 @@
 
 Access your home network remotely via a custom domain name without a static IP!
 
-A feature-complete dynamic DNS client for Cloudflare, written in Rust. The **smallest and most memory-efficient** open-source Cloudflare DDNS Docker image available — **~1.1 MB image size** and **~3.5 MB RAM** at runtime, smaller and leaner than Go-based alternatives. Built as a fully static binary from scratch with zero runtime dependencies.
-
-Configure everything with environment variables. Supports notifications, heartbeat monitoring, WAF list management, flexible scheduling, and more.
+A dynamic DNS client for Cloudflare, written in Rust: a ~1.1 MB static Docker image (built from `scratch`) that uses ~3.5 MB of RAM. Configure it with environment variables and it keeps your A/AAAA records — and optionally Cloudflare WAF IP lists — pointed at your current public IP.
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/timothyjmiller/cloudflare-ddns?style=flat&logo=docker&label=pulls)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns) [![Docker Image Size](https://img.shields.io/docker/image-size/timothyjmiller/cloudflare-ddns/latest?style=flat&logo=docker&label=image%20size)](https://hub.docker.com/r/timothyjmiller/cloudflare-ddns)
 
 ## ✨ Features
 
-- 🔍 **Multiple IP detection providers** — Cloudflare Trace, Cloudflare DNS-over-HTTPS, ipify, local interface, custom URL, or static IPs
-- 📡 **IPv4 and IPv6** — Full dual-stack support with independent provider configuration
-- 🌐 **Multiple domains and zones** — Update any number of domains across multiple Cloudflare zones
-- 🃏 **Wildcard domains** — Support for `*.example.com` records
-- 🌍 **Internationalized domain names** — Full IDN/punycode support (e.g. `münchen.de`)
-- 🛡️ **WAF list management** — Automatically update Cloudflare WAF IP lists
-- 🔔 **Notifications** — Shoutrrr-compatible notifications (Discord, Slack, Telegram, Gotify, Pushover, Zulip, generic webhooks)
-- 💓 **Heartbeat monitoring** — Healthchecks.io and Uptime Kuma integration
-- ⏱️ **Cron scheduling** — Flexible update intervals via cron expressions
-- 🧪 **Dry-run mode** — Preview changes without modifying DNS records
-- 🧹 **Graceful shutdown** — Signal handling (SIGINT/SIGTERM) with optional DNS record cleanup
-- 💬 **Record comments** — Tag managed records with comments for identification
-- 🎯 **Managed record regex** — Control which records the tool manages via regex matching
-- 🎨 **Pretty output with emoji** — Configurable emoji and verbosity levels
-- 🔒 **Zero-log IP detection** — Uses Cloudflare's [cdn-cgi/trace](https://www.cloudflare.com/cdn-cgi/trace) by default
-- 🏠 **CGNAT-aware local detection** — Filters out shared address space (100.64.0.0/10) and private ranges
-- 🚫 **Cloudflare IP rejection** — Automatically rejects Cloudflare anycast IPs to prevent incorrect DNS updates
-- 🛟 **Outage-proof updates** — Transient IP detection failures never delete or overwrite existing DNS records
-- 🤏 **Tiny static binary** — ~1.1 MB Docker image built from scratch, zero runtime dependencies
+- **IPv4 and IPv6** with independent detection providers: Cloudflare trace (default), Cloudflare DNS-over-HTTPS, ipify, local routing table or interface, custom URL, or static IPs
+- **Many domains across many zones**, including wildcards (`*.example.com`); zones are found automatically
+- **Outage-safe**: a failed IP lookup never deletes or overwrites your records, and Cloudflare's own anycast IPs are rejected
+- **WAF IP lists** kept in sync with your addresses
+- **Per-domain proxying** with expressions like `!is(vpn.example.com)`
+- **Notifications** via shoutrrr-style URLs (Discord, Slack, Telegram, Gotify, Pushover, Zulip, generic webhooks)
+- **Heartbeats** to Healthchecks.io and Uptime Kuma
+- **Simple scheduling** (`@every 5m`, `@once`) with jitter, dry-run mode, and graceful shutdown with optional record cleanup
+- **Record comments and comment regexes** to share a zone safely with other tools
+- **Runs anywhere**: Docker (amd64, arm64, ppc64le), Kubernetes/Helm, systemd, or any platform Rust targets
 
-## 🚀 Quick Start
+## Contents
+
+- [Quick start](#-quick-start)
+- [How it works](#-how-it-works)
+- [Configuration](#-configuration)
+- [Environment variable reference](#-environment-variable-reference)
+- [Deployment](#-deployment)
+- [Security notes](#-security-notes)
+- [Troubleshooting](#-troubleshooting)
+- [Legacy config.json mode](#-legacy-configjson-mode)
+
+## 🚀 Quick start
+
+### 1. Create an API token
+
+In the Cloudflare dashboard go to [**My Profile › API Tokens › Create Token**](https://dash.cloudflare.com/profile/api-tokens), choose **Create Custom Token**, and grant:
+
+| Permission | Needed for |
+|------------|------------|
+| **Zone › DNS › Edit** | Creating, updating and deleting records |
+| **Zone › Zone › Read** | Finding the zone each domain belongs to |
+| **Account › Account Filter Lists › Edit** | Only if you use [`WAF_LISTS`](#waf-lists) |
+
+Under **Zone Resources**, include only the zones you want to update.
+
+### 2. Run it
 
 ```bash
 docker run -d \
@@ -41,225 +55,24 @@ docker run -d \
   --network host \
   -e CLOUDFLARE_API_TOKEN=your-api-token \
   -e DOMAINS=example.com,www.example.com \
-  timothyjmiller/cloudflare-ddns:latest
+  timothyjmiller/cloudflare-ddns:2.2.0
 ```
 
-That's it. The container detects your public IP and updates the DNS records for your domains every 5 minutes.
+The container detects your public IPv4 and IPv6 addresses and updates the records every 5 minutes. Check `docker logs cloudflare-ddns` to see what it did.
 
-> ⚠️ `--network host` is required to detect IPv6 addresses. If you only need IPv4, you can omit it and set `IP6_PROVIDER=none`.
+`--network host` is only needed for IPv6 ([why](#ipv6-is-not-detected-in-docker)). For IPv4 only, drop it and add `-e IP6_PROVIDER=none`.
 
-## 🔑 Authentication
+### 3. Or use Docker Compose
 
-| Variable | Description |
-|----------|-------------|
-| `CLOUDFLARE_API_TOKEN` | API token with "Edit DNS" capability |
-| `CLOUDFLARE_API_TOKEN_FILE` | Path to a file containing the API token (Docker secrets compatible) |
+IPv4 only (no host networking needed):
 
-To generate an API token, go to your [Cloudflare Profile](https://dash.cloudflare.com/profile/api-tokens) and create a token capable of **Edit DNS**.
-
-## 🌐 Domains
-
-| Variable | Description |
-|----------|-------------|
-| `DOMAINS` | Comma-separated list of domains to update for both IPv4 and IPv6 |
-| `IP4_DOMAINS` | Comma-separated list of IPv4-only domains |
-| `IP6_DOMAINS` | Comma-separated list of IPv6-only domains |
-
-Wildcard domains are supported: `*.example.com`
-
-At least one of `DOMAINS`, `IP4_DOMAINS`, `IP6_DOMAINS`, or `WAF_LISTS` must be set.
-
-## 🔍 IP Detection Providers
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `IP4_PROVIDER` | `ipify` | IPv4 detection method |
-| `IP6_PROVIDER` | `cloudflare.trace` | IPv6 detection method |
-
-Available providers:
-
-| Provider | Description |
-|----------|-------------|
-| `cloudflare.trace` | 🔒 Cloudflare's `/cdn-cgi/trace` endpoint (default, zero-log) |
-| `cloudflare.doh` | 🌐 Cloudflare DNS-over-HTTPS (`whoami.cloudflare` TXT query) |
-| `ipify` | 🌎 ipify.org API |
-| `local` | 🏠 Local IP via system routing table (no network traffic, CGNAT-aware) |
-| `local.iface:<name>` | 🔌 IP from a specific network interface (e.g., `local.iface:eth0`) |
-| `local.iface.stable:<name>` | 🔌 Preferred stable IPv6 address from a Linux network interface, excluding temporary/deprecated addresses |
-| `url:<url>` | 🔗 Custom HTTP(S) endpoint that returns an IP address |
-| `literal:<ips>` | 📌 Static IP addresses (comma-separated) |
-| `none` | 🚫 Disable this IP type |
-
-## 🚫 Cloudflare IP Rejection
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `REJECT_CLOUDFLARE_IPS` | `true` | Reject detected IPs that fall within Cloudflare's IP ranges |
-
-Some IP detection providers occasionally return a Cloudflare anycast IP instead of your real public IP. When this happens, your DNS record gets updated to point at Cloudflare infrastructure rather than your actual address.
-
-By default, each update cycle fetches [Cloudflare's published IP ranges](https://www.cloudflare.com/ips/) and skips any detected IP that falls within them. A warning is logged for every rejected IP. If the ranges cannot be fetched, the update is skipped entirely to prevent writing a Cloudflare IP.
-
-To disable this protection, set `REJECT_CLOUDFLARE_IPS=false`.
-
-## ⏱️ Scheduling
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `UPDATE_CRON` | `@every 5m` | Update schedule |
-| `UPDATE_ON_START` | `true` | Run an update immediately on startup |
-| `DELETE_ON_STOP` | `false` | Delete managed DNS records on shutdown |
-| `DELETE_ON_FAILURE` | `false` | Delete managed DNS records when a provider definitively reports no address of that family (see below) |
-
-Schedule formats:
-
-- `@every 5m` — Every 5 minutes
-- `@every 1h` — Every hour
-- `@every 30s` — Every 30 seconds
-- `@once` — Run once and exit
-
-When `UPDATE_CRON=@once`, `UPDATE_ON_START` must be `true` and `DELETE_ON_STOP` must be `false`.
-
-### 🛟 Detection Failure Behavior
-
-A failed IP detection never breaks your DNS. Two cases are distinguished:
-
-- **Transient failure** — a network-based provider (`cloudflare.trace`, `cloudflare.doh`, `ipify`, `url:`) errored, or all detected IPs were rejected as Cloudflare IPs. The real IP is unknown, so the update is skipped and existing DNS records and WAF list items are always preserved, regardless of `DELETE_ON_FAILURE`. If detection fails for one address family, WAF list updates are skipped entirely so the failed family's IPs aren't stripped from the list.
-- **Definitive absence** — a deterministic provider (`none`, `literal:`, `local`, `local.iface:`) reports that the host has no address of that family. With `DELETE_ON_FAILURE=true` the managed records for that family are deleted; with the default `false` the update is skipped and existing records are preserved.
-
-## 📝 DNS Record Settings
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TTL` | `1` (auto) | DNS record TTL in seconds (1=auto, or 30-86400) |
-| `PROXIED` | `false` | Expression controlling which domains are proxied through Cloudflare |
-| `RECORD_COMMENT` | (empty) | Comment attached to managed DNS records |
-| `MANAGED_RECORDS_COMMENT_REGEX` | (empty) | Regex to identify which records are managed (empty = all) |
-
-The `PROXIED` variable supports boolean expressions:
-
-| Expression | Meaning |
-|------------|---------|
-| `true` | ☁️ Proxy all domains |
-| `false` | 🔓 Don't proxy any domains |
-| `is(example.com)` | 🎯 Only proxy `example.com` |
-| `sub(cdn.example.com)` | 🌳 Proxy `cdn.example.com` and its subdomains |
-| `is(a.com) \|\| is(b.com)` | 🔀 Proxy `a.com` or `b.com` |
-| `!is(vpn.example.com)` | 🚫 Proxy everything except `vpn.example.com` |
-
-Operators: `is()`, `sub()`, `!`, `&&`, `||`, `()`
-
-## 🛡️ WAF Lists
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WAF_LISTS` | (empty) | Comma-separated WAF lists in `account-id/list-name` format |
-| `WAF_LIST_DESCRIPTION` | (empty) | Description for managed WAF lists |
-| `WAF_LIST_ITEM_COMMENT` | (empty) | Comment for WAF list items |
-| `MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX` | (empty) | Regex to identify managed WAF list items |
-
-WAF list names must match the pattern `[a-z0-9_]+`.
-
-## 🔔 Notifications (Shoutrrr)
-
-| Variable | Description |
-|----------|-------------|
-| `SHOUTRRR` | Newline-separated list of notification service URLs |
-
-Supported services:
-
-| Service | URL format |
-|---------|------------|
-| 💬 Discord | `discord://token@webhook-id` |
-| 📨 Slack | `slack://token-a/token-b/token-c` |
-| ✈️ Telegram | `telegram://bot-token@telegram?chats=chat-id` |
-| 📡 Gotify | `gotify://host/path?token=app-token` |
-| 📲 Pushover | `pushover://api-token@user-key` |
-| 💬 Zulip | `zulip://bot-mail:bot-key@host/?stream=stream-name&topic=topic-name` |
-| 🌐 Generic webhook | `generic://host/path` or `generic+https://host/path` |
-
-For Zulip, the `@` in the bot email may be written literally or percent-encoded (`%40`), and `topic` is optional (defaults to `Cloudflare DDNS`).
-
-Generic webhooks send a JSON payload of `{"message": "..."}`. Use `?messagekey=<field>` to rename the field, e.g. `generic://host/path?messagekey=text` for services expecting Slack-style payloads.
-
-Notifications are sent when DNS records are updated, created, deleted, or when errors occur.
-
-## 💓 Heartbeat Monitoring
-
-| Variable | Description |
-|----------|-------------|
-| `HEALTHCHECKS` | Healthchecks.io ping URL |
-| `UPTIMEKUMA` | Uptime Kuma push URL |
-
-Heartbeats are sent after each update cycle. On failure, a fail signal is sent. On shutdown, an exit signal is sent.
-
-## ⏳ Timeouts
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DETECTION_TIMEOUT` | `5s` | Timeout for IP detection requests |
-| `UPDATE_TIMEOUT` | `30s` | Timeout for Cloudflare API requests |
-
-## 🖥️ Output
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `EMOJI` | `true` | Use emoji in output messages |
-| `QUIET` | `false` | Suppress informational output |
-
-## 🏁 CLI Flags
-
-| Flag | Description |
-|------|-------------|
-| `--dry-run` | 🧪 Preview changes without modifying DNS records |
-| `--repeat` | 🔁 Run continuously (legacy config mode only; env var mode uses `UPDATE_CRON`) |
-
-## 📋 All Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CLOUDFLARE_API_TOKEN` | — | 🔑 API token |
-| `CLOUDFLARE_API_TOKEN_FILE` | — | 📄 Path to API token file |
-| `DOMAINS` | — | 🌐 Domains for both IPv4 and IPv6 |
-| `IP4_DOMAINS` | — | 4️⃣ IPv4-only domains |
-| `IP6_DOMAINS` | — | 6️⃣ IPv6-only domains |
-| `IP4_PROVIDER` | `ipify` | 🔍 IPv4 detection provider |
-| `IP6_PROVIDER` | `cloudflare.trace` | 🔍 IPv6 detection provider |
-| `UPDATE_CRON` | `@every 5m` | ⏱️ Update schedule |
-| `UPDATE_ON_START` | `true` | 🚀 Update on startup |
-| `DELETE_ON_STOP` | `false` | 🧹 Delete records on shutdown |
-| `DELETE_ON_FAILURE` | `false` | 🧹 Delete records when provider definitively reports no IP |
-| `TTL` | `1` | ⏳ DNS record TTL |
-| `PROXIED` | `false` | ☁️ Proxied expression |
-| `RECORD_COMMENT` | — | 💬 DNS record comment |
-| `MANAGED_RECORDS_COMMENT_REGEX` | — | 🎯 Managed records regex |
-| `WAF_LISTS` | — | 🛡️ WAF lists to manage |
-| `WAF_LIST_DESCRIPTION` | — | 📝 WAF list description |
-| `WAF_LIST_ITEM_COMMENT` | — | 💬 WAF list item comment |
-| `MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX` | — | 🎯 Managed WAF items regex |
-| `DETECTION_TIMEOUT` | `5s` | ⏳ IP detection timeout |
-| `UPDATE_TIMEOUT` | `30s` | ⏳ API request timeout |
-| `REJECT_CLOUDFLARE_IPS` | `true` | 🚫 Reject Cloudflare anycast IPs |
-| `EMOJI` | `true` | 🎨 Enable emoji output |
-| `QUIET` | `false` | 🤫 Suppress info output |
-| `HEALTHCHECKS` | — | 💓 Healthchecks.io URL |
-| `UPTIMEKUMA` | — | 💓 Uptime Kuma URL |
-| `SHOUTRRR` | — | 🔔 Notification URLs (newline-separated) |
-
----
-
-## 🚢 Deployment
-
-### 🐳 Docker Compose
-
-```yml
+```yaml
 services:
   cloudflare-ddns:
-    image: timothyjmiller/cloudflare-ddns:latest
+    image: timothyjmiller/cloudflare-ddns:2.2.0
     container_name: cloudflare-ddns
     security_opt:
       - no-new-privileges:true
-    network_mode: 'host'
     environment:
       - CLOUDFLARE_API_TOKEN=your-api-token
       - DOMAINS=example.com,www.example.com
@@ -269,40 +82,270 @@ services:
     restart: unless-stopped
 ```
 
-> ⚠️ Docker requires `network_mode: host` to access the IPv6 public address.
+For IPv4 + IPv6, add `network_mode: host` and remove `IP6_PROVIDER=none`. A ready-made file is in [`docker/docker-compose.yml`](docker/docker-compose.yml).
 
-### ☸️ Kubernetes
+## 🔄 How it works
 
-#### Helm (recommended)
+Every update cycle:
 
-The chart is published to GitHub Container Registry as an OCI artifact.
+1. **Detect** the public IPv4 and IPv6 addresses with the configured providers (`cloudflare.trace` by default for both).
+2. **Reject Cloudflare IPs.** Some lookups can return a Cloudflare anycast address instead of yours. Detected addresses inside [Cloudflare's published ranges](https://www.cloudflare.com/ips/) are discarded with a warning. The ranges are fetched on the first cycle and cached for 24 hours; if a refresh fails, the cached copy is kept. If they have never been fetched successfully, the cycle is skipped rather than risk writing a Cloudflare IP. Disable with `REJECT_CLOUDFLARE_IPS=false`.
+3. **Update** each domain: find its zone, then create, update or delete its managed A/AAAA records so they match the detected addresses (duplicates are removed). WAF lists are then synced with all detected addresses.
+4. **Report**: send a heartbeat (success or fail), and a notification if anything changed or failed.
 
-**1. Quick install (single domain):**
+By default the first update runs at startup, then every 5 minutes. After the first run, each scheduled update is delayed by a random 0–20% of the interval so that many installations don't hit the Cloudflare API at the same moment.
 
-```bash
-helm install cloudflare-ddns oci://ghcr.io/timothymiller/cloudflare-ddns \
-  --namespace ddns --create-namespace \
-  --set cloudflare.apiToken=your-api-token \
-  --set domains=example.com
-```
+On `SIGTERM` (`docker stop`, Kubernetes, systemd) or `SIGINT` (Ctrl+C) the process stops right away, deletes its records if `DELETE_ON_STOP=true`, and sends a final heartbeat.
 
-> For multiple domains, use a `values.yaml` file — Helm's `--set` treats commas as value-list separators.
+### Failure safety
 
-**2. Or use a `values.yaml` for a full configuration:**
+A failed IP lookup never breaks your DNS. Two cases are distinguished:
+
+- **Transient failure** — a network provider (`cloudflare.trace`, `cloudflare.doh`, `ipify`, `url:`) errored, every detected address was a Cloudflare IP, or the Cloudflare ranges were unavailable. The real IP is unknown, so that family's update is skipped and existing records are **always preserved**, whatever `DELETE_ON_FAILURE` says. If any family fails, WAF list updates are skipped entirely so that family's IPs aren't stripped from the list.
+- **Definitive absence** — a deterministic provider (`none`, `literal:`, `local`, `local.iface:`, `local.iface.stable:`) reports that there is no address of that family. With the default `DELETE_ON_FAILURE=false` the update is skipped and records are preserved; with `DELETE_ON_FAILURE=true` the managed records of that family are deleted. (So `IP6_PROVIDER=none` together with `DELETE_ON_FAILURE=true` removes the AAAA records of everything in `DOMAINS`.)
+
+Both cases send a fail heartbeat. A failed Cloudflare API write (create, update or delete) also counts as a failure: you get a fail heartbeat and a notification.
+
+With `UPDATE_CRON=@once`, the process exits with code `1` if the update failed, so cron jobs and systemd can detect it.
+
+## 🧰 Configuration
+
+All settings are environment variables. Setting `CLOUDFLARE_API_TOKEN` (or `CLOUDFLARE_API_TOKEN_FILE`, `DOMAINS`, `IP4_DOMAINS`, `IP6_DOMAINS`) selects environment-variable mode; otherwise the program falls back to [legacy `config.json` mode](#-legacy-configjson-mode).
+
+Invalid settings stop the program at startup with an error message instead of being silently ignored.
+
+### Authentication
+
+| Variable | Description |
+|----------|-------------|
+| `CLOUDFLARE_API_TOKEN` | API token ([permissions](#1-create-an-api-token)) |
+| `CLOUDFLARE_API_TOKEN_FILE` | Path to a file containing the token, e.g. a Docker or Kubernetes secret. Surrounding whitespace is trimmed |
+
+Paste the token exactly as Cloudflare shows it. Surrounding quotes are stripped with a warning; a token containing spaces or other invalid characters is rejected at startup (the token itself is never logged). The placeholder `YOUR-CLOUDFLARE-API-TOKEN` from the examples is rejected too.
+
+### Domains
+
+| Variable | Description |
+|----------|-------------|
+| `DOMAINS` | Comma-separated domains to update with both IPv4 (A) and IPv6 (AAAA) |
+| `IP4_DOMAINS` | Comma-separated domains to update with IPv4 only |
+| `IP6_DOMAINS` | Comma-separated domains to update with IPv6 only |
+
+Use fully-qualified names (`example.com`, `home.example.com`, `*.example.com`). The zone is looked up from the name, so domains from several zones can be mixed. At least one of `DOMAINS`, `IP4_DOMAINS`, `IP6_DOMAINS` or `WAF_LISTS` must be set.
+
+### IP detection providers
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `IP4_PROVIDER` | `cloudflare.trace` | How to detect the IPv4 address |
+| `IP6_PROVIDER` | `cloudflare.trace` | How to detect the IPv6 address |
+| `REJECT_CLOUDFLARE_IPS` | `true` | Discard detected addresses inside Cloudflare's IP ranges |
+
+| Provider | Description |
+|----------|-------------|
+| `cloudflare.trace` | Cloudflare's `/cdn-cgi/trace` (`cloudflare.com`, falling back to `api.cloudflare.com`), forced over the right address family |
+| `cloudflare.trace:<url>` | Same, but using your own trace URL |
+| `cloudflare.doh` | DNS-over-HTTPS `whoami.cloudflare` TXT query |
+| `ipify` | `api4.ipify.org` / `api6.ipify.org` |
+| `local` | Source address the OS would use to reach the internet (no request is sent). Must be a public address, so not useful behind NAT |
+| `local.iface:<name>` | Public addresses on a network interface, e.g. `local.iface:eth0` |
+| `local.iface.stable:<name>` | Linux, IPv6: the preferred stable address on an interface, skipping temporary (privacy) and deprecated addresses |
+| `url:<url>` | Any `http(s)` URL that returns an IP address as plain text |
+| `literal:<ips>` | Fixed addresses, separated by commas or spaces, e.g. `literal:203.0.113.10` |
+| `none` | Don't manage this address family |
+
+Detected addresses must be global unicast: private, CGNAT (`100.64.0.0/10`), loopback and link-local addresses are ignored. An empty `IP4_PROVIDER` / `IP6_PROVIDER` counts as unset (the default applies), so use `none` to disable a family.
+
+### Scheduling
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `UPDATE_CRON` | `@every 5m` | `@every <duration>` or `@once` |
+| `UPDATE_ON_START` | `true` | Run an update immediately at startup |
+| `DELETE_ON_STOP` | `false` | Delete managed records (and clear managed WAF list items) on shutdown |
+| `DELETE_ON_FAILURE` | `false` | Delete managed records when a deterministic provider reports no address ([details](#failure-safety)) |
+
+`UPDATE_CRON` is **not** a cron expression. Supported values:
+
+- `@every <n>s`, `@every <n>m`, `@every <n>h` — e.g. `@every 30s`, `@every 10m`, `@every 1h`. A bare number is seconds (`@every 300`). Combined units (`1h30m`) are not supported. The minimum is 30 seconds; lower values are raised to 30s with a warning.
+- `@once` — update once and exit. Requires `UPDATE_ON_START=true` and `DELETE_ON_STOP=false`.
+- `@disabled` and `@nevermore` are deprecated aliases of `@once`.
+
+### DNS records
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TTL` | `1` | Record TTL in seconds. `1` = automatic, and values below 30 also mean automatic. Cloudflare accepts up to 86400 |
+| `PROXIED` | `false` | Which domains are proxied through Cloudflare (expression below) |
+| `RECORD_COMMENT` | — | Comment set on records this tool creates or updates |
+| `MANAGED_RECORDS_COMMENT_REGEX` | — | Only records whose comment matches this regex are managed (updated or deleted). Empty = every A/AAAA record with a configured name |
+
+`PROXIED` expressions:
+
+| Expression | Meaning |
+|------------|---------|
+| `true` / `false` | Proxy all / no domains |
+| `is(example.com)` | Proxy exactly `example.com` |
+| `is(a.example.com, b.example.com)` | Proxy either name |
+| `sub(example.com)` | Proxy `example.com` and all its subdomains |
+| `!is(vpn.example.com)` | Proxy everything except `vpn.example.com` |
+| `is(a.com) \|\| sub(b.com)` | Combine with `!`, `&&`, `\|\|` and parentheses |
+
+To share a zone with other tools, give this tool's records a fixed comment and only manage records carrying it, e.g. `RECORD_COMMENT=managed by cloudflare-ddns` and `MANAGED_RECORDS_COMMENT_REGEX=^managed by cloudflare-ddns$`. Records without a matching comment are then never touched. A warning is logged if the comment doesn't match the regex.
+
+### WAF lists
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WAF_LISTS` | — | Comma-separated IP lists as `account-id/list-name` |
+| `WAF_LIST_DESCRIPTION` | — | Description used when a list has to be created |
+| `WAF_LIST_ITEM_COMMENT` | — | Comment set on list items this tool adds |
+| `MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX` | — | Only items whose comment matches are managed. Empty = all items in the list |
+
+Each list ends up containing every detected address (IPv4 and IPv6). List names may only contain lowercase letters, digits and `_`. A list that doesn't exist yet is created. Requires the **Account › Account Filter Lists › Edit** permission. The account ID is in the dashboard URL (`dash.cloudflare.com/<account-id>`).
+
+### Notifications
+
+| Variable | Description |
+|----------|-------------|
+| `SHOUTRRR` | One or more notification URLs, **one per line** |
+
+A notification is sent when a record or WAF list changes, or when an update fails.
+
+| Service | URL format |
+|---------|------------|
+| Discord | `discord://token@webhook-id` |
+| Slack | `slack://token-a/token-b/token-c` |
+| Telegram | `telegram://bot-token@telegram?chats=chat-id` — only the first chat ID is used; messages are sent as plain text |
+| Gotify | `gotify://host[:port]/app-token` or `gotify://host[:port]/path?token=app-token`. HTTPS by default; use `gotify+http://…` or add `?disabletls=yes` for plain HTTP |
+| Pushover | `pushover://shoutrrr:api-token@user-key` (shoutrrr's format); `pushover://api-token@user-key` also works. Query parameters such as `?devices=` are ignored |
+| Zulip | `zulip://bot-mail:bot-key@host/?stream=stream-name&topic=topic-name` — the `@` in the bot email may be literal or `%40`; `topic` defaults to `Cloudflare DDNS` |
+| Generic webhook | `generic://host/path` (HTTPS), `generic+https://host/path`, `generic+http://host/path`, or a plain `https://…` / `http://…` URL |
+
+Generic webhooks receive a JSON `POST` of `{"message": "..."}`; add `?messagekey=text` (or any field name) to rename the field.
+
+To use several services, put each URL on its own line. In Docker Compose, use the map form of `environment` with a YAML block scalar:
 
 ```yaml
-cloudflare:
-  apiToken: your-api-token   # or use existingSecret
-
-domains: example.com,www.example.com
-ip4Provider: cloudflare.trace
-ip6Provider: cloudflare.trace   # set to none if IPv6 is not needed
-
-proxied: "true"
-updateCron: "@every 5m"
-
-healthchecks: https://hc-ping.com/your-uuid   # optional
+    environment:
+      CLOUDFLARE_API_TOKEN: your-api-token
+      DOMAINS: example.com
+      SHOUTRRR: |
+        discord://token@webhook-id
+        telegram://bot-token@telegram?chats=123456789
 ```
+
+A `.env` file or `docker run -e` holds a single line, so use those for one URL only.
+
+### Heartbeats
+
+| Variable | Description |
+|----------|-------------|
+| `HEALTHCHECKS` | Healthchecks.io ping URL, e.g. `https://hc-ping.com/<uuid>` |
+| `UPTIMEKUMA` | Uptime Kuma push URL, e.g. `https://kuma.example.com/api/push/<token>` |
+
+A heartbeat is sent at startup, after every update cycle (success or fail), and at shutdown. For Uptime Kuma, create a **Push** monitor and paste its URL; the `?status=up&msg=OK&ping=` part that Uptime Kuma shows is removed automatically.
+
+### Timeouts and output
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DETECTION_TIMEOUT` | `5s` | Timeout for each IP detection request |
+| `UPDATE_TIMEOUT` | `30s` | Timeout for each Cloudflare API request |
+| `EMOJI` | `true` | Use emoji in log output |
+| `QUIET` | `false` | Only log warnings and errors |
+
+### Value formats
+
+- **Booleans**: `true`, `1` or `yes` (any case) mean true. **Anything else is false** — including `on` and typos.
+- **Durations**: a number followed by `s`, `m` or `h` (`30s`, `5m`, `1h`). A bare number is seconds.
+- **Lists**: comma-separated; whitespace around entries is trimmed and empty entries are ignored. `SHOUTRRR` is newline-separated.
+- **Empty values**: a variable set to an empty string is treated as unset, so the default applies.
+
+### CLI flags
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Log what would change without writing to Cloudflare |
+| `--repeat` | Legacy mode only: keep running (environment-variable mode uses `UPDATE_CRON`). The Docker image always passes it |
+
+## 📋 Environment variable reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLOUDFLARE_API_TOKEN` | — | API token |
+| `CLOUDFLARE_API_TOKEN_FILE` | — | File containing the API token |
+| `DOMAINS` | — | Domains for A and AAAA records |
+| `IP4_DOMAINS` | — | Domains for A records only |
+| `IP6_DOMAINS` | — | Domains for AAAA records only |
+| `IP4_PROVIDER` | `cloudflare.trace` | IPv4 detection provider |
+| `IP6_PROVIDER` | `cloudflare.trace` | IPv6 detection provider |
+| `REJECT_CLOUDFLARE_IPS` | `true` | Discard detected Cloudflare IPs |
+| `UPDATE_CRON` | `@every 5m` | `@every <duration>` (min 30s) or `@once` |
+| `UPDATE_ON_START` | `true` | Update immediately at startup |
+| `DELETE_ON_STOP` | `false` | Delete managed records on shutdown |
+| `DELETE_ON_FAILURE` | `false` | Delete managed records when a deterministic provider finds no address |
+| `TTL` | `1` | Record TTL in seconds (`1` = auto) |
+| `PROXIED` | `false` | Proxy expression |
+| `RECORD_COMMENT` | — | Comment on managed records |
+| `MANAGED_RECORDS_COMMENT_REGEX` | — | Regex selecting managed records by comment |
+| `WAF_LISTS` | — | WAF IP lists, `account-id/list-name` |
+| `WAF_LIST_DESCRIPTION` | — | Description for newly created lists |
+| `WAF_LIST_ITEM_COMMENT` | — | Comment on managed list items |
+| `MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX` | — | Regex selecting managed list items by comment |
+| `SHOUTRRR` | — | Notification URLs, one per line |
+| `HEALTHCHECKS` | — | Healthchecks.io ping URL |
+| `UPTIMEKUMA` | — | Uptime Kuma push URL |
+| `DETECTION_TIMEOUT` | `5s` | IP detection timeout |
+| `UPDATE_TIMEOUT` | `30s` | Cloudflare API timeout |
+| `EMOJI` | `true` | Emoji in output |
+| `QUIET` | `false` | Only warnings and errors |
+
+Legacy mode additionally reads `CONFIG_PATH` and `CF_DDNS_*` — see [docs/legacy-config.md](docs/legacy-config.md).
+
+### Deprecated aliases
+
+| Variable | Status |
+|----------|--------|
+| `CF_API_TOKEN` | Alias of `CLOUDFLARE_API_TOKEN` (warning logged) |
+| `CF_API_TOKEN_FILE` | Alias of `CLOUDFLARE_API_TOKEN_FILE` (warning logged) |
+| `IP4_POLICY` | Alias of `IP4_PROVIDER` (warning logged) |
+| `IP6_POLICY` | Alias of `IP6_PROVIDER` (warning logged) |
+| `CF_ACCOUNT_ID` | Ignored, may log a warning. The account ID goes in `WAF_LISTS` |
+| `PUID`, `PGID` | Ignored (warning logged). Use Docker's `user:` / `--user` instead |
+
+## 🚢 Deployment
+
+### Docker Compose
+
+- [`docker/docker-compose.yml`](docker/docker-compose.yml) — environment-variable mode
+- [`docker/docker-compose.legacy.yml`](docker/docker-compose.legacy.yml) — legacy `config.json` mode
+
+To keep the token out of the compose file, use a secret:
+
+```yaml
+services:
+  cloudflare-ddns:
+    image: timothyjmiller/cloudflare-ddns:2.2.0
+    container_name: cloudflare-ddns
+    security_opt:
+      - no-new-privileges:true
+    network_mode: host
+    environment:
+      - CLOUDFLARE_API_TOKEN_FILE=/run/secrets/cloudflare_api_token
+      - DOMAINS=example.com,www.example.com
+    secrets:
+      - cloudflare_api_token
+    restart: unless-stopped
+
+secrets:
+  cloudflare_api_token:
+    file: ./cloudflare_api_token.txt
+```
+
+### Kubernetes with Helm (recommended)
+
+The chart is published to GHCR as an OCI artifact.
 
 ```bash
 helm install cloudflare-ddns oci://ghcr.io/timothymiller/cloudflare-ddns \
@@ -310,321 +353,132 @@ helm install cloudflare-ddns oci://ghcr.io/timothymiller/cloudflare-ddns \
   -f values.yaml
 ```
 
-**Upgrade:**
+```yaml
+# values.yaml
+cloudflare:
+  apiToken: your-api-token        # or existingSecret: my-secret
 
-```bash
-helm upgrade cloudflare-ddns oci://ghcr.io/timothymiller/cloudflare-ddns \
-  --namespace ddns -f values.yaml
+domains: example.com,www.example.com
+ip6Provider: cloudflare.trace     # "none" for IPv4 only (then hostNetwork: false is fine)
+proxied: "true"
+
+shoutrrr: |
+  discord://token@webhook-id
+healthchecks: https://hc-ping.com/your-uuid
 ```
 
-**Uninstall:**
+Use a values file rather than `--set` for domain lists: `--set` treats commas as separators.
 
-```bash
-helm uninstall cloudflare-ddns --namespace ddns
-```
-
-> ⚠️ `hostNetwork: true` is set by default so the pod can detect IPv6 addresses. Disable it with `--set hostNetwork=false` if you only need IPv4.
-
-**Key values:**
+Upgrade with `helm upgrade cloudflare-ddns oci://ghcr.io/timothymiller/cloudflare-ddns -n ddns -f values.yaml`; remove with `helm uninstall cloudflare-ddns -n ddns`.
 
 | Value | Default | Description |
-|---|---|---|
-| `cloudflare.apiToken` | `""` | API token (required unless `existingSecret` is set) |
-| `cloudflare.existingSecret` | `""` | Use a pre-existing Secret instead |
-| `domains` | `""` | Comma-separated domains for A+AAAA records |
-| `ip4Domains` / `ip6Domains` | `""` | IPv4-only or IPv6-only domains |
-| `ip4Provider` / `ip6Provider` | `cloudflare.trace` | IP detection provider |
-| `proxied` | `"false"` | Proxy through Cloudflare (boolean expression) |
-| `updateCron` | `@every 5m` | Update schedule |
-| `hostNetwork` | `true` | Required for local IPv6 detection |
-| `extraEnv` | `[]` | Additional env vars for advanced settings |
+|-------|---------|-------------|
+| `cloudflare.apiToken` | `""` | API token, stored in a chart-managed Secret |
+| `cloudflare.existingSecret` | `""` | Use your own Secret instead. It must hold the token (under `cloudflare.existingSecretKey`, default `CLOUDFLARE_API_TOKEN`) and may hold `SHOUTRRR`, `HEALTHCHECKS`, `UPTIMEKUMA` |
+| `domains`, `ip4Domains`, `ip6Domains` | `""` | Domains (comma-separated) |
+| `wafLists`, `wafListDescription`, `wafListItemComment`, `managedWafListItemsCommentRegex` | `""` | WAF list settings |
+| `ip4Provider`, `ip6Provider` | `cloudflare.trace` | Detection providers |
+| `rejectCloudflareIps` | `true` | `REJECT_CLOUDFLARE_IPS` |
+| `updateCron`, `updateOnStart`, `deleteOnStop`, `deleteOnFailure` | `@every 5m`, `true`, `false`, `false` | Scheduling |
+| `ttl`, `proxied`, `recordComment`, `managedRecordsCommentRegex` | `1`, `"false"`, `""`, `""` | Record settings |
+| `shoutrrr`, `healthchecks`, `uptimeKuma` | `""` | Stored in the chart's Secret. Not allowed together with `existingSecret` — add them to that Secret instead |
+| `hostNetwork` | `true` | Needed for IPv6 detection; set `false` for IPv4 only |
+| `podSecurityContext`, `securityContext` | non-root (65534), read-only root FS, all capabilities dropped, `RuntimeDefault` seccomp | Override if needed |
+| `extraEnv` | `[]` | Any other environment variables |
 
-See [`charts/cloudflare-ddns/values.yaml`](charts/cloudflare-ddns/values.yaml) for all options.
+The Deployment uses the `Recreate` strategy so two pods never update the same records at once. See [`charts/cloudflare-ddns/values.yaml`](charts/cloudflare-ddns/values.yaml) for all values.
 
-#### Raw manifest (legacy)
+### Kubernetes manifest
 
-The `k8s/cloudflare-ddns.yml` manifest uses the legacy JSON config mode. Create a secret containing your `config.json` and apply:
+[`k8s/cloudflare-ddns.yml`](k8s/cloudflare-ddns.yml) creates a `ddns` namespace, a Secret with the token, and a single-replica Deployment. Edit the token and `DOMAINS`, then:
 
 ```bash
-kubectl create secret generic config-cloudflare-ddns --from-file=config.json -n ddns
 kubectl apply -f k8s/cloudflare-ddns.yml
+kubectl -n ddns logs deploy/cloudflare-ddns
 ```
 
-### 🐧 Linux + Systemd
+The legacy `config.json` variant is [`k8s/cloudflare-ddns.legacy.yml`](k8s/cloudflare-ddns.legacy.yml).
 
-1. Build and install:
+### systemd
+
+The units in [`systemd/`](systemd) run one update every 15 minutes from a timer, as a sandboxed dynamic user.
 
 ```bash
 cargo build --release
-sudo cp target/release/cloudflare-ddns /usr/local/bin/
-```
+sudo install -m 755 target/release/cloudflare-ddns /usr/local/bin/cloudflare-ddns
 
-2. Copy the systemd units from the `systemd/` directory:
+sudo install -d -m 700 /etc/cloudflare-ddns
+sudo tee /etc/cloudflare-ddns/env >/dev/null <<'EOF'
+CLOUDFLARE_API_TOKEN=your-api-token
+DOMAINS=example.com,www.example.com
+EOF
+sudo chmod 600 /etc/cloudflare-ddns/env
 
-```bash
-sudo cp systemd/cloudflare-ddns.service /etc/systemd/system/
-sudo cp systemd/cloudflare-ddns.timer /etc/systemd/system/
-```
-
-3. Place a `config.json` at `/etc/cloudflare-ddns/config.json` (the systemd service uses legacy config mode).
-
-4. Enable the timer:
-
-```bash
+sudo cp systemd/cloudflare-ddns.service systemd/cloudflare-ddns.timer /etc/systemd/system/
+sudo systemctl daemon-reload
 sudo systemctl enable --now cloudflare-ddns.timer
+journalctl -u cloudflare-ddns.service
 ```
 
-The timer runs the service every 15 minutes (configurable in `cloudflare-ddns.timer`).
+The service sets `UPDATE_CRON=@once`; don't set `UPDATE_CRON` or `DELETE_ON_STOP` in the env file. Change the interval in `cloudflare-ddns.timer`. For legacy `config.json` with systemd, see [docs/legacy-config.md](docs/legacy-config.md#systemd).
 
-## 🔨 Building from Source
+### Build from source
 
 ```bash
-cargo build --release
+cargo build --release          # binary: target/release/cloudflare-ddns
+./scripts/docker-build.sh      # Docker image, linux/amd64
+./scripts/docker-build-all.sh  # linux/amd64, linux/arm64, linux/ppc64le
 ```
 
-The binary is at `target/release/cloudflare-ddns`.
+## 🔒 Security notes
 
-### 🐳 Docker builds
+- **Pin the image tag.** Images are tagged with the full version (`2.2.0`), minor (`2.2`), major (`2`) and `latest` — there is no `v` prefix. Use `2.2.0` (or at least `2.2`) in production and upgrade deliberately after reading the [changelog](CHANGELOG.md).
+- **Scope the token** to the permissions and zones [listed above](#1-create-an-api-token). Never use the Global API Key.
+- **Keep the token out of compose files and shell history**: use `CLOUDFLARE_API_TOKEN_FILE` with a Docker or Kubernetes secret, or a mode-`600` env file for systemd. Notification and heartbeat URLs contain credentials too.
+- **Host networking** (`--network host`) gives the container the host's full network stack. Use it only for IPv6 or `local`/`local.iface` detection; IPv4-only setups don't need it.
+- `security_opt: no-new-privileges:true` is recommended. The Helm chart and `k8s/` manifest run as a non-root user with a read-only root filesystem and no capabilities.
 
-```bash
-# Single architecture (linux/amd64)
-./scripts/docker-build.sh
+See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
-# Multi-architecture (linux/amd64, linux/arm64, linux/ppc64le)
-./scripts/docker-build-all.sh
-```
+## 🩺 Troubleshooting
 
-## 💻 Supported Platforms
+### IPv6 is not detected in Docker
 
-- 🐳 [Docker](https://docs.docker.com/get-docker/) (amd64, arm64, ppc64le)
-- 🐙 [Docker Compose](https://docs.docker.com/compose/install/)
-- ☸️ [Kubernetes](https://kubernetes.io/docs/tasks/tools/) + [Helm](https://helm.sh) (OCI chart at `ghcr.io/timothymiller/cloudflare-ddns`)
-- 🐧 [Systemd](https://www.freedesktop.org/wiki/Software/systemd/)
-- 🍎 macOS, 🪟 Windows, 🐧 Linux — anywhere Rust compiles
+Docker's default bridge network has no IPv6 connectivity, so `cloudflare.trace` can't reach Cloudflare over IPv6, and interface providers only see the container's own interfaces. Run with `--network host` (Compose: `network_mode: host`; Helm: `hostNetwork: true`). If you don't need IPv6, set `IP6_PROVIDER=none`.
 
----
+### Wrong or rejected IP with Cloudflare WARP / Zero Trust
 
-## 📁 Legacy JSON Config File
+When the host runs WARP, traffic to Cloudflare leaves through WARP, so the trace endpoint sees a Cloudflare egress address. Those are rejected (`Rejected …: matches Cloudflare IP range`) and the update is skipped. Exclude `cloudflare.com` and `api.cloudflare.com` from the WARP tunnel (split tunnel), or use a provider that doesn't go through WARP — e.g. `IP4_PROVIDER=ipify`, `url:<your-endpoint>`, or `local.iface:<name>`.
 
-For backwards compatibility, cloudflare-ddns still supports configuration via a `config.json` file. This mode is used automatically when no `CLOUDFLARE_API_TOKEN` environment variable is set.
+### "WAF list … not found"
 
-### 🚀 Quick Start
+Missing lists are created automatically, so this usually means the token lacks **Account › Account Filter Lists › Edit** for that account, or the account ID in `WAF_LISTS` is wrong. Also check that the list name uses only lowercase letters, digits and `_`.
 
-```bash
-cp config-example.json config.json
-# Edit config.json with your values
-cloudflare-ddns
-```
+### Uptime Kuma shows the monitor as down
 
-### 🔑 Authentication
+Use the URL of a **Push** monitor (`https://<host>/api/push/<token>`); pasting it with `?status=up&msg=OK&ping=` is fine. Set the monitor's heartbeat interval longer than `UPDATE_CRON` plus the 20% jitter (e.g. 7 minutes for the default 5).
 
-Use either an API token (recommended) or a legacy API key:
+### "Invalid format for Authorization header"
 
-```json
-"authentication": {
-  "api_token": "Your cloudflare API token with Edit DNS capability"
-}
-```
+The token reached Cloudflare with extra characters, usually quotes or whitespace. In Compose's list syntax (`- CLOUDFLARE_API_TOKEN="abc"`) the quotes become part of the value; write `- CLOUDFLARE_API_TOKEN=abc`. Surrounding quotes are stripped with a warning and tokens containing whitespace are rejected at startup, so check the first log lines. With `CLOUDFLARE_API_TOKEN_FILE`, the file must contain only the token (a trailing newline is fine).
 
-Or with a legacy API key:
+### "Could not find zone for domain"
 
-```json
-"authentication": {
-  "api_key": {
-    "api_key": "Your cloudflare API Key",
-    "account_email": "The email address you use to sign in to cloudflare"
-  }
-}
-```
+The token can't see the zone: add **Zone › Zone › Read** and include the zone under **Zone Resources**.
 
-### 📡 IPv4 and IPv6
+## 📁 Legacy config.json mode
 
-Some ISP provided modems only allow port forwarding over IPv4 or IPv6. Disable the interface that is not accessible:
+The original `config.json` format still works. It is used only when none of `CLOUDFLARE_API_TOKEN`, `CF_API_TOKEN`, `CLOUDFLARE_API_TOKEN_FILE`, `CF_API_TOKEN_FILE`, `DOMAINS`, `IP4_DOMAINS`, `IP6_DOMAINS` is set. See **[docs/legacy-config.md](docs/legacy-config.md)** for the format, which environment variables still apply, and a migration table. Example file: [`config-example.json`](config-example.json).
 
-```json
-"a": true,
-"aaaa": true
-```
+## 🔗 Helpful links
 
-### ⚙️ Config Options
+- [Cloudflare API tokens](https://dash.cloudflare.com/profile/api-tokens) ([how to create one](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/))
+- [Find your zone and account IDs](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/)
+- [Cloudflare IP ranges](https://www.cloudflare.com/ips/)
 
-By default, the legacy config file is loaded from `./config.json`. Set the `CONFIG_PATH` environment variable to change the directory:
+## 📝 Changelog
 
-```bash
-CONFIG_PATH=/etc/cloudflare-ddns cloudflare-ddns
-```
-
-Or in Docker Compose:
-
-```yml
-environment:
-  - CONFIG_PATH=/config
-volumes:
-  - /your/path/config.json:/config/config.json
-```
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `cloudflare` | array | required | List of zone configurations |
-| `a` | bool | `true` | Enable IPv4 (A record) updates |
-| `aaaa` | bool | `true` | Enable IPv6 (AAAA record) updates |
-| `purgeUnknownRecords` | bool | `false` | Delete stale/duplicate DNS records |
-| `ttl` | int | `300` | DNS record TTL in seconds (30-86400, values < 30 become auto) |
-| `ip4_provider` | string | `"cloudflare.trace"` | IPv4 detection provider (same values as `IP4_PROVIDER` env var) |
-| `ip6_provider` | string | `"cloudflare.trace"` | IPv6 detection provider (same values as `IP6_PROVIDER` env var) |
-
-### 🚫 Cloudflare IP Rejection (Legacy Mode)
-
-Cloudflare IP rejection is enabled by default in legacy mode too. To disable it, set `REJECT_CLOUDFLARE_IPS=false` alongside your `config.json`:
-
-```bash
-REJECT_CLOUDFLARE_IPS=false cloudflare-ddns
-```
-
-Or in Docker Compose:
-
-```yml
-environment:
-  - REJECT_CLOUDFLARE_IPS=false
-volumes:
-  - ./config.json:/config.json
-```
-
-### 🔍 IP Detection (Legacy Mode)
-
-Legacy mode now uses the same shared provider abstraction as environment variable mode. By default it uses the `cloudflare.trace` provider, which builds an IP-family-bound HTTP client (`0.0.0.0` for IPv4, `[::]` for IPv6) to guarantee the correct address family on dual-stack hosts.
-
-You can override the detection method per address family with `ip4_provider` and `ip6_provider` in your `config.json`. Supported values are the same as the `IP4_PROVIDER` / `IP6_PROVIDER` environment variables: `cloudflare.trace`, `cloudflare.doh`, `ipify`, `local`, `local.iface:<name>`, `local.iface.stable:<name>`, `url:<https://...>`, `none`.
-
-Set a provider to `"none"` to disable detection for that address family (overrides `a`/`aaaa`):
-
-```json
-{
-  "a": true,
-  "aaaa": true,
-  "ip4_provider": "cloudflare.trace",
-  "ip6_provider": "none"
-}
-```
-
-Each zone entry contains:
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `authentication` | object | API token or API key credentials |
-| `zone_id` | string | Cloudflare zone ID (found in zone dashboard) |
-| `subdomains` | array | Subdomain entries to update |
-| `proxied` | bool | Default proxied status for subdomains in this zone |
-
-Subdomain entries can be a simple string or a detailed object:
-
-```json
-"subdomains": [
-  "",
-  "@",
-  "www",
-  { "name": "vpn", "proxied": true }
-]
-```
-
-Use `""` or `"@"` for the root domain. Do not include the base domain name.
-
-### 🔄 Environment Variable Substitution
-
-In the legacy config file, values can reference environment variables with the `CF_DDNS_` prefix:
-
-```json
-{
-  "cloudflare": [{
-    "authentication": {
-      "api_token": "${CF_DDNS_API_TOKEN}"
-    },
-    ...
-  }]
-}
-```
-
-### 📠 Example: Multiple Subdomains
-
-```json
-{
-  "cloudflare": [
-    {
-      "authentication": {
-        "api_token": "your-api-token"
-      },
-      "zone_id": "your_zone_id",
-      "subdomains": [
-        { "name": "", "proxied": true },
-        { "name": "www", "proxied": true },
-        { "name": "vpn", "proxied": false }
-      ]
-    }
-  ],
-  "a": true,
-  "aaaa": true,
-  "purgeUnknownRecords": false,
-  "ttl": 300
-}
-```
-
-### 🌐 Example: Multiple Zones
-
-```json
-{
-  "cloudflare": [
-    {
-      "authentication": { "api_token": "your-api-token" },
-      "zone_id": "first_zone_id",
-      "subdomains": [
-        { "name": "", "proxied": false }
-      ]
-    },
-    {
-      "authentication": { "api_token": "your-api-token" },
-      "zone_id": "second_zone_id",
-      "subdomains": [
-        { "name": "", "proxied": false }
-      ]
-    }
-  ],
-  "a": true,
-  "aaaa": true,
-  "purgeUnknownRecords": false
-}
-```
-
-### 🐳 Docker Compose (legacy config file)
-
-```yml
-services:
-  cloudflare-ddns:
-    image: timothyjmiller/cloudflare-ddns:latest
-    container_name: cloudflare-ddns
-    security_opt:
-      - no-new-privileges:true
-    network_mode: 'host'
-    volumes:
-      - /YOUR/PATH/HERE/config.json:/config.json
-    restart: unless-stopped
-```
-
-### 🏁 Legacy CLI Flags
-
-In legacy config mode, use `--repeat` to run continuously (the TTL value is used as the update interval):
-
-```bash
-cloudflare-ddns --repeat
-cloudflare-ddns --repeat --dry-run
-```
-
----
-
-## 🔗 Helpful Links
-
-- 🔑 [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens)
-- 🆔 [Cloudflare zone ID](https://support.cloudflare.com/hc/en-us/articles/200167836-Where-do-I-find-my-Cloudflare-IP-address-)
-- 📋 [Cloudflare zone DNS record ID](https://support.cloudflare.com/hc/en-us/articles/360019093151-Managing-DNS-records-in-Cloudflare)
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## 📜 License
 

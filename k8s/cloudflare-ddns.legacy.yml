@@ -1,0 +1,54 @@
+# cloudflare-ddns — legacy config.json mode (see docs/legacy-config.md).
+# New deployments should use k8s/cloudflare-ddns.yml (environment-variable mode).
+#
+#   kubectl create namespace ddns
+#   kubectl create secret generic config-cloudflare-ddns --from-file=config.json -n ddns
+#   kubectl apply -f k8s/cloudflare-ddns.legacy.yml -n ddns
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflare-ddns
+  namespace: ddns
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cloudflare-ddns
+
+  template:
+    metadata:
+      labels:
+        app: cloudflare-ddns
+
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cloudflare-ddns
+          image: timothyjmiller/cloudflare-ddns:2.2.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ['ALL']
+          resources:
+            limits:
+              memory: '32Mi'
+              cpu: '50m'
+          env:
+            - name: CONFIG_PATH
+              value: '/etc/cloudflare-ddns/'
+          volumeMounts:
+            - mountPath: '/etc/cloudflare-ddns'
+              name: config-cloudflare-ddns
+              readOnly: true
+      volumes:
+        - name: config-cloudflare-ddns
+          secret:
+            secretName: config-cloudflare-ddns

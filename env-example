@@ -1,11 +1,16 @@
 # Cloudflare DDNS - Environment Variable Configuration
 # Copy this file to .env and set your values.
-# Setting CLOUDFLARE_API_TOKEN activates environment variable mode.
+# Setting CLOUDFLARE_API_TOKEN (or DOMAINS / IP4_DOMAINS / IP6_DOMAINS)
+# activates environment variable mode.
+# Booleans: only true / 1 / yes (case-insensitive) are true; anything else is false.
 
 # === Required ===
 
-# Cloudflare API token with "Edit DNS" capability
-CLOUDFLARE_API_TOKEN=your-api-token-here
+# Cloudflare API token. Required permissions on the target zones:
+#   Zone > DNS > Edit and Zone > Zone > Read
+# (plus Account > Account Filter Lists > Edit if you use WAF_LISTS).
+# Do not wrap the value in quotes. The placeholder below is rejected at startup.
+CLOUDFLARE_API_TOKEN=YOUR-CLOUDFLARE-API-TOKEN
 # Or read from a file:
 # CLOUDFLARE_API_TOKEN_FILE=/run/secrets/cloudflare_token
 
@@ -18,8 +23,9 @@ DOMAINS=example.com,www.example.com
 # === IP Detection ===
 
 # Provider for IPv4 detection (default: cloudflare.trace)
-# Options: cloudflare.trace, cloudflare.doh, ipify, local, local.iface:<name>,
-#          local.iface.stable:<name>, url:<custom-url>, literal:<ip1>,<ip2>, none
+# Options: cloudflare.trace, cloudflare.trace:<url>, cloudflare.doh, ipify, local,
+#          local.iface:<name>, local.iface.stable:<name>, url:<custom-url>,
+#          literal:<ip1>,<ip2> (comma or space separated), none (or empty)
 # IP4_PROVIDER=cloudflare.trace
 
 # Provider for IPv6 detection (default: cloudflare.trace)
@@ -27,10 +33,13 @@ DOMAINS=example.com,www.example.com
 # of temporary privacy addresses from the selected interface.
 # IP6_PROVIDER=cloudflare.trace
 
+# Reject detected IPs inside Cloudflare's published ranges (default: true)
+# REJECT_CLOUDFLARE_IPS=true
+
 # === Scheduling ===
 
 # Update schedule (default: @every 5m)
-# Formats: @every 5m, @every 1h, @every 30s, @once
+# Formats: @every 5m, @every 1h, @every 30s (minimum 30s), @once
 # UPDATE_CRON=@every 5m
 
 # Run an update immediately on startup (default: true)
@@ -39,15 +48,16 @@ DOMAINS=example.com,www.example.com
 # Delete managed DNS records on shutdown (default: false)
 # DELETE_ON_STOP=false
 
-# Delete managed DNS records when a provider definitively reports no address
-# of that family, e.g. "none" or an interface without one (default: false).
+# Delete managed DNS records when a deterministic provider (literal:, local,
+# local.iface:, local.iface.stable:) reports no address of that family
+# (default: false).
 # Transient detection errors (network failures) always preserve existing
 # records, regardless of this setting.
 # DELETE_ON_FAILURE=false
 
 # === DNS Records ===
 
-# TTL in seconds: 1=auto, or 30-86400 (default: 1)
+# TTL in seconds: 1=auto, or 30-86400; values below 30 mean auto (default: 1)
 # TTL=1
 
 # Proxied expression: true, false, is(domain), sub(domain), or boolean combos
@@ -64,7 +74,7 @@ DOMAINS=example.com,www.example.com
 # Comma-separated WAF lists in account-id/list-name format
 # WAF_LISTS=account123/my_ip_list
 
-# Description for managed WAF lists
+# Description used when a missing WAF list is created
 # WAF_LIST_DESCRIPTION=Dynamic IP list
 
 # Comment for WAF list items
@@ -75,23 +85,31 @@ DOMAINS=example.com,www.example.com
 
 # === Notifications ===
 
-# Shoutrrr notification URLs (newline-separated)
+# Shoutrrr notification URL. SHOUTRRR accepts several newline-separated URLs,
+# but a .env file can only hold ONE line per variable — set exactly one
+# SHOUTRRR line here. For several services, use a YAML block scalar in
+# docker-compose.yml (see README) instead.
+# Examples (pick one):
+#   discord://token@webhook-id
+#   slack://token-a/token-b/token-c
+#   telegram://bot-token@telegram?chats=chat-id
+#   pushover://shoutrrr:api-token@user-key
+#   gotify://gotify.example.com/app-token
+#   generic+https://hooks.example.com/webhook
 # SHOUTRRR=discord://token@webhook-id
-# SHOUTRRR=slack://token-a/token-b/token-c
-# SHOUTRRR=telegram://bot-token@telegram?chats=chat-id
-# SHOUTRRR=generic+https://hooks.example.com/webhook
 
 # === Heartbeat Monitoring ===
 
 # Healthchecks.io ping URL
 # HEALTHCHECKS=https://hc-ping.com/your-uuid
 
-# Uptime Kuma push URL
+# Uptime Kuma push URL. Paste it as shown in Uptime Kuma; a trailing
+# query string such as ?status=up&msg=OK&ping= is stripped automatically.
 # UPTIMEKUMA=https://your-uptime-kuma.com/api/push/your-token
 
 # === Timeouts ===
 
-# IP detection timeout (default: 5s)
+# IP detection timeout (default: 5s). Formats: 30s, 5m, 1h, or bare seconds
 # DETECTION_TIMEOUT=5s
 
 # Cloudflare API request timeout (default: 30s)

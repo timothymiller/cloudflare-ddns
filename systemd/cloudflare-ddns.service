@@ -1,13 +1,50 @@
+# One-shot cloudflare-ddns run, triggered by cloudflare-ddns.timer.
+#
+# Environment-variable mode (recommended): put your settings in
+# /etc/cloudflare-ddns/env (chmod 600, owned by root), e.g.
+#
+#   CLOUDFLARE_API_TOKEN=...
+#   DOMAINS=example.com,www.example.com
+#
+# Do not set UPDATE_CRON there: the timer handles scheduling and this unit
+# runs a single update (UPDATE_CRON=@once) per activation.
+#
+# Legacy config.json mode: see docs/legacy-config.md for the drop-in that
+# hands /etc/cloudflare-ddns/config.json to the service as a credential.
+
 [Unit]
 Description=Update DDNS on Cloudflare
-ConditionPathExists=/etc/cloudflare-ddns/config.json
+Documentation=https://github.com/timothymiller/cloudflare-ddns
+# Run only if at least one configuration source exists.
+ConditionPathExists=|/etc/cloudflare-ddns/env
+ConditionPathExists=|/etc/cloudflare-ddns/config.json
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=oneshot
+Environment=UPDATE_CRON=@once
 Environment=CONFIG_PATH=/etc/cloudflare-ddns
-ExecStart=cloudflare-ddns
+EnvironmentFile=-/etc/cloudflare-ddns/env
+ExecStart=/usr/local/bin/cloudflare-ddns
+
+# Hardening
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+# AF_NETLINK is needed by the local.iface:/local.iface.stable: providers.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target

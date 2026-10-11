@@ -4,10 +4,10 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 2.0.x   | :white_check_mark: |
-| < 2.0   | :x:                |
+| 2.2.x   | :white_check_mark: |
+| < 2.2   | :x:                |
 
-Only the latest release in the `2.0.x` series receives security updates. The legacy Python codebase and all `1.x` releases are **end-of-life** and will not be patched. Users on older versions should upgrade to the latest release immediately.
+Only the latest release in the `2.2.x` series receives security updates. The legacy Python codebase and all `1.x` releases are **end-of-life** and will not be patched. Users on older versions should upgrade to the latest release immediately.
 
 ## Reporting a Vulnerability
 
@@ -41,19 +41,23 @@ This project handles **Cloudflare API tokens** that grant DNS editing privileges
 
 - **Never commit your API token** to version control or include it in Docker images.
 - Use `CLOUDFLARE_API_TOKEN_FILE` or Docker secrets to inject tokens at runtime rather than passing them as plain environment variables where possible.
-- Create a **scoped API token** with only "Edit DNS" permission on the specific zones you need — avoid using Global API Keys.
+- Create a **scoped API token** limited to the zones you need, with only these permissions — avoid using Global API Keys:
+  - **Zone › DNS › Edit** and **Zone › Zone › Read** (required)
+  - **Account › Account Filter Lists › Edit** (only if you use `WAF_LISTS`)
+- Notification and heartbeat URLs (`SHOUTRRR`, `HEALTHCHECKS`, `UPTIMEKUMA`) embed credentials too; treat them as secrets (the Helm chart stores them in a Kubernetes Secret). Secrets in notification URLs are redacted from log output.
 
 ### Container Security
 
 - The Docker image runs as a **static binary from scratch** with zero runtime dependencies, which minimizes the attack surface.
 - Use `security_opt: no-new-privileges:true` in Docker Compose deployments.
-- Pin image tags to a specific version (e.g., `timothyjmiller/cloudflare-ddns:v2.0.10`) rather than using `latest` in production.
+- Pin image tags to a specific version (e.g., `timothyjmiller/cloudflare-ddns:2.2.0`) rather than using `latest` in production. Images are tagged `2.2.0`, `2.2`, `2` and `latest` — there is no `v` prefix.
+- The Helm chart and `k8s/` manifest run the container as a non-root user (65534) with a read-only root filesystem, no privilege escalation, all capabilities dropped and the `RuntimeDefault` seccomp profile.
 
 ### Network Security
 
 - The default IP detection provider (`cloudflare.trace`) communicates directly with Cloudflare's infrastructure over HTTPS and does not log your IP.
 - All Cloudflare API calls are made over HTTPS/TLS.
-- `--network host` mode is required for IPv6 detection — be aware this gives the container access to the host's full network stack.
+- `--network host` mode is required for IPv6 detection — be aware this gives the container access to the host's full network stack. If you only need IPv4, drop host networking and set `IP6_PROVIDER=none`.
 
 ### Supply Chain
 
