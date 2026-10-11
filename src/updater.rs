@@ -8,7 +8,6 @@ use crate::provider::{DetectionOutcome, IpType};
 use reqwest::Client;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
-use std::time::Duration;
 
 /// Run a single update cycle.
 pub async fn update_once(
@@ -349,6 +348,7 @@ async fn update_legacy(
     };
 
     let mut ips = HashMap::new();
+    let mut ok = true;
 
     for (ip_type, provider) in &config.providers {
         ppfmt.infof(
@@ -382,13 +382,15 @@ async fn update_legacy(
                     &format!("No {} address detected", ip_type.describe()),
                 );
                 if legacy.purge_unknown_records {
-                    ddns.delete_entries(ip_type.record_type(), &legacy.cloudflare)
+                    ok &= ddns
+                        .delete_entries(ip_type.record_type(), &legacy.cloudflare)
                         .await;
                 }
             }
             // Transient failure: the real IP is unknown, so never purge
             // records - a network blip must not take DNS down (issue #277).
             DetectionOutcome::Failed => {
+                ok = false;
                 ppfmt.warningf(
                     pp::EMOJI_WARNING,
                     &format!(
@@ -438,7 +440,7 @@ async fn update_legacy(
         }
     }
 
-    let (msgs, should_notify) = ddns
+    let (msgs, should_notify, update_ok) = ddns
         .update_ips(
             &ips,
             &legacy.cloudflare,
@@ -449,7 +451,7 @@ async fn update_legacy(
         )
         .await;
 
-    (true, msgs, should_notify)
+    (ok && update_ok, msgs, should_notify)
 }
 
 /// Delete records on stop (for env var mode). Sends a notification and returns
@@ -553,7 +555,13 @@ impl LegacyDdnsClient {
         match req.send().await {
             Ok(resp) => {
                 if resp.status().is_success() {
-                    resp.json::<T>().await.ok()
+                    match resp.json::<T>().await {
+                        Ok(v) => Some(v),
+                        Err(e) => {
+                            eprintln!("Unexpected response to '{method}' request to '{endpoint}': {e}");
+                            None
+                        }
+                    }
                 } else {
                     let url_str = resp.url().to_string();
                     let text = resp.text().await.unwrap_or_default();
@@ -568,37 +576,103 @@ impl LegacyDdnsClient {
         }
     }
 
-    async fn delete_entries(&self, record_type: &str, entries: &[LegacyCloudflareEntry]) {
-        for entry in entries {
-            let endpoint = format!(
-                "zones/{}/dns_records?per_page=100&type={record_type}",
-                entry.zone_id
-            );
-            let answer: Option<LegacyCfResponse<Vec<LegacyDnsRecord>>> = self
-                .cf_api(&endpoint, "GET", entry, None::<&()>.as_ref())
-                .await;
-
-            if let Some(resp) = answer {
-                if let Some(records) = resp.result {
-                    for record in records {
-                        if self.dry_run {
-                            println!("[DRY RUN] Would delete stale record {}", record.id);
-                            continue;
-                        }
-                        let del_endpoint =
-                            format!("zones/{}/dns_records/{}", entry.zone_id, record.id);
-                        let _: Option<serde_json::Value> = self
-                            .cf_api(&del_endpoint, "DELETE", entry, None::<&()>.as_ref())
-                            .await;
-                        println!("Deleted stale record {}", record.id);
-                    }
-                }
-            } else {
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-        }
+    /// Records of one type and name. `None` if the API call failed, so an error
+    /// is never mistaken for "no record" (which would create duplicates).
+    async fn list_records_by_name(
+        &self,
+        entry: &LegacyCloudflareEntry,
+        record_type: &str,
+        fqdn: &str,
+    ) -> Option<Vec<LegacyDnsRecord>> {
+        // Filter server-side (unfiltered listings are capped at one page) and
+        // match case-insensitively: Cloudflare stores names lowercased.
+        let endpoint = format!(
+            "zones/{}/dns_records?per_page=100&type={record_type}&name={}",
+            entry.zone_id,
+            url::form_urlencoded::byte_serialize(fqdn.to_ascii_lowercase().as_bytes())
+                .collect::<String>()
+        );
+        let resp: LegacyCfResponse<Vec<LegacyDnsRecord>> = self
+            .cf_api(&endpoint, "GET", entry, None::<&()>.as_ref())
+            .await?;
+        Some(
+            resp.result
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|r| r.name.eq_ignore_ascii_case(fqdn))
+                .collect(),
+        )
     }
 
+    async fn zone_name(&self, entry: &LegacyCloudflareEntry) -> Option<String> {
+        let resp: LegacyCfResponse<LegacyZoneResult> = self
+            .cf_api(
+                &format!("zones/{}", entry.zone_id),
+                "GET",
+                entry,
+                None::<&()>.as_ref(),
+            )
+            .await?;
+        resp.result.map(|z| z.name)
+    }
+
+    async fn delete_record(&self, entry: &LegacyCloudflareEntry, id: &str) -> bool {
+        let endpoint = format!("zones/{}/dns_records/{id}", entry.zone_id);
+        let resp: Option<serde_json::Value> = self
+            .cf_api(&endpoint, "DELETE", entry, None::<&()>.as_ref())
+            .await;
+        resp.is_some()
+    }
+
+    /// Configured `(fqdn, proxied)` pairs for an entry in a zone named `base_domain`.
+    fn subdomains(entry: &LegacyCloudflareEntry, base_domain: &str) -> Vec<(String, bool)> {
+        entry
+            .subdomains
+            .iter()
+            .map(|subdomain| {
+                let (name, proxied) = match subdomain {
+                    LegacySubdomainEntry::Detailed { name, proxied } => (name, *proxied),
+                    LegacySubdomainEntry::Simple(name) => (name, entry.proxied),
+                };
+                (make_fqdn(name.to_lowercase().trim(), base_domain), proxied)
+            })
+            .collect()
+    }
+
+    /// Deletes this record type for the configured subdomains (used when a
+    /// deterministic provider reports no address of the family). Only names
+    /// listed in config.json are touched, never other records in the zone.
+    /// Returns `false` if any lookup or deletion failed.
+    async fn delete_entries(&self, record_type: &str, entries: &[LegacyCloudflareEntry]) -> bool {
+        let mut ok = true;
+        for entry in entries {
+            let Some(base_domain) = self.zone_name(entry).await else {
+                ok = false;
+                continue;
+            };
+            for (fqdn, _) in Self::subdomains(entry, &base_domain) {
+                let Some(records) = self.list_records_by_name(entry, record_type, &fqdn).await
+                else {
+                    ok = false;
+                    continue;
+                };
+                for record in records {
+                    if self.dry_run {
+                        println!("[DRY RUN] Would delete stale record {fqdn} ({})", record.id);
+                        continue;
+                    }
+                    if self.delete_record(entry, &record.id).await {
+                        println!("Deleted stale record {fqdn} ({})", record.id);
+                    } else {
+                        ok = false;
+                    }
+                }
+            }
+        }
+        ok
+    }
+
+    /// Returns `(messages, changed, ok)`.
     async fn update_ips(
         &self,
         ips: &HashMap<String, LegacyIpInfo>,
@@ -607,11 +681,12 @@ impl LegacyDdnsClient {
         purge_unknown_records: bool,
         noop_reported: &mut HashSet<String>,
         comment: Option<&str>,
-    ) -> (Vec<Message>, bool) {
+    ) -> (Vec<Message>, bool, bool) {
         let mut messages = Vec::new();
         let mut notify = false;
+        let mut ok = true;
         for ip in ips.values() {
-            let (msgs, changed) = self
+            let (msgs, changed, ip_ok) = self
                 .commit_record(
                     ip,
                     config,
@@ -622,13 +697,13 @@ impl LegacyDdnsClient {
                 )
                 .await;
             messages.extend(msgs);
-            if changed {
-                notify = true;
-            }
+            notify |= changed;
+            ok &= ip_ok;
         }
-        (messages, notify)
+        (messages, notify, ok)
     }
 
+    /// Returns `(messages, changed, ok)`.
     async fn commit_record(
         &self,
         ip: &LegacyIpInfo,
@@ -637,39 +712,21 @@ impl LegacyDdnsClient {
         purge_unknown_records: bool,
         noop_reported: &mut HashSet<String>,
         comment: Option<&str>,
-    ) -> (Vec<Message>, bool) {
+    ) -> (Vec<Message>, bool, bool) {
         let mut messages = Vec::new();
         let mut changed = false;
+        let mut ok = true;
         for entry in config {
-            let zone_resp: Option<LegacyCfResponse<LegacyZoneResult>> = self
-                .cf_api(
-                    &format!("zones/{}", entry.zone_id),
-                    "GET",
-                    entry,
-                    None::<&()>.as_ref(),
-                )
-                .await;
-
-            let base_domain = match zone_resp.and_then(|r| r.result) {
-                Some(z) => z.name,
-                None => {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    continue;
-                }
+            let Some(base_domain) = self.zone_name(entry).await else {
+                messages.push(Message::new_fail(&format!(
+                    "Could not look up zone {}",
+                    entry.zone_id
+                )));
+                ok = false;
+                continue;
             };
 
-            for subdomain in &entry.subdomains {
-                let (name, proxied) = match subdomain {
-                    LegacySubdomainEntry::Detailed { name, proxied } => {
-                        (name.to_lowercase().trim().to_string(), *proxied)
-                    }
-                    LegacySubdomainEntry::Simple(name) => {
-                        (name.to_lowercase().trim().to_string(), entry.proxied)
-                    }
-                };
-
-                let fqdn = make_fqdn(&name, &base_domain);
-
+            for (fqdn, proxied) in Self::subdomains(entry, &base_domain) {
                 let record = LegacyDnsRecordPayload {
                     record_type: ip.record_type.clone(),
                     name: fqdn.clone(),
@@ -679,98 +736,104 @@ impl LegacyDdnsClient {
                     comment: comment.map(|s| s.to_string()),
                 };
 
-                let dns_endpoint = format!(
-                    "zones/{}/dns_records?per_page=100&type={}",
-                    entry.zone_id, ip.record_type
-                );
-                let dns_records: Option<LegacyCfResponse<Vec<LegacyDnsRecord>>> = self
-                    .cf_api(&dns_endpoint, "GET", entry, None::<&()>.as_ref())
-                    .await;
+                let Some(records) = self
+                    .list_records_by_name(entry, &ip.record_type, &fqdn)
+                    .await
+                else {
+                    messages.push(Message::new_fail(&format!("Could not list records for {fqdn}")));
+                    ok = false;
+                    continue;
+                };
 
-                let mut identifier: Option<String> = None;
-                let mut modified = false;
-                let mut duplicate_ids: Vec<String> = Vec::new();
+                // Keep the record already holding this IP if there is one;
+                // otherwise update the first. The rest are duplicates.
+                let keep = records
+                    .iter()
+                    .find(|r| r.content == ip.ip)
+                    .or_else(|| records.first());
+                let duplicate_ids: Vec<&str> = records
+                    .iter()
+                    .filter(|r| Some(r.id.as_str()) != keep.map(|k| k.id.as_str()))
+                    .map(|r| r.id.as_str())
+                    .collect();
 
-                if let Some(resp) = dns_records {
-                    if let Some(records) = resp.result {
-                        for r in &records {
-                            if r.name == fqdn {
-                                if let Some(ref existing_id) = identifier {
-                                    if r.content == ip.ip {
-                                        duplicate_ids.push(existing_id.clone());
-                                        identifier = Some(r.id.clone());
-                                    } else {
-                                        duplicate_ids.push(r.id.clone());
-                                    }
-                                } else {
-                                    identifier = Some(r.id.clone());
-                                    if r.content != record.content
-                                        || r.proxied != record.proxied
-                                        || r.comment != record.comment
-                                    {
-                                        modified = true;
-                                    }
-                                }
+                let noop_key = format!("{fqdn}:{}", ip.record_type);
+                match keep {
+                    Some(existing)
+                        if existing.content == record.content
+                            && existing.proxied == record.proxied
+                            && existing.comment == record.comment =>
+                    {
+                        if noop_reported.insert(noop_key) {
+                            if self.dry_run {
+                                println!("[DRY RUN] Record {fqdn} is up to date");
+                            } else {
+                                println!("Record {fqdn} is up to date");
+                            }
+                        }
+                    }
+                    Some(existing) => {
+                        noop_reported.remove(&noop_key);
+                        changed = true;
+                        if self.dry_run {
+                            println!("[DRY RUN] Would update record {fqdn} -> {}", ip.ip);
+                            messages.push(Message::new_ok(&format!("Updated {fqdn} -> {}", ip.ip)));
+                        } else {
+                            println!("Updating record {fqdn} -> {}", ip.ip);
+                            let endpoint =
+                                format!("zones/{}/dns_records/{}", entry.zone_id, existing.id);
+                            let resp: Option<serde_json::Value> =
+                                self.cf_api(&endpoint, "PUT", entry, Some(&record)).await;
+                            if resp.is_some() {
+                                messages
+                                    .push(Message::new_ok(&format!("Updated {fqdn} -> {}", ip.ip)));
+                            } else {
+                                messages.push(Message::new_fail(&format!(
+                                    "Failed to update {fqdn} -> {}",
+                                    ip.ip
+                                )));
+                                ok = false;
+                            }
+                        }
+                    }
+                    None => {
+                        noop_reported.remove(&noop_key);
+                        changed = true;
+                        if self.dry_run {
+                            println!("[DRY RUN] Would add new record {fqdn} -> {}", ip.ip);
+                            messages.push(Message::new_ok(&format!("Created {fqdn} -> {}", ip.ip)));
+                        } else {
+                            println!("Adding new record {fqdn} -> {}", ip.ip);
+                            let endpoint = format!("zones/{}/dns_records", entry.zone_id);
+                            let resp: Option<serde_json::Value> =
+                                self.cf_api(&endpoint, "POST", entry, Some(&record)).await;
+                            if resp.is_some() {
+                                messages
+                                    .push(Message::new_ok(&format!("Created {fqdn} -> {}", ip.ip)));
+                            } else {
+                                messages.push(Message::new_fail(&format!(
+                                    "Failed to create {fqdn} -> {}",
+                                    ip.ip
+                                )));
+                                ok = false;
                             }
                         }
                     }
                 }
 
-                let noop_key = format!("{fqdn}:{}", ip.record_type);
-                if let Some(ref id) = identifier {
-                    if modified {
-                        noop_reported.remove(&noop_key);
-                        changed = true;
-                        if self.dry_run {
-                            println!("[DRY RUN] Would update record {fqdn} -> {}", ip.ip);
-                        } else {
-                            println!("Updating record {fqdn} -> {}", ip.ip);
-                            let update_endpoint =
-                                format!("zones/{}/dns_records/{id}", entry.zone_id);
-                            let _: Option<serde_json::Value> = self
-                                .cf_api(&update_endpoint, "PUT", entry, Some(&record))
-                                .await;
-                        }
-                        messages.push(Message::new_ok(&format!("Updated {fqdn} -> {}", ip.ip)));
-                    } else if noop_reported.insert(noop_key) {
-                        if self.dry_run {
-                            println!("[DRY RUN] Record {fqdn} is up to date");
-                        } else {
-                            println!("Record {fqdn} is up to date");
-                        }
-                    }
-                } else {
-                    noop_reported.remove(&noop_key);
-                    changed = true;
-                    if self.dry_run {
-                        println!("[DRY RUN] Would add new record {fqdn} -> {}", ip.ip);
-                    } else {
-                        println!("Adding new record {fqdn} -> {}", ip.ip);
-                        let create_endpoint = format!("zones/{}/dns_records", entry.zone_id);
-                        let _: Option<serde_json::Value> = self
-                            .cf_api(&create_endpoint, "POST", entry, Some(&record))
-                            .await;
-                    }
-                    messages.push(Message::new_ok(&format!("Created {fqdn} -> {}", ip.ip)));
-                }
-
                 if purge_unknown_records {
-                    for dup_id in &duplicate_ids {
+                    for dup_id in duplicate_ids {
                         if self.dry_run {
                             println!("[DRY RUN] Would delete stale record {dup_id}");
                         } else {
                             println!("Deleting stale record {dup_id}");
-                            let del_endpoint =
-                                format!("zones/{}/dns_records/{dup_id}", entry.zone_id);
-                            let _: Option<serde_json::Value> = self
-                                .cf_api(&del_endpoint, "DELETE", entry, None::<&()>.as_ref())
-                                .await;
+                            ok &= self.delete_record(entry, dup_id).await;
                         }
                     }
                 }
             }
         }
-        (messages, changed)
+        (messages, changed, ok)
     }
 }
 
@@ -2683,8 +2746,9 @@ mod tests {
             .mount(&server)
             .await;
 
+        // The first record holding the IP is kept; the duplicate is purged.
         Mock::given(method("DELETE"))
-            .and(path(format!("/zones/{zone_id}/dns_records/rec-1")))
+            .and(path(format!("/zones/{zone_id}/dns_records/rec-dup")))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
             .expect(1)
             .mount(&server)
@@ -2768,14 +2832,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_legacy_delete_entries() {
+        // Only configured names are purged; other records in the zone survive.
         let server = MockServer::start().await;
         let zone_id = "zone-leg7";
+
+        Mock::given(method("GET"))
+            .and(path(format!("/zones/{zone_id}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": { "name": "example.com" }
+            })))
+            .mount(&server)
+            .await;
 
         Mock::given(method("GET"))
             .and(path(format!("/zones/{zone_id}/dns_records")))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "result": [
-                    { "id": "rec-1", "name": "example.com", "content": "10.0.0.1", "proxied": false }
+                    { "id": "rec-1", "name": "example.com", "content": "10.0.0.1", "proxied": false },
+                    { "id": "rec-other", "name": "mail.example.com", "content": "10.0.0.9", "proxied": false }
                 ]
             })))
             .mount(&server)
@@ -2785,6 +2859,12 @@ mod tests {
             .and(path(format!("/zones/{zone_id}/dns_records/rec-1")))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
             .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path(format!("/zones/{zone_id}/dns_records/rec-other")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .expect(0)
             .mount(&server)
             .await;
 
@@ -2799,10 +2879,66 @@ mod tests {
                 api_key: None,
             },
             zone_id: zone_id.to_string(),
-            subdomains: vec![],
+            subdomains: vec![LegacySubdomainEntry::Simple("@".to_string())],
             proxied: false,
         }];
-        ddns.delete_entries("A", &config).await;
+        assert!(ddns.delete_entries("A", &config).await);
+    }
+
+    #[tokio::test]
+    async fn test_legacy_commit_record_write_failure_is_reported() {
+        let server = MockServer::start().await;
+        let zone_id = "zone-leg-fail";
+        Mock::given(method("GET"))
+            .and(path(format!("/zones/{zone_id}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": { "name": "example.com" }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/zones/{zone_id}/dns_records")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": [
+                    { "id": "rec-1", "name": "Example.com", "content": "10.0.0.1", "proxied": false }
+                ]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let ddns = LegacyDdnsClient {
+            client: crate::test_client(),
+            cf_api_base: server.uri(),
+            dry_run: false,
+        };
+        let ip = LegacyIpInfo {
+            record_type: "A".to_string(),
+            ip: "10.0.0.2".to_string(),
+        };
+        let config = vec![crate::config::LegacyCloudflareEntry {
+            authentication: crate::config::LegacyAuthentication {
+                api_token: "test-token".to_string(),
+                api_key: None,
+            },
+            zone_id: zone_id.to_string(),
+            subdomains: vec![LegacySubdomainEntry::Simple("@".to_string())],
+            proxied: false,
+        }];
+        let (msgs, _, ok) = ddns
+            .commit_record(&ip, &config, 300, false, &mut HashSet::new(), None)
+            .await;
+        assert!(!ok);
+        assert!(msgs.iter().any(|m| !m.ok));
     }
 
     #[tokio::test]
