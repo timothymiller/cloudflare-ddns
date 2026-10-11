@@ -452,14 +452,14 @@ async fn update_legacy(
     (true, msgs, should_notify)
 }
 
-/// Delete records on stop (for env var mode).
+/// Delete records on stop (for env var mode). Sends a notification and returns
+/// the summary message so the caller can use it for the exit heartbeat.
 pub async fn final_delete(
     config: &AppConfig,
     handle: &CloudflareHandle,
     notifier: &CompositeNotifier,
-    heartbeat: &Heartbeat,
     ppfmt: &PP,
-) {
+) -> Message {
     let mut messages = Vec::new();
 
     // Delete DNS records
@@ -467,30 +467,36 @@ pub async fn final_delete(
         let record_type = ip_type.record_type();
 
         for domain_str in domains {
-            if let Some(zone_id) = handle.zone_id_of_domain(domain_str, ppfmt).await {
-                handle
-                    .final_delete(&zone_id, domain_str, record_type, ppfmt)
-                    .await;
-                messages.push(Message::new_ok(&format!(
-                    "Deleted records for {domain_str}"
-                )));
-            }
+            let deleted = match handle.zone_id_of_domain(domain_str, ppfmt).await {
+                Some(zone_id) => {
+                    handle
+                        .final_delete(&zone_id, domain_str, record_type, ppfmt)
+                        .await
+                }
+                None => false,
+            };
+            messages.push(if deleted {
+                Message::new_ok(&format!("Deleted {record_type} records for {domain_str}"))
+            } else {
+                Message::new_fail(&format!(
+                    "Failed to delete {record_type} records for {domain_str}"
+                ))
+            });
         }
     }
 
     // Clear WAF lists
     for waf_list in &config.waf_lists {
-        handle.final_clear_waf_list(waf_list, ppfmt).await;
-        messages.push(Message::new_ok(&format!(
-            "Cleared WAF list {}",
-            waf_list.describe()
-        )));
+        messages.push(if handle.final_clear_waf_list(waf_list, ppfmt).await {
+            Message::new_ok(&format!("Cleared WAF list {}", waf_list.describe()))
+        } else {
+            Message::new_fail(&format!("Failed to clear WAF list {}", waf_list.describe()))
+        });
     }
 
-    // Send notifications
     let msg = Message::merge(messages);
-    heartbeat.exit(&msg).await;
     notifier.send(&msg).await;
+    msg
 }
 
 // ============================================================
@@ -1091,22 +1097,14 @@ mod tests {
             .mount(&server)
             .await;
 
-        // Create record (new IP doesn't match existing, so it creates + deletes stale)
-        Mock::given(method("POST"))
-            .and(path(format!("/zones/{zone_id}/dns_records")))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(dns_record_created("rec-2", domain, new_ip)),
-            )
-            .mount(&server)
-            .await;
-
-        // Delete stale record
-        Mock::given(method("DELETE"))
+        // The existing managed record is reused and updated in place
+        Mock::given(method("PUT"))
             .and(path(format!("/zones/{zone_id}/dns_records/rec-1")))
             .respond_with(
-                ResponseTemplate::new(200).set_body_json(serde_json::json!({"result": {}})),
+                ResponseTemplate::new(200)
+                    .set_body_json(dns_record_created("rec-1", domain, new_ip)),
             )
+            .expect(1)
             .mount(&server)
             .await;
 
@@ -1970,11 +1968,10 @@ mod tests {
         let config = make_config(HashMap::new(), domains, vec![], false);
         let cf = handle(&server.uri());
         let notifier = empty_notifier();
-        let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
         // Should complete without panic
-        final_delete(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        final_delete(&config, &cf, &notifier, &ppfmt).await;
     }
 
     /// final_delete does nothing when no records exist for the domain.
@@ -2009,10 +2006,9 @@ mod tests {
         let config = make_config(HashMap::new(), domains, vec![], false);
         let cf = handle(&server.uri());
         let notifier = empty_notifier();
-        let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        final_delete(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        final_delete(&config, &cf, &notifier, &ppfmt).await;
     }
 
     /// final_delete skips DNS deletion when the zone is not found.
@@ -2042,11 +2038,10 @@ mod tests {
         let config = make_config(HashMap::new(), domains, vec![], false);
         let cf = handle(&server.uri());
         let notifier = empty_notifier();
-        let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
         // Should complete without error - zone not found means skip
-        final_delete(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        final_delete(&config, &cf, &notifier, &ppfmt).await;
     }
 
     /// final_delete clears WAF list items.
@@ -2101,10 +2096,9 @@ mod tests {
         let config = make_config(HashMap::new(), HashMap::new(), vec![waf_list], false);
         let cf = handle(&server.uri());
         let notifier = empty_notifier();
-        let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        final_delete(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        final_delete(&config, &cf, &notifier, &ppfmt).await;
     }
 
     /// final_delete with no WAF items does not call DELETE.
@@ -2144,10 +2138,9 @@ mod tests {
         let config = make_config(HashMap::new(), HashMap::new(), vec![waf_list], false);
         let cf = handle(&server.uri());
         let notifier = empty_notifier();
-        let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        final_delete(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        final_delete(&config, &cf, &notifier, &ppfmt).await;
     }
 
     /// final_delete with both DNS domains and WAF lists - both are cleaned up.
@@ -2236,10 +2229,9 @@ mod tests {
         let config = make_config(HashMap::new(), domains, vec![waf_list], false);
         let cf = handle(&server.uri());
         let notifier = empty_notifier();
-        let heartbeat = empty_heartbeat();
         let ppfmt = pp();
 
-        final_delete(&config, &cf, &notifier, &heartbeat, &ppfmt).await;
+        final_delete(&config, &cf, &notifier, &ppfmt).await;
     }
 
     // -------------------------------------------------------

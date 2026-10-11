@@ -992,19 +992,19 @@ mod tests {
     #[test]
     fn test_getenv_bool_true_values() {
         for val in &["true", "1", "yes", "True", "YES"] {
-            std::env::set_var("TEST_BOOL", val);
-            assert!(getenv_bool("TEST_BOOL", false));
+            std::env::set_var("TEST_BOOL_TRUE", val);
+            assert!(getenv_bool("TEST_BOOL_TRUE", false));
         }
-        std::env::remove_var("TEST_BOOL");
+        std::env::remove_var("TEST_BOOL_TRUE");
     }
 
     #[test]
     fn test_getenv_bool_false_values() {
         for val in &["false", "0", "no", "anything"] {
-            std::env::set_var("TEST_BOOL", val);
-            assert!(!getenv_bool("TEST_BOOL", true));
+            std::env::set_var("TEST_BOOL_FALSE", val);
+            assert!(!getenv_bool("TEST_BOOL_FALSE", true));
         }
-        std::env::remove_var("TEST_BOOL");
+        std::env::remove_var("TEST_BOOL_FALSE");
     }
 
     #[test]

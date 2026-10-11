@@ -157,13 +157,15 @@ async fn main() {
     };
 
     // On shutdown: delete records if configured
-    if app_config.delete_on_stop && !app_config.legacy_mode {
+    let exit_msg = if app_config.delete_on_stop && !app_config.legacy_mode {
         ppfmt.noticef(pp::EMOJI_STOP, "Deleting records on stop...");
-        updater::final_delete(&app_config, &handle, &notifier, &heartbeat, &ppfmt).await;
-    }
+        updater::final_delete(&app_config, &handle, &notifier, &ppfmt).await
+    } else {
+        Message::new_ok("Shutting down")
+    };
 
     // Exit heartbeat
-    heartbeat.exit(&Message::new_ok("Shutting down")).await;
+    heartbeat.exit(&exit_msg).await;
 
     // Single-shot runs (systemd oneshot, cron, --dry-run) report failure via exit code.
     if !ok {
