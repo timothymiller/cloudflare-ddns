@@ -14,9 +14,8 @@ use crate::pp::PP;
 use rand::RngExt;
 use reqwest::Client;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use tokio::signal;
+use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -111,14 +110,14 @@ async fn main() {
         )
     };
 
-    // Signal handler for graceful shutdown
-    let running = Arc::new(AtomicBool::new(true));
-    let r = running.clone();
+    // Signal handler for graceful shutdown (SIGINT and SIGTERM)
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
     tokio::spawn(async move {
-        let _ = signal::ctrl_c().await;
+        wait_for_shutdown_signal().await;
         println!("Stopping...");
-        r.store(false, Ordering::SeqCst);
+        let _ = shutdown_tx.send(true);
     });
+    let mut shutdown = Shutdown(shutdown_rx);
 
     // Start heartbeat
     heartbeat.start().await;
@@ -129,7 +128,7 @@ async fn main() {
         .build()
         .unwrap_or_default();
 
-    if app_config.legacy_mode {
+    let ok = if app_config.legacy_mode {
         // --- Legacy mode (original cloudflare-ddns behavior) ---
         run_legacy_mode(
             &app_config,
@@ -137,11 +136,11 @@ async fn main() {
             &notifier,
             &heartbeat,
             &ppfmt,
-            running,
+            &mut shutdown,
             &mut cf_cache,
             &detection_client,
         )
-        .await;
+        .await
     } else {
         // --- Env var mode (cf-ddns behavior) ---
         run_env_mode(
@@ -150,12 +149,12 @@ async fn main() {
             &notifier,
             &heartbeat,
             &ppfmt,
-            running,
+            &mut shutdown,
             &mut cf_cache,
             &detection_client,
         )
-        .await;
-    }
+        .await
+    };
 
     // On shutdown: delete records if configured
     if app_config.delete_on_stop && !app_config.legacy_mode {
@@ -165,41 +164,95 @@ async fn main() {
 
     // Exit heartbeat
     heartbeat.exit(&Message::new_ok("Shutting down")).await;
+
+    // Single-shot runs (systemd oneshot, cron, --dry-run) report failure via exit code.
+    if !ok {
+        std::process::exit(1);
+    }
 }
 
+/// Resolves when the process receives SIGINT or SIGTERM.
+///
+/// `docker stop`, `kubectl delete pod` and `systemctl stop` all send SIGTERM; as
+/// PID 1 in a scratch image we must handle it ourselves or the kernel ignores it.
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut term) => {
+                tokio::select! {
+                    _ = signal::ctrl_c() => {}
+                    _ = term.recv() => {}
+                }
+            }
+            Err(_) => {
+                let _ = signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = signal::ctrl_c().await;
+    }
+}
+
+/// Shutdown flag shared by the update loops.
+struct Shutdown(watch::Receiver<bool>);
+
+impl Shutdown {
+    fn requested(&self) -> bool {
+        *self.0.borrow()
+    }
+
+    /// Sleep for `d`, waking early if shutdown is requested.
+    /// Returns `true` if the full duration elapsed and the loop should continue.
+    async fn sleep(&mut self, d: Duration) -> bool {
+        if self.requested() {
+            return false;
+        }
+        let elapsed = tokio::select! {
+            _ = sleep(d) => true,
+            _ = self.0.wait_for(|stop| *stop) => false,
+        };
+        elapsed && !self.requested()
+    }
+}
+
+/// Runs legacy mode. Returns `false` if a single-shot run failed.
 async fn run_legacy_mode(
     config: &AppConfig,
     handle: &CloudflareHandle,
     notifier: &CompositeNotifier,
     heartbeat: &Heartbeat,
     ppfmt: &PP,
-    running: Arc<AtomicBool>,
+    shutdown: &mut Shutdown,
     cf_cache: &mut cf_ip_filter::CachedCloudflareFilter,
     detection_client: &Client,
-) {
+) -> bool {
     let legacy = match &config.legacy_config {
         Some(l) => l,
-        None => return,
+        None => return false,
     };
 
     let mut noop_reported = HashSet::new();
 
     if config.repeat {
+        let interval = config
+            .update_cron
+            .next_duration()
+            .unwrap_or(Duration::from_secs(300));
+        let secs = interval.as_secs();
         match (legacy.a, legacy.aaaa) {
-            (true, true) => println!(
-                "Updating IPv4 (A) & IPv6 (AAAA) records every {} seconds",
-                legacy.ttl
-            ),
-            (true, false) => {
-                println!("Updating IPv4 (A) records every {} seconds", legacy.ttl)
+            (true, true) => {
+                println!("Updating IPv4 (A) & IPv6 (AAAA) records every {secs} seconds")
             }
-            (false, true) => {
-                println!("Updating IPv6 (AAAA) records every {} seconds", legacy.ttl)
-            }
+            (true, false) => println!("Updating IPv4 (A) records every {secs} seconds"),
+            (false, true) => println!("Updating IPv6 (AAAA) records every {secs} seconds"),
             (false, false) => println!("Both IPv4 and IPv6 are disabled"),
         }
 
-        while running.load(Ordering::SeqCst) {
+        while !shutdown.requested() {
             updater::update_once(
                 config,
                 handle,
@@ -212,13 +265,11 @@ async fn run_legacy_mode(
             )
             .await;
 
-            for _ in 0..legacy.ttl {
-                if !running.load(Ordering::SeqCst) {
-                    break;
-                }
-                sleep(Duration::from_secs(1)).await;
+            if !shutdown.sleep(interval).await {
+                break;
             }
         }
+        true
     } else {
         updater::update_once(
             config,
@@ -230,26 +281,27 @@ async fn run_legacy_mode(
             &mut noop_reported,
             detection_client,
         )
-        .await;
+        .await
     }
 }
 
+/// Runs env var mode. Returns `false` if a single-shot run failed.
 async fn run_env_mode(
     config: &AppConfig,
     handle: &CloudflareHandle,
     notifier: &CompositeNotifier,
     heartbeat: &Heartbeat,
     ppfmt: &PP,
-    running: Arc<AtomicBool>,
+    shutdown: &mut Shutdown,
     cf_cache: &mut cf_ip_filter::CachedCloudflareFilter,
     detection_client: &Client,
-) {
+) -> bool {
     let mut noop_reported = HashSet::new();
 
     match &config.update_cron {
         CronSchedule::Once => {
             if config.update_on_start {
-                updater::update_once(
+                return updater::update_once(
                     config,
                     handle,
                     notifier,
@@ -261,6 +313,7 @@ async fn run_env_mode(
                 )
                 .await;
             }
+            true
         }
         schedule => {
             let interval = schedule.next_duration().unwrap_or(Duration::from_secs(300));
@@ -289,33 +342,17 @@ async fn run_env_mode(
             }
 
             // Main loop
-            while running.load(Ordering::SeqCst) {
-                // Sleep for interval, checking running flag each second
-                let secs = interval.as_secs();
-                let mins = secs / 60;
-                let rem_secs = secs % 60;
+            while !shutdown.requested() {
                 ppfmt.infof(
                     pp::EMOJI_SLEEP,
-                    &format!("Next update in {}m {}s", mins, rem_secs),
+                    &format!("Next update in {}", describe_duration(interval)),
                 );
 
-                for _ in 0..secs {
-                    if !running.load(Ordering::SeqCst) {
-                        return;
-                    }
-                    sleep(Duration::from_secs(1)).await;
-                }
-
-                if !running.load(Ordering::SeqCst) {
-                    return;
-                }
-
-                // Apply proportional jitter before each update to spread API calls
-                // across clients and reduce synchronized traffic spikes at Cloudflare.
-                let max_jitter = interval.as_secs() / 5;
-                if max_jitter > 0 {
-                    let jitter_secs = rand::rng().random_range(0..=max_jitter);
-                    sleep(std::time::Duration::from_secs(jitter_secs)).await;
+                // Proportional jitter spreads API calls across clients and reduces
+                // synchronized traffic spikes at Cloudflare.
+                let jitter = jitter_duration(interval.as_secs(), rand::rng().random());
+                if !shutdown.sleep(interval + jitter).await {
+                    break;
                 }
 
                 updater::update_once(
@@ -330,6 +367,7 @@ async fn run_env_mode(
                 )
                 .await;
             }
+            true
         }
     }
 }
