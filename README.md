@@ -11,6 +11,7 @@ A dynamic DNS client for Cloudflare, written in Rust: a ~1.1 MB static Docker im
 ## ✨ Features
 
 - **IPv4 and IPv6** with independent detection providers: Cloudflare trace (default), Cloudflare DNS-over-HTTPS, ipify, local routing table or interface, custom URL, or static IPs
+- **Multi-homed hosts**: bind detection to a network interface (`ipify@eth1`) and give groups of domains their own providers
 - **Many domains across many zones**, including wildcards (`*.example.com`); zones are found automatically
 - **Outage-safe**: a failed IP lookup never deletes or overwrites your records, and Cloudflare's own anycast IPs are rejected
 - **WAF IP lists** kept in sync with your addresses
@@ -154,7 +155,22 @@ Use fully-qualified names (`example.com`, `home.example.com`, `*.example.com`). 
 | `literal:<ips>` | Fixed addresses, separated by commas or spaces, e.g. `literal:203.0.113.10` |
 | `none` | Don't manage this address family |
 
+Add `@<interface>` to `cloudflare.trace`, `cloudflare.doh`, `ipify` or `url:` to send the detection request through a specific network interface, e.g. `IP4_PROVIDER=cloudflare.trace@ens5`.
+
 Detected addresses must be global unicast: private, CGNAT (`100.64.0.0/10`), loopback and link-local addresses are ignored. An empty `IP4_PROVIDER` / `IP6_PROVIDER` counts as unset (the default applies), so use `none` to disable a family.
+
+### Multiple interfaces and detection groups
+
+On multi-homed hosts (cloud instances with several network interfaces, dual-WAN routers), numbered variables define extra detection groups, each with its own domains and providers:
+
+```ini
+DOMAINS=a.example.com                    # default group
+DOMAINS_2=b.example.com                  # group 2
+IP4_PROVIDER_2=cloudflare.trace@ens5     # IPv4 detected through ens5
+IP6_PROVIDER_2=local.iface:ens5          # IPv6 read from ens5
+```
+
+Groups start at `_2`, and a family without its own provider uses the default group's. See [docs/multi-interface.md](docs/multi-interface.md) for the full rules and platform notes.
 
 ### Scheduling
 
@@ -280,6 +296,7 @@ A heartbeat is sent at startup, after every update cycle (success or fail), and 
 | `IP6_DOMAINS` | — | Domains for AAAA records only |
 | `IP4_PROVIDER` | `cloudflare.trace` | IPv4 detection provider |
 | `IP6_PROVIDER` | `cloudflare.trace` | IPv6 detection provider |
+| `DOMAINS_N`, `IP4_DOMAINS_N`, `IP6_DOMAINS_N`, `IP4_PROVIDER_N`, `IP6_PROVIDER_N` | — | Detection group N (N ≥ 2); see [multiple interfaces](#multiple-interfaces-and-detection-groups) |
 | `REJECT_CLOUDFLARE_IPS` | `true` | Discard detected Cloudflare IPs |
 | `UPDATE_CRON` | `@every 5m` | `@every <duration>` (min 30s) or `@once` |
 | `UPDATE_ON_START` | `true` | Update immediately at startup |
