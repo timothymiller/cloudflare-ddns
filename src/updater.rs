@@ -41,7 +41,7 @@ pub async fn update_once(
         for (ip_type, provider) in &config.providers {
             ppfmt.infof(
                 pp::EMOJI_DETECT,
-                &format!("Detecting {} via {}", ip_type.describe(), provider.name()),
+                &format!("Detecting {} via {}", ip_type.describe(), provider.label()),
             );
             match provider
                 .detect(detection_client, *ip_type, config.detection_timeout, ppfmt)
@@ -353,7 +353,7 @@ async fn update_legacy(
     for (ip_type, provider) in &config.providers {
         ppfmt.infof(
             pp::EMOJI_DETECT,
-            &format!("Detecting {} via {}", ip_type.describe(), provider.name()),
+            &format!("Detecting {} via {}", ip_type.describe(), provider.label()),
         );
         match provider
             .detect(detection_client, *ip_type, config.detection_timeout, ppfmt)

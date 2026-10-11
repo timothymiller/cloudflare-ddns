@@ -806,7 +806,7 @@ pub fn print_config_summary(config: &AppConfig, ppfmt: &PP) {
     for (ip_type, provider) in &config.providers {
         inner.infof(
             "",
-            &format!("{} provider: {}", ip_type.describe(), provider.name()),
+            &format!("{} provider: {}", ip_type.describe(), provider.label()),
         );
     }
 
