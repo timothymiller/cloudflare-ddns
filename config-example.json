@@ -2,11 +2,7 @@
   "cloudflare": [
     {
       "authentication": {
-        "api_token": "api_token_here",
-        "api_key": {
-          "api_key": "api_key_here",
-          "account_email": "your_email_here"
-        }
+        "api_token": "api_token_here"
       },
       "zone_id": "your_zone_id_here",
       "subdomains": [
@@ -26,5 +22,6 @@
   "purgeUnknownRecords": false,
   "ttl": 300,
   "ip4_provider": "cloudflare.trace",
-  "ip6_provider": "cloudflare.trace"
+  "ip6_provider": "cloudflare.trace",
+  "recordComment": "managed by cloudflare-ddns"
 }
