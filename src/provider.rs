@@ -442,7 +442,7 @@ async fn detect_cloudflare_trace(
     ppfmt: &PP,
 ) -> Vec<IpAddr> {
     if let Some(url) = custom_url {
-        if let Some(ip) = fetch_trace_ip(&client, url, timeout, None).await {
+        if let Some(ip) = fetch_trace_ip(client, url, timeout, None).await {
             if validate_detected_ip(&ip, ip_type, ppfmt) {
                 return vec![ip];
             }
@@ -458,7 +458,7 @@ async fn detect_cloudflare_trace(
     }
 
     // Try primary (cloudflare.com — the CDN trace endpoint)
-    if let Some(ip) = fetch_trace_ip(&client, CF_TRACE_PRIMARY, timeout, None).await {
+    if let Some(ip) = fetch_trace_ip(client, CF_TRACE_PRIMARY, timeout, None).await {
         if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
@@ -472,7 +472,7 @@ async fn detect_cloudflare_trace(
     );
 
     // Try fallback (hostname-based — works when literal IPs are intercepted by WARP/Zero Trust)
-    if let Some(ip) = fetch_trace_ip(&client, CF_TRACE_FALLBACK, timeout, None).await {
+    if let Some(ip) = fetch_trace_ip(client, CF_TRACE_FALLBACK, timeout, None).await {
         if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
