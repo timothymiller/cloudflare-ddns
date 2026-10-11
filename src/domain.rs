@@ -147,7 +147,7 @@ fn parse_atom(tokens: &[String]) -> Result<(Predicate, &[String]), String> {
             let (domains, rest) = parse_domain_args(&tokens[1..])?;
             let pred: Predicate = Box::new(move |d: &str| {
                 let d_lower = d.to_lowercase();
-                domains.iter().any(|dom| d_lower == *dom)
+                domains.contains(&d_lower)
             });
             Ok((pred, rest))
         }

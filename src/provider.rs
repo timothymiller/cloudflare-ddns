@@ -105,7 +105,7 @@ impl ProviderType {
             }
         } else if let Some(ips_str) = input.strip_prefix("literal:") {
             let ips: Result<Vec<IpAddr>, _> = ips_str
-                .split(|c: char| c == ',' || c == ' ')
+                .split([',', ' '])
                 .filter(|s| !s.is_empty())
                 .map(|s| s.trim().parse::<IpAddr>())
                 .collect();
@@ -573,7 +573,7 @@ fn detect_local_iface(interface: &str, ip_type: IpType, ppfmt: &PP) -> Vec<IpAdd
                 .map(|a| a.ip())
                 .filter(|ip| matches_ip_type(ip, ip_type) && ip.is_global_())
                 .collect();
-            ips.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            ips.sort_by_key(|a| a.to_string());
             ips.dedup();
             if ips.is_empty() {
                 ppfmt.warningf(

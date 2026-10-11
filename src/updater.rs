@@ -44,7 +44,7 @@ pub async fn update_once(
                 &format!("Detecting {} via {}", ip_type.describe(), provider.name()),
             );
             match provider
-                .detect(&detection_client, *ip_type, config.detection_timeout, ppfmt)
+                .detect(detection_client, *ip_type, config.detection_timeout, ppfmt)
                 .await
             {
                 DetectionOutcome::Ips(ips) => {
@@ -91,7 +91,7 @@ pub async fn update_once(
         // Filter out Cloudflare IPs if enabled
         if config.reject_cloudflare_ips {
             if let Some(cf_filter) = cf_cache
-                .get(&detection_client, config.detection_timeout, ppfmt)
+                .get(detection_client, config.detection_timeout, ppfmt)
                 .await
             {
                 for (ip_type, ips) in detected_ips.iter_mut() {
@@ -356,7 +356,7 @@ async fn update_legacy(
             &format!("Detecting {} via {}", ip_type.describe(), provider.name()),
         );
         match provider
-            .detect(&detection_client, *ip_type, config.detection_timeout, ppfmt)
+            .detect(detection_client, *ip_type, config.detection_timeout, ppfmt)
             .await
         {
             DetectionOutcome::Ips(detected) => {
@@ -407,7 +407,7 @@ async fn update_legacy(
     if config.reject_cloudflare_ips {
         let before_count = ips.len();
         if let Some(cf_filter) = cf_cache
-            .get(&detection_client, config.detection_timeout, ppfmt)
+            .get(detection_client, config.detection_timeout, ppfmt)
             .await
         {
             ips.retain(|key, ip_info| {
