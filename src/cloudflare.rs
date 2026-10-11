@@ -1198,7 +1198,12 @@ mod tests {
         // The name filter must be sent server-side; unfiltered listings are capped
         // at 100 records and can miss the target in large zones.
         let server = MockServer::start().await;
-        let body = dns_list_response(vec![dns_record_json("r1", "a.example.com", "1.2.3.4", None)]);
+        let body = dns_list_response(vec![dns_record_json(
+            "r1",
+            "a.example.com",
+            "1.2.3.4",
+            None,
+        )]);
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
             .and(query_param("type", "A"))
@@ -2210,17 +2215,32 @@ mod tests {
     async fn mount_one_record(server: &MockServer, id: &str, ip: &str) {
         Mock::given(method("GET"))
             .and(path("/zones/z1/dns_records"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(dns_list_response(vec![
-                dns_record_json(id, "a.example.com", ip, None),
-            ])))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(dns_list_response(vec![dns_record_json(
+                    id,
+                    "a.example.com",
+                    ip,
+                    None,
+                )])),
+            )
             .mount(server)
             .await;
     }
 
     async fn set_a(h: &CloudflareHandle, ip: &str) -> SetResult {
         let ips: Vec<IpAddr> = vec![ip.parse().unwrap()];
-        h.set_ips("z1", "a.example.com", "A", &ips, false, TTL::AUTO, None, false, &pp())
-            .await
+        h.set_ips(
+            "z1",
+            "a.example.com",
+            "A",
+            &ips,
+            false,
+            TTL::AUTO,
+            None,
+            false,
+            &pp(),
+        )
+        .await
     }
 
     #[tokio::test]
@@ -2233,7 +2253,10 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        assert_eq!(set_a(&handle(&server.uri()), "2.2.2.2").await, SetResult::Failed);
+        assert_eq!(
+            set_a(&handle(&server.uri()), "2.2.2.2").await,
+            SetResult::Failed
+        );
     }
 
     #[tokio::test]
@@ -2248,7 +2271,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(400))
             .mount(&server)
             .await;
-        assert_eq!(set_a(&handle(&server.uri()), "2.2.2.2").await, SetResult::Failed);
+        assert_eq!(
+            set_a(&handle(&server.uri()), "2.2.2.2").await,
+            SetResult::Failed
+        );
     }
 
     #[tokio::test]
@@ -2264,7 +2290,10 @@ mod tests {
             .expect(0)
             .mount(&server)
             .await;
-        assert_eq!(set_a(&handle(&server.uri()), "2.2.2.2").await, SetResult::Failed);
+        assert_eq!(
+            set_a(&handle(&server.uri()), "2.2.2.2").await,
+            SetResult::Failed
+        );
     }
 
     #[tokio::test]

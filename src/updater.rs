@@ -558,7 +558,9 @@ impl LegacyDdnsClient {
                     match resp.json::<T>().await {
                         Ok(v) => Some(v),
                         Err(e) => {
-                            eprintln!("Unexpected response to '{method}' request to '{endpoint}': {e}");
+                            eprintln!(
+                                "Unexpected response to '{method}' request to '{endpoint}': {e}"
+                            );
                             None
                         }
                     }
@@ -740,7 +742,9 @@ impl LegacyDdnsClient {
                     .list_records_by_name(entry, &ip.record_type, &fqdn)
                     .await
                 else {
-                    messages.push(Message::new_fail(&format!("Could not list records for {fqdn}")));
+                    messages.push(Message::new_fail(&format!(
+                        "Could not list records for {fqdn}"
+                    )));
                     ok = false;
                     continue;
                 };

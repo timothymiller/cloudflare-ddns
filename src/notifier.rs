@@ -269,23 +269,13 @@ impl ShoutrrrNotifier {
 
     async fn send_discord(&self, webhook_url: &str, text: &str) -> Result<(), String> {
         let body = serde_json::json!({ "content": text });
-        let resp = self
-            .client
-            .post(webhook_url)
-            .json(&body)
-            .send()
-            .await;
+        let resp = self.client.post(webhook_url).json(&body).send().await;
         check_response(resp).await
     }
 
     async fn send_slack(&self, webhook_url: &str, text: &str) -> Result<(), String> {
         let body = serde_json::json!({ "text": text });
-        let resp = self
-            .client
-            .post(webhook_url)
-            .json(&body)
-            .send()
-            .await;
+        let resp = self.client.post(webhook_url).json(&body).send().await;
         check_response(resp).await
     }
 
@@ -294,12 +284,7 @@ impl ShoutrrrNotifier {
         // Plain text: Markdown parse mode makes Telegram reject messages that
         // contain unbalanced '_' or '*' (common in hostnames and IPv6 zones).
         let body = serde_json::json!({ "text": text });
-        let resp = self
-            .client
-            .post(api_url)
-            .json(&body)
-            .send()
-            .await;
+        let resp = self.client.post(api_url).json(&body).send().await;
         check_response(resp).await
     }
 
@@ -309,12 +294,7 @@ impl ShoutrrrNotifier {
             "message": text,
             "priority": 5
         });
-        let resp = self
-            .client
-            .post(url)
-            .json(&body)
-            .send()
-            .await;
+        let resp = self.client.post(url).json(&body).send().await;
         check_response(resp).await
     }
 
@@ -583,7 +563,10 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
                 webhook_url: format!("https://discord.com/api/webhooks/{id}/{token}"),
             });
         }
-        return Err(format!("Invalid Discord shoutrrr URL: {}", redact_url(url_str)));
+        return Err(format!(
+            "Invalid Discord shoutrrr URL: {}",
+            redact_url(url_str)
+        ));
     }
 
     if let Some(rest) = url_str.strip_prefix("slack://") {
@@ -598,7 +581,10 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
                 ),
             });
         }
-        return Err(format!("Invalid Slack shoutrrr URL: {}", redact_url(url_str)));
+        return Err(format!(
+            "Invalid Slack shoutrrr URL: {}",
+            redact_url(url_str)
+        ));
     }
 
     if let Some(rest) = url_str.strip_prefix("telegram://") {
@@ -620,7 +606,10 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
                 });
             }
         }
-        return Err(format!("Invalid Telegram shoutrrr URL: {}", redact_url(url_str)));
+        return Err(format!(
+            "Invalid Telegram shoutrrr URL: {}",
+            redact_url(url_str)
+        ));
     }
 
     if let Some((rest, default_scheme)) = url_str
@@ -673,7 +662,10 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
                 .unwrap_or(parts[0]);
             let user = parts[1];
             if token.is_empty() || user.is_empty() {
-                return Err(format!("Invalid Pushover shoutrrr URL: {}", redact_url(url_str)));
+                return Err(format!(
+                    "Invalid Pushover shoutrrr URL: {}",
+                    redact_url(url_str)
+                ));
             }
             return Ok(ShoutrrrService {
                 original_url: url_str.to_string(),
@@ -683,7 +675,10 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
                 ),
             });
         }
-        return Err(format!("Invalid Pushover shoutrrr URL: {}", redact_url(url_str)));
+        return Err(format!(
+            "Invalid Pushover shoutrrr URL: {}",
+            redact_url(url_str)
+        ));
     }
 
     // Unknown scheme - treat as generic with original URL as-is if it looks like a URL
@@ -707,7 +702,10 @@ fn parse_shoutrrr_url(url_str: &str) -> Result<ShoutrrrService, String> {
         });
     }
 
-    Err(format!("Unsupported notification URL: {}", redact_url(url_str)))
+    Err(format!(
+        "Unsupported notification URL: {}",
+        redact_url(url_str)
+    ))
 }
 
 // --- Heartbeat ---
@@ -1951,7 +1949,9 @@ mod tests {
 
     #[test]
     fn test_invalid_shoutrrr_url_error_is_redacted() {
-        let err = parse_shoutrrr_url("discord://no-at-sign-secret").err().unwrap();
+        let err = parse_shoutrrr_url("discord://no-at-sign-secret")
+            .err()
+            .unwrap();
         assert!(!err.contains("no-at-sign-secret"), "{err}");
         let err = parse_shoutrrr_url("weird:secret-thing").err().unwrap();
         assert!(!err.contains("secret-thing"), "{err}");
