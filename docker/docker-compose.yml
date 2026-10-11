@@ -1,14 +1,27 @@
-version: '3.9'
+# cloudflare-ddns — environment-variable mode (recommended).
+#
+#   docker compose -f docker/docker-compose.yml up -d
+#
+# Host networking is only needed for IPv6 detection. If you only need IPv4,
+# remove `network_mode: host` and set IP6_PROVIDER=none.
 services:
   cloudflare-ddns:
-    image: timothyjmiller/cloudflare-ddns:latest
+    # Pin a release tag (2.2.0, 2.2, or 2) instead of `latest` for predictable upgrades.
+    image: timothyjmiller/cloudflare-ddns:2.2.0
     container_name: cloudflare-ddns
     security_opt:
       - no-new-privileges:true
-    network_mode: 'host'
+    network_mode: host
     environment:
-      - PUID=1000
-      - PGID=1000
-    volumes:
-      - /YOUR/PATH/HERE/config.json:/config.json
+      # Token needs Zone > DNS > Edit and Zone > Zone > Read on the target zones.
+      # Prefer CLOUDFLARE_API_TOKEN_FILE with a Docker secret (see README).
+      - CLOUDFLARE_API_TOKEN=YOUR-CLOUDFLARE-API-TOKEN
+      - DOMAINS=example.com,www.example.com
+      - PROXIED=false
+      - TTL=1
+      - UPDATE_CRON=@every 5m
+      # - IP6_PROVIDER=none
+      # - HEALTHCHECKS=https://hc-ping.com/your-uuid
+      # - UPTIMEKUMA=https://kuma.example.com/api/push/your-token
+      # - SHOUTRRR=discord://token@webhook-id
     restart: unless-stopped

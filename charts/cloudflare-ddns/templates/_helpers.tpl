@@ -32,3 +32,15 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/name: {{ include "cloudflare-ddns.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{- define "cloudflare-ddns.secretName" -}}
+{{- default (include "cloudflare-ddns.fullname" .) .Values.cloudflare.existingSecret }}
+{{- end }}
+
+{{- define "cloudflare-ddns.tokenKey" -}}
+{{- if .Values.cloudflare.existingSecret }}
+{{- .Values.cloudflare.existingSecretKey | default "CLOUDFLARE_API_TOKEN" }}
+{{- else -}}
+CLOUDFLARE_API_TOKEN
+{{- end }}
+{{- end }}

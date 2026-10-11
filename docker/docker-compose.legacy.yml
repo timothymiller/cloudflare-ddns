@@ -1,0 +1,18 @@
+# cloudflare-ddns — legacy config.json mode.
+# See docs/legacy-config.md. New deployments should use docker-compose.yml
+# (environment-variable mode) instead.
+#
+# Do NOT set CLOUDFLARE_API_TOKEN, DOMAINS, IP4_DOMAINS or IP6_DOMAINS here:
+# any of them switches the container to environment-variable mode and
+# config.json is ignored.
+services:
+  cloudflare-ddns:
+    image: timothyjmiller/cloudflare-ddns:2.2.0
+    container_name: cloudflare-ddns
+    security_opt:
+      - no-new-privileges:true
+    # Host networking is only needed for IPv6 detection ("aaaa": true).
+    network_mode: host
+    volumes:
+      - /YOUR/PATH/HERE/config.json:/config.json:ro
+    restart: unless-stopped

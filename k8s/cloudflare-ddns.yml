@@ -1,33 +1,82 @@
+# cloudflare-ddns — environment-variable mode.
+#
+# 1. Replace YOUR-CLOUDFLARE-API-TOKEN and the DOMAINS value below.
+# 2. kubectl apply -f k8s/cloudflare-ddns.yml
+#
+# Everything lives in the `ddns` namespace (created below). The Helm chart in
+# charts/cloudflare-ddns exposes every setting as a value and is the
+# recommended way to deploy on Kubernetes.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ddns
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudflare-ddns
+  namespace: ddns
+type: Opaque
+stringData:
+  # Token needs Zone > DNS > Edit and Zone > Zone > Read on the target zones.
+  CLOUDFLARE_API_TOKEN: YOUR-CLOUDFLARE-API-TOKEN
+  # Optional — notification / heartbeat URLs embed credentials, keep them here.
+  # SHOUTRRR: |
+  #   discord://token@webhook-id
+  # HEALTHCHECKS: https://hc-ping.com/your-uuid
+  # UPTIMEKUMA: https://kuma.example.com/api/push/your-token
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cloudflare-ddns
+  namespace: ddns
+  labels:
+    app: cloudflare-ddns
 spec:
+  # Must stay at 1, and never run two pods at once.
+  replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: cloudflare-ddns
-
   template:
     metadata:
       labels:
         app: cloudflare-ddns
-
     spec:
+      # Needed for IPv6 detection (IPv6 egress for cloudflare.trace and the
+      # local.iface providers). Remove it and set IP6_PROVIDER=none for IPv4 only.
+      hostNetwork: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: cloudflare-ddns
-          image: timothyjmiller/cloudflare-ddns:latest
+          image: timothyjmiller/cloudflare-ddns:2.2.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ['ALL']
           resources:
             limits:
               memory: '32Mi'
               cpu: '50m'
+          envFrom:
+            # CLOUDFLARE_API_TOKEN plus any optional SHOUTRRR / HEALTHCHECKS / UPTIMEKUMA keys
+            - secretRef:
+                name: cloudflare-ddns
           env:
-            - name: CONFIG_PATH
-              value: '/etc/cloudflare-ddns/'
-          volumeMounts:
-            - mountPath: '/etc/cloudflare-ddns'
-              name: config-cloudflare-ddns
-              readOnly: true
-      volumes:
-        - name: config-cloudflare-ddns
-          secret:
-            secretName: config-cloudflare-ddns
+            - name: DOMAINS
+              value: 'example.com,www.example.com'
+            - name: PROXIED
+              value: 'false'
+            - name: UPDATE_CRON
+              value: '@every 5m'
+            # - name: IP6_PROVIDER
+            #   value: 'none'

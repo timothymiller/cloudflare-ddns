@@ -6,29 +6,53 @@ metadata:
     {{- include "cloudflare-ddns.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  # Never run two instances at once (they would race on the same records).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "cloudflare-ddns.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
+      {{- if or (not .Values.cloudflare.existingSecret) .Values.podAnnotations }}
       annotations:
+        {{- if not .Values.cloudflare.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       labels:
         {{- include "cloudflare-ddns.selectorLabels" . | nindent 8 }}
     spec:
       hostNetwork: {{ .Values.hostNetwork }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             - name: CLOUDFLARE_API_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ default (include "cloudflare-ddns.fullname" .) .Values.cloudflare.existingSecret }}
-                  key: {{ .Values.cloudflare.existingSecretKey }}
+                  name: {{ include "cloudflare-ddns.secretName" . }}
+                  key: {{ include "cloudflare-ddns.tokenKey" . }}
+            {{- range $key := list "SHOUTRRR" "HEALTHCHECKS" "UPTIMEKUMA" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cloudflare-ddns.secretName" $ }}
+                  key: {{ $key }}
+                  optional: true
+            {{- end }}
             {{- if .Values.domains }}
             - name: DOMAINS
               value: {{ .Values.domains | quote }}
@@ -45,12 +69,16 @@ spec:
               value: {{ .Values.ip4Provider | quote }}
             - name: IP6_PROVIDER
               value: {{ .Values.ip6Provider | quote }}
+            - name: REJECT_CLOUDFLARE_IPS
+              value: {{ .Values.rejectCloudflareIps | quote }}
             - name: UPDATE_CRON
               value: {{ .Values.updateCron | quote }}
             - name: UPDATE_ON_START
               value: {{ .Values.updateOnStart | quote }}
             - name: DELETE_ON_STOP
               value: {{ .Values.deleteOnStop | quote }}
+            - name: DELETE_ON_FAILURE
+              value: {{ .Values.deleteOnFailure | quote }}
             - name: TTL
               value: {{ .Values.ttl | quote }}
             - name: PROXIED
@@ -67,17 +95,17 @@ spec:
             - name: WAF_LISTS
               value: {{ .Values.wafLists | quote }}
             {{- end }}
-            {{- if .Values.shoutrrr }}
-            - name: SHOUTRRR
-              value: {{ .Values.shoutrrr | quote }}
+            {{- if .Values.wafListDescription }}
+            - name: WAF_LIST_DESCRIPTION
+              value: {{ .Values.wafListDescription | quote }}
             {{- end }}
-            {{- if .Values.healthchecks }}
-            - name: HEALTHCHECKS
-              value: {{ .Values.healthchecks | quote }}
+            {{- if .Values.wafListItemComment }}
+            - name: WAF_LIST_ITEM_COMMENT
+              value: {{ .Values.wafListItemComment | quote }}
             {{- end }}
-            {{- if .Values.uptimeKuma }}
-            - name: UPTIMEKUMA
-              value: {{ .Values.uptimeKuma | quote }}
+            {{- if .Values.managedWafListItemsCommentRegex }}
+            - name: MANAGED_WAF_LIST_ITEMS_COMMENT_REGEX
+              value: {{ .Values.managedWafListItemsCommentRegex | quote }}
             {{- end }}
             - name: DETECTION_TIMEOUT
               value: {{ .Values.detectionTimeout | quote }}
