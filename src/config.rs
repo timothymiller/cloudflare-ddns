@@ -923,6 +923,7 @@ mod tests {
 
     #[test]
     fn test_read_cron_default() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         // No env var set -> default 5m
         std::env::remove_var("UPDATE_CRON");
         let pp = PP::new(false, false);
@@ -932,6 +933,7 @@ mod tests {
 
     #[test]
     fn test_read_cron_once() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("UPDATE_CRON", "@once");
         let pp = PP::new(false, false);
         let sched = read_cron_from_env(&pp).unwrap();
@@ -941,6 +943,7 @@ mod tests {
 
     #[test]
     fn test_read_cron_every() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("UPDATE_CRON", "@every 10m");
         let pp = PP::new(false, false);
         let sched = read_cron_from_env(&pp).unwrap();
@@ -950,6 +953,7 @@ mod tests {
 
     #[test]
     fn test_read_cron_deprecated_disabled() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("UPDATE_CRON", "@disabled");
         let pp = PP::new(false, false);
         let sched = read_cron_from_env(&pp).unwrap();
@@ -959,6 +963,7 @@ mod tests {
 
     #[test]
     fn test_read_cron_unsupported_format() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("UPDATE_CRON", "*/5 * * * *");
         let pp = PP::new(false, false);
         let result = read_cron_from_env(&pp);
@@ -1092,6 +1097,7 @@ mod tests {
 
     #[test]
     fn test_read_domains_both() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("DOMAINS", "example.com,www.example.com");
         std::env::remove_var("IP4_DOMAINS");
         std::env::remove_var("IP6_DOMAINS");
@@ -1104,6 +1110,7 @@ mod tests {
 
     #[test]
     fn test_read_domains_ip4_only() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("DOMAINS");
         std::env::set_var("IP4_DOMAINS", "v4.example.com");
         std::env::remove_var("IP6_DOMAINS");
@@ -1119,6 +1126,7 @@ mod tests {
 
     #[test]
     fn test_read_domains_empty() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("DOMAINS");
         std::env::remove_var("IP4_DOMAINS");
         std::env::remove_var("IP6_DOMAINS");
@@ -1131,6 +1139,7 @@ mod tests {
 
     #[test]
     fn test_read_waf_lists_valid() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("WAF_LISTS", "acc123/my_list");
         let lists = read_waf_lists_from_env().unwrap();
         assert_eq!(lists.len(), 1);
@@ -1141,6 +1150,7 @@ mod tests {
 
     #[test]
     fn test_read_waf_lists_invalid_is_error() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("WAF_LISTS", "no-slash");
         assert!(read_waf_lists_from_env().is_err());
         std::env::remove_var("WAF_LISTS");
@@ -1385,6 +1395,7 @@ mod tests {
 
     #[test]
     fn test_is_env_config_mode_with_token() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("CLOUDFLARE_API_TOKEN", "test");
         assert!(is_env_config_mode());
         std::env::remove_var("CLOUDFLARE_API_TOKEN");
@@ -1392,6 +1403,7 @@ mod tests {
 
     #[test]
     fn test_is_env_config_mode_with_domains() {
+        let _env = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("CLOUDFLARE_API_TOKEN");
         std::env::remove_var("CF_API_TOKEN");
         std::env::remove_var("CLOUDFLARE_API_TOKEN_FILE");
@@ -1589,7 +1601,7 @@ mod tests {
 
     impl EnvGuard {
         fn set(key: &str, value: &str) -> Self {
-            let lock = ENV_MUTEX.lock().unwrap();
+            let lock = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
             std::env::set_var(key, value);
             Self {
                 keys: vec![key.to_string()],
