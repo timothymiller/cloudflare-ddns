@@ -739,7 +739,7 @@ pub fn setup_notifiers(ppfmt: &PP) -> CompositeNotifier {
                     pp::EMOJI_NOTIFY,
                     &format!("Notifications: {}", n.describe()),
                 );
-                notifiers.push(Box::new(n.with_pp(ppfmt.clone())));
+                notifiers.push(Box::new(n.with_pp(same_output(ppfmt))));
             }
             Err(e) => {
                 ppfmt.errorf(
@@ -751,6 +751,11 @@ pub fn setup_notifiers(ppfmt: &PP) -> CompositeNotifier {
     }
 
     CompositeNotifier::new(notifiers)
+}
+
+/// A top-level printer with the same QUIET/EMOJI settings as `ppfmt`.
+fn same_output(ppfmt: &PP) -> PP {
+    PP::new(ppfmt.emoji, ppfmt.verbosity == pp::Verbosity::Quiet)
 }
 
 pub fn setup_heartbeats(ppfmt: &PP) -> Heartbeat {
@@ -766,7 +771,7 @@ pub fn setup_heartbeats(ppfmt: &PP) -> Heartbeat {
         monitors.push(Box::new(UptimeKumaMonitor::new(&url)));
     }
 
-    Heartbeat::new(monitors).with_pp(ppfmt.clone())
+    Heartbeat::new(monitors).with_pp(same_output(ppfmt))
 }
 
 // ============================================================

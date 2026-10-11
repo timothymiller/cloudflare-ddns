@@ -24,7 +24,6 @@ pub const EMOJI_CONFIG: &str = "\u{2699}\u{FE0F}";
 
 const INDENT_PREFIX: &str = "   ";
 
-#[derive(Clone)]
 pub struct PP {
     pub verbosity: Verbosity,
     pub emoji: bool,
