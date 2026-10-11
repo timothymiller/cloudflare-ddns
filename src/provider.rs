@@ -31,14 +31,24 @@ impl IpType {
 /// All supported provider types
 #[derive(Debug, Clone)]
 pub enum ProviderType {
-    CloudflareTrace { url: Option<String> },
+    CloudflareTrace {
+        url: Option<String>,
+    },
     CloudflareDOH,
     Ipify,
     Local,
-    LocalIface { interface: String },
-    StableLocalIface { interface: String },
-    CustomURL { url: String },
-    Literal { ips: Vec<IpAddr> },
+    LocalIface {
+        interface: String,
+    },
+    StableLocalIface {
+        interface: String,
+    },
+    CustomURL {
+        url: String,
+    },
+    Literal {
+        ips: Vec<IpAddr>,
+    },
     None,
     /// An HTTP-based provider whose requests egress through a specific network
     /// interface, written as `<provider>@<interface>` (e.g. `ipify@eth1`).
@@ -62,6 +72,11 @@ impl ProviderType {
             ProviderType::None => "none",
             ProviderType::Bound { inner, .. } => inner.name(),
         }
+    }
+
+    /// Identity for caching detection results within one update cycle.
+    pub fn cache_key(&self) -> String {
+        format!("{self:?}")
     }
 
     /// Name plus interface binding, for logs (e.g. `cloudflare.trace@ens5`).
@@ -410,7 +425,12 @@ fn bind_interface(
         .filter(|a| a.name == iface)
         .map(|a| a.ip())
         .find(|ip| matches_ip_type(ip, ip_type))
-        .ok_or_else(|| format!("Interface {iface} has no {} address to bind", ip_type.describe()))?;
+        .ok_or_else(|| {
+            format!(
+                "Interface {iface} has no {} address to bind",
+                ip_type.describe()
+            )
+        })?;
     Ok(builder.local_address(addr))
 }
 
@@ -421,7 +441,6 @@ async fn detect_cloudflare_trace(
     custom_url: Option<&str>,
     ppfmt: &PP,
 ) -> Vec<IpAddr> {
-
     if let Some(url) = custom_url {
         if let Some(ip) = fetch_trace_ip(&client, url, timeout, None).await {
             if validate_detected_ip(&ip, ip_type, ppfmt) {
@@ -1861,14 +1880,20 @@ fdaa149d3b9900000000000000000001 0a 40 00 82 br-990e55930a86
             ("url:https://ip.example.com@wg0.1", "url:", "wg0.1"),
         ] {
             match ProviderType::parse(input).unwrap() {
-                ProviderType::Bound { inner: p, interface } => {
+                ProviderType::Bound {
+                    inner: p,
+                    interface,
+                } => {
                     assert_eq!(p.name(), inner, "{input}");
                     assert_eq!(interface, iface, "{input}");
                 }
                 other => panic!("{input} parsed as {other:?}"),
             }
         }
-        assert_eq!(ProviderType::parse("ipify@eth1").unwrap().label(), "ipify@eth1");
+        assert_eq!(
+            ProviderType::parse("ipify@eth1").unwrap().label(),
+            "ipify@eth1"
+        );
         assert_eq!(ProviderType::parse("ipify").unwrap().label(), "ipify");
     }
 
@@ -1883,7 +1908,12 @@ fdaa149d3b9900000000000000000001 0a 40 00 82 br-990e55930a86
 
     #[test]
     fn test_parse_bound_non_http_provider_is_error() {
-        for input in ["local@eth0", "local.iface:eth0@eth1", "literal:1.2.3.4@eth0", "none@eth0"] {
+        for input in [
+            "local@eth0",
+            "local.iface:eth0@eth1",
+            "literal:1.2.3.4@eth0",
+            "none@eth0",
+        ] {
             let err = ProviderType::parse(input).unwrap_err();
             assert!(err.contains("Interface binding"), "{input}: {err}");
         }
@@ -1901,7 +1931,12 @@ fdaa149d3b9900000000000000000001 0a 40 00 82 br-990e55930a86
         crate::init_crypto();
         let p = ProviderType::parse("url:http://127.0.0.1:9/@nosuchif0").unwrap();
         let outcome = p
-            .detect(&Client::new(), IpType::V4, Duration::from_secs(2), &PP::default_pp())
+            .detect(
+                &Client::new(),
+                IpType::V4,
+                Duration::from_secs(2),
+                &PP::default_pp(),
+            )
             .await;
         assert_eq!(outcome, DetectionOutcome::Failed);
     }
@@ -1919,7 +1954,11 @@ fdaa149d3b9900000000000000000001 0a 40 00 82 br-990e55930a86
             .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
             .mount(&server)
             .await;
-        let lo = if cfg!(target_os = "macos") { "lo0" } else { "lo" };
+        let lo = if cfg!(target_os = "macos") {
+            "lo0"
+        } else {
+            "lo"
+        };
 
         let bound = build_detection_client(IpType::V4, Duration::from_secs(5), Some(lo)).unwrap();
         match bound.get(server.uri()).send().await {
