@@ -77,11 +77,42 @@ pub struct LegacyApiKey {
 // Unified Config (supports both legacy JSON and env var modes)
 // ============================================================
 
+/// An additional detection group from numbered env vars (`DOMAINS_2`,
+/// `IP4_PROVIDER_2`, ...). Each group detects its own addresses, e.g. through
+/// a different network interface, and updates its own domains (issue #248).
+#[derive(Debug, Clone)]
+pub struct DetectionGroup {
+    /// The env var suffix, e.g. "2".
+    pub label: String,
+    pub providers: HashMap<IpType, ProviderType>,
+    pub domains: HashMap<IpType, Vec<String>>,
+}
+
+/// A view of one detection group: the default (unsuffixed) one or an extra one.
+pub struct GroupRef<'a> {
+    pub label: Option<&'a str>,
+    pub providers: &'a HashMap<IpType, ProviderType>,
+    pub domains: &'a HashMap<IpType, Vec<String>>,
+}
+
+impl GroupRef<'_> {
+    /// Log/message suffix identifying the group; empty for the default group.
+    pub fn tag(&self) -> String {
+        match self.label {
+            Some(l) => format!(" (group {l})"),
+            None => String::new(),
+        }
+    }
+}
+
 /// The complete application configuration
 pub struct AppConfig {
     pub auth: Auth,
+    /// Providers and domains of the default detection group (unsuffixed vars).
     pub providers: HashMap<IpType, ProviderType>,
     pub domains: HashMap<IpType, Vec<String>>, // FQDN domains by IP type
+    /// Additional detection groups (`DOMAINS_2`, ...); empty for most setups.
+    pub extra_groups: Vec<DetectionGroup>,
     pub waf_lists: Vec<WAFList>,
     pub update_cron: CronSchedule,
     pub update_on_start: bool,
@@ -104,6 +135,23 @@ pub struct AppConfig {
     pub legacy_mode: bool,
     pub legacy_config: Option<LegacyConfig>,
     pub repeat: bool,
+}
+
+impl AppConfig {
+    /// All detection groups, default first.
+    pub fn groups(&self) -> Vec<GroupRef<'_>> {
+        std::iter::once(GroupRef {
+            label: None,
+            providers: &self.providers,
+            domains: &self.domains,
+        })
+        .chain(self.extra_groups.iter().map(|g| GroupRef {
+            label: Some(g.label.as_str()),
+            providers: &g.providers,
+            domains: &g.domains,
+        }))
+        .collect()
+    }
 }
 
 /// Shortest allowed `@every` interval; anything lower hammers the Cloudflare API.
@@ -347,11 +395,16 @@ fn read_providers_from_env(ppfmt: &PP) -> Result<HashMap<IpType, ProviderType>, 
 }
 
 fn read_domains_from_env(_ppfmt: &PP) -> HashMap<IpType, Vec<String>> {
+    read_domains_with_suffix("")
+}
+
+/// Reads DOMAINS/IP4_DOMAINS/IP6_DOMAINS with a group suffix ("" or "_2").
+fn read_domains_with_suffix(suffix: &str) -> HashMap<IpType, Vec<String>> {
     let mut domains: HashMap<IpType, Vec<String>> = HashMap::new();
 
-    let both = getenv_list("DOMAINS", ',');
-    let ip4_only = getenv_list("IP4_DOMAINS", ',');
-    let ip6_only = getenv_list("IP6_DOMAINS", ',');
+    let both = getenv_list(&format!("DOMAINS{suffix}"), ',');
+    let ip4_only = getenv_list(&format!("IP4_DOMAINS{suffix}"), ',');
+    let ip6_only = getenv_list(&format!("IP6_DOMAINS{suffix}"), ',');
 
     let mut v4_domains: Vec<String> = both.clone();
     v4_domains.extend(ip4_only);
@@ -366,6 +419,115 @@ fn read_domains_from_env(_ppfmt: &PP) -> HashMap<IpType, Vec<String>> {
     }
 
     domains
+}
+
+/// Env var prefixes that can carry a detection group suffix (`_2`, `_3`, ...).
+const GROUP_VAR_PREFIXES: [&str; 5] = [
+    "DOMAINS_",
+    "IP4_DOMAINS_",
+    "IP6_DOMAINS_",
+    "IP4_PROVIDER_",
+    "IP6_PROVIDER_",
+];
+
+/// Numeric suffixes of set group variables, sorted. `_1`/`_01` are rejected:
+/// the unsuffixed variables are the first group.
+fn group_numbers() -> Result<Vec<u32>, String> {
+    let mut numbers = std::collections::BTreeSet::new();
+    for (key, value) in env::vars() {
+        if value.trim().is_empty() {
+            continue;
+        }
+        for prefix in GROUP_VAR_PREFIXES {
+            let Some(n) = key.strip_prefix(prefix) else {
+                continue;
+            };
+            if n.is_empty() || !n.chars().all(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            match n.parse::<u32>() {
+                Ok(num) if num >= 2 && !n.starts_with('0') => {
+                    numbers.insert(num);
+                }
+                _ => {
+                    return Err(format!(
+                        "{key}: numbered groups start at _2; use the unsuffixed {} for the first group",
+                        prefix.trim_end_matches('_')
+                    ))
+                }
+            }
+        }
+    }
+    Ok(numbers.into_iter().collect())
+}
+
+/// Reads the numbered detection groups. A group without its own provider for a
+/// family inherits the default group's provider for that family.
+fn read_extra_groups(
+    default_providers: &HashMap<IpType, ProviderType>,
+    ppfmt: &PP,
+) -> Result<Vec<DetectionGroup>, String> {
+    let mut groups = Vec::new();
+    for n in group_numbers()? {
+        let suffix = format!("_{n}");
+        let domains = read_domains_with_suffix(&suffix);
+
+        let mut providers = HashMap::new();
+        for (ip_type, var) in [(IpType::V4, "IP4_PROVIDER"), (IpType::V6, "IP6_PROVIDER")] {
+            let key = format!("{var}{suffix}");
+            let provider = match getenv(&key) {
+                Some(s) => ProviderType::parse(&s).map_err(|e| format!("Invalid {key}: {e}"))?,
+                None => match default_providers.get(&ip_type) {
+                    Some(p) => p.clone(),
+                    None => ProviderType::None,
+                },
+            };
+            if !matches!(provider, ProviderType::None) {
+                providers.insert(ip_type, provider);
+            }
+        }
+
+        if domains.is_empty() {
+            ppfmt.warningf(
+                pp::EMOJI_WARNING,
+                &format!("Detection group {n} has no DOMAINS{suffix}, IP4_DOMAINS{suffix} or IP6_DOMAINS{suffix}; ignoring it"),
+            );
+            continue;
+        }
+        groups.push(DetectionGroup {
+            label: n.to_string(),
+            providers,
+            domains,
+        });
+    }
+    Ok(groups)
+}
+
+/// Each (domain, record type) may belong to only one group; otherwise two
+/// groups would overwrite each other's records every cycle.
+fn check_group_overlap(
+    default_domains: &HashMap<IpType, Vec<String>>,
+    groups: &[DetectionGroup],
+) -> Result<(), String> {
+    let mut owner: HashMap<(IpType, String), String> = HashMap::new();
+    let all = std::iter::once(("default".to_string(), default_domains))
+        .chain(groups.iter().map(|g| (format!("group {}", g.label), &g.domains)));
+    for (name, domains) in all {
+        for (ip_type, list) in domains {
+            for d in list {
+                let key = (*ip_type, d.to_ascii_lowercase());
+                if let Some(prev) = owner.insert(key, name.clone()) {
+                    if prev != name {
+                        return Err(format!(
+                            "{} record for {d} is configured in both the {prev} and {name} detection groups",
+                            ip_type.record_type()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn read_waf_lists_from_env() -> Result<Vec<WAFList>, String> {
@@ -559,6 +721,7 @@ fn legacy_to_app_config(
         auth,
         providers,
         domains: HashMap::new(),
+        extra_groups: Vec::new(),
         waf_lists: Vec::new(),
         update_cron: schedule,
         update_on_start: true,
@@ -597,6 +760,12 @@ pub fn is_env_config_mode() -> bool {
         || getenv("DOMAINS").is_some()
         || getenv("IP4_DOMAINS").is_some()
         || getenv("IP6_DOMAINS").is_some()
+        || env::vars().any(|(k, v)| {
+            !v.trim().is_empty()
+                && ["DOMAINS_", "IP4_DOMAINS_", "IP6_DOMAINS_"]
+                    .iter()
+                    .any(|p| k.strip_prefix(p).is_some_and(|n| n.chars().all(|c| c.is_ascii_digit())))
+        })
 }
 
 /// Load configuration from environment variables (cf-ddns mode).
@@ -614,6 +783,8 @@ pub fn load_env_config(ppfmt: &PP) -> Result<AppConfig, String> {
 
     let providers = read_providers_from_env(ppfmt)?;
     let domains = read_domains_from_env(ppfmt);
+    let extra_groups = read_extra_groups(&providers, ppfmt)?;
+    check_group_overlap(&domains, &extra_groups)?;
     let waf_lists = read_waf_lists_from_env()?;
     let update_cron = read_cron_from_env(ppfmt)?;
     let update_on_start = getenv_bool("UPDATE_ON_START", true);
@@ -650,7 +821,7 @@ pub fn load_env_config(ppfmt: &PP) -> Result<AppConfig, String> {
     let reject_cloudflare_ips = getenv_bool("REJECT_CLOUDFLARE_IPS", true);
 
     // Validate: must have at least one update target
-    if domains.is_empty() && waf_lists.is_empty() {
+    if domains.is_empty() && extra_groups.is_empty() && waf_lists.is_empty() {
         return Err(
             "No update targets configured. Set DOMAINS, IP4_DOMAINS, IP6_DOMAINS, or WAF_LISTS."
                 .to_string(),
@@ -685,6 +856,7 @@ pub fn load_env_config(ppfmt: &PP) -> Result<AppConfig, String> {
         auth,
         providers,
         domains,
+        extra_groups,
         waf_lists,
         update_cron,
         update_on_start,
@@ -786,12 +958,20 @@ pub fn print_config_summary(config: &AppConfig, ppfmt: &PP) {
 
     let inner = ppfmt.indent();
 
-    if !config.domains.is_empty() {
-        ppfmt.noticef(pp::EMOJI_CONFIG, "Domains to update:");
-        for (ip_type, domains) in &config.domains {
+    for group in config.groups() {
+        if group.domains.is_empty() {
+            continue;
+        }
+        ppfmt.noticef(pp::EMOJI_CONFIG, &format!("Domains to update{}:", group.tag()));
+        for (ip_type, domains) in group.domains {
+            let provider = group
+                .providers
+                .get(ip_type)
+                .map(|p| p.label())
+                .unwrap_or_else(|| "none".to_string());
             inner.noticef(
                 "",
-                &format!("{}: {}", ip_type.describe(), domains.join(", ")),
+                &format!("{} via {provider}: {}", ip_type.describe(), domains.join(", ")),
             );
         }
     }
@@ -803,11 +983,13 @@ pub fn print_config_summary(config: &AppConfig, ppfmt: &PP) {
         }
     }
 
-    for (ip_type, provider) in &config.providers {
-        inner.infof(
-            "",
-            &format!("{} provider: {}", ip_type.describe(), provider.name()),
-        );
+    if config.domains.is_empty() {
+        for (ip_type, provider) in &config.providers {
+            inner.infof(
+                "",
+                &format!("{} provider: {}", ip_type.describe(), provider.label()),
+            );
+        }
     }
 
     inner.infof("", &format!("TTL: {}", config.ttl.describe()));
@@ -1530,6 +1712,7 @@ mod tests {
             auth: Auth::Token(String::new()),
             providers: HashMap::new(),
             domains: HashMap::new(),
+            extra_groups: Vec::new(),
             waf_lists: Vec::new(),
             update_cron: CronSchedule::Once,
             update_on_start: true,
@@ -1565,6 +1748,7 @@ mod tests {
             auth: Auth::Token("tok".to_string()),
             providers: HashMap::new(),
             domains,
+            extra_groups: Vec::new(),
             waf_lists: Vec::new(),
             update_cron: CronSchedule::Every(Duration::from_secs(300)),
             update_on_start: true,
@@ -2221,6 +2405,7 @@ mod tests {
             auth: Auth::Token("tok".to_string()),
             providers: HashMap::new(),
             domains: HashMap::new(),
+            extra_groups: Vec::new(),
             waf_lists: vec![waf_list],
             update_cron: CronSchedule::Every(Duration::from_secs(300)),
             update_on_start: true,
@@ -2258,6 +2443,7 @@ mod tests {
             auth: Auth::Token("tok".to_string()),
             providers,
             domains,
+            extra_groups: Vec::new(),
             waf_lists: Vec::new(),
             update_cron: CronSchedule::Every(Duration::from_secs(600)),
             update_on_start: true,
@@ -2292,6 +2478,7 @@ mod tests {
             auth: Auth::Token("tok".to_string()),
             providers: HashMap::new(),
             domains,
+            extra_groups: Vec::new(),
             waf_lists: Vec::new(),
             update_cron: CronSchedule::Once,
             update_on_start: true,
@@ -2454,5 +2641,102 @@ mod tests {
         let out = substitute_env_vars("$CF_DDNS_SUBST_2 ${CF_DDNS_SUBST}");
         drop(g);
         assert_eq!(out, "long short");
+    }
+
+    // ============================================================
+    // Detection groups (issue #248)
+    // ============================================================
+
+    fn group_guard() -> EnvGuard {
+        let mut g = base_env_guard();
+        for k in [
+            "DOMAINS_2", "IP4_DOMAINS_2", "IP6_DOMAINS_2", "IP4_PROVIDER_2", "IP6_PROVIDER_2",
+            "DOMAINS_3", "DOMAINS_1", "IP4_PROVIDER_3",
+        ] {
+            g.remove(k);
+        }
+        g
+    }
+
+    #[test]
+    fn test_no_groups_by_default() {
+        let g = group_guard();
+        let config = load_env_config(&PP::new(false, true)).unwrap_or_else(|e| panic!("{e}"));
+        drop(g);
+        assert!(config.extra_groups.is_empty());
+        assert_eq!(config.groups().len(), 1);
+    }
+
+    #[test]
+    fn test_group_parsing_and_inheritance() {
+        let mut g = group_guard();
+        g.add("IP6_PROVIDER", "local.iface:eth0");
+        g.add("DOMAINS_2", "b.example.com");
+        g.add("IP4_PROVIDER_2", "cloudflare.trace@ens5");
+        g.add("IP4_DOMAINS_3", "c.example.com");
+        g.add("IP4_PROVIDER_3", "none");
+        let config = load_env_config(&PP::new(false, true)).unwrap_or_else(|e| panic!("{e}"));
+        drop(g);
+
+        assert_eq!(config.extra_groups.len(), 2);
+        let g2 = &config.extra_groups[0];
+        assert_eq!(g2.label, "2");
+        assert_eq!(g2.providers[&IpType::V4].label(), "cloudflare.trace@ens5");
+        // IPv6 inherited from the default group.
+        assert_eq!(g2.providers[&IpType::V6].label(), "local.iface");
+        assert_eq!(g2.domains[&IpType::V6], vec!["b.example.com".to_string()]);
+
+        let g3 = &config.extra_groups[1];
+        assert_eq!(g3.label, "3");
+        assert!(!g3.providers.contains_key(&IpType::V4), "none disables the family");
+    }
+
+    #[test]
+    fn test_group_one_is_rejected() {
+        let mut g = group_guard();
+        g.add("DOMAINS_1", "x.example.com");
+        let err = load_env_config(&PP::new(false, true)).err();
+        drop(g);
+        assert!(err.unwrap().contains("start at _2"));
+    }
+
+    #[test]
+    fn test_group_overlap_is_rejected() {
+        let mut g = group_guard();
+        g.add("DOMAINS_2", "Example.com");
+        let err = load_env_config(&PP::new(false, true)).err();
+        drop(g);
+        let err = err.expect("overlap must be rejected");
+        assert!(err.contains("both the default and group 2"), "{err}");
+    }
+
+    #[test]
+    fn test_group_without_domains_is_ignored() {
+        let mut g = group_guard();
+        g.add("IP4_PROVIDER_2", "ipify@eth1");
+        let config = load_env_config(&PP::new(false, true)).unwrap_or_else(|e| panic!("{e}"));
+        drop(g);
+        assert!(config.extra_groups.is_empty());
+    }
+
+    #[test]
+    fn test_invalid_group_provider_is_error() {
+        let mut g = group_guard();
+        g.add("DOMAINS_2", "b.example.com");
+        g.add("IP4_PROVIDER_2", "local@eth0");
+        let err = load_env_config(&PP::new(false, true)).err();
+        drop(g);
+        assert!(err.unwrap().contains("IP4_PROVIDER_2"));
+    }
+
+    #[test]
+    fn test_group_domains_alone_enable_env_mode() {
+        let mut g = group_guard();
+        g.remove("CLOUDFLARE_API_TOKEN");
+        g.remove("DOMAINS");
+        g.add("DOMAINS_2", "b.example.com");
+        let env_mode = is_env_config_mode();
+        drop(g);
+        assert!(env_mode);
     }
 }

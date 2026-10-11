@@ -31,120 +31,146 @@ pub async fn update_once(
         messages = legacy_msgs;
         notify = legacy_notify;
     } else {
-        // Detect IPs for each provider. Types in `detection_failed` had a
-        // transient detection error: the real IP is unknown, so their DNS
-        // records and WAF list entries are preserved this cycle regardless of
-        // delete_on_failure (issue #277).
-        let mut detected_ips: HashMap<IpType, Vec<IpAddr>> = HashMap::new();
-        let mut detection_failed: HashSet<IpType> = HashSet::new();
+        // Each detection group (the default one plus any DOMAINS_2, ... groups)
+        // detects its own addresses and updates its own domains. Identical
+        // provider/family pairs are detected once per cycle.
+        let mut detection_cache: HashMap<(String, IpType), DetectionOutcome> = HashMap::new();
+        // WAF lists get the union of all groups' addresses, and are left alone
+        // if any group's detection failed transiently.
+        let mut waf_ips: Vec<IpAddr> = Vec::new();
+        let mut any_detection_failed = false;
 
-        for (ip_type, provider) in &config.providers {
-            ppfmt.infof(
-                pp::EMOJI_DETECT,
-                &format!("Detecting {} via {}", ip_type.describe(), provider.name()),
-            );
-            match provider
-                .detect(detection_client, *ip_type, config.detection_timeout, ppfmt)
-                .await
-            {
-                DetectionOutcome::Ips(ips) => {
-                    let ip_strs: Vec<String> = ips.iter().map(|ip| ip.to_string()).collect();
-                    ppfmt.infof(
-                        pp::EMOJI_DETECT,
-                        &format!("Detected {}: {}", ip_type.describe(), ip_strs.join(", ")),
-                    );
-                    messages.push(Message::new_ok(&format!(
-                        "Detected {}: {}",
-                        ip_type.describe(),
-                        ip_strs.join(", ")
-                    )));
-                    detected_ips.insert(*ip_type, ips);
-                }
-                DetectionOutcome::NoIp => {
-                    ppfmt.warningf(
-                        pp::EMOJI_WARNING,
-                        &format!("No {} address detected", ip_type.describe()),
-                    );
-                    messages.push(Message::new_fail(&format!(
-                        "Failed to detect {} address",
-                        ip_type.describe()
-                    )));
-                }
-                DetectionOutcome::Failed => {
-                    ppfmt.warningf(
+        for group in config.groups() {
+            let tag = group.tag();
+            // Types in `detection_failed` had a transient detection error: the real
+            // IP is unknown, so their DNS records and WAF list entries are preserved
+            // this cycle regardless of delete_on_failure (issue #277).
+            let mut detected_ips: HashMap<IpType, Vec<IpAddr>> = HashMap::new();
+            let mut detection_failed: HashSet<IpType> = HashSet::new();
+
+            for (ip_type, provider) in group.providers {
+                let cache_key = (provider.cache_key(), *ip_type);
+                let outcome = match detection_cache.get(&cache_key) {
+                    Some(cached) => cached.clone(),
+                    None => {
+                        ppfmt.infof(
+                            pp::EMOJI_DETECT,
+                            &format!(
+                                "Detecting {}{tag} via {}",
+                                ip_type.describe(),
+                                provider.label()
+                            ),
+                        );
+                        let outcome = provider
+                            .detect(detection_client, *ip_type, config.detection_timeout, ppfmt)
+                            .await;
+                        detection_cache.insert(cache_key, outcome.clone());
+                        outcome
+                    }
+                };
+                match outcome {
+                    DetectionOutcome::Ips(ips) => {
+                        let ip_strs: Vec<String> = ips.iter().map(|ip| ip.to_string()).collect();
+                        ppfmt.infof(
+                            pp::EMOJI_DETECT,
+                            &format!(
+                                "Detected {}{tag}: {}",
+                                ip_type.describe(),
+                                ip_strs.join(", ")
+                            ),
+                        );
+                        messages.push(Message::new_ok(&format!(
+                            "Detected {}{tag}: {}",
+                            ip_type.describe(),
+                            ip_strs.join(", ")
+                        )));
+                        detected_ips.insert(*ip_type, ips);
+                    }
+                    DetectionOutcome::NoIp => {
+                        ppfmt.warningf(
+                            pp::EMOJI_WARNING,
+                            &format!("No {} address detected{tag}", ip_type.describe()),
+                        );
+                        messages.push(Message::new_fail(&format!(
+                            "Failed to detect {} address{tag}",
+                            ip_type.describe()
+                        )));
+                    }
+                    DetectionOutcome::Failed => {
+                        ppfmt.warningf(
                         pp::EMOJI_WARNING,
                         &format!(
-                            "{} detection failed; skipping {} updates this cycle (existing records preserved)",
+                            "{} detection failed{tag}; skipping {} updates this cycle (existing records preserved)",
                             ip_type.describe(),
                             ip_type.describe()
                         ),
                     );
-                    messages.push(Message::new_fail(&format!(
-                        "Failed to detect {} address",
-                        ip_type.describe()
-                    )));
-                    detection_failed.insert(*ip_type);
+                        messages.push(Message::new_fail(&format!(
+                            "Failed to detect {} address{tag}",
+                            ip_type.describe()
+                        )));
+                        detection_failed.insert(*ip_type);
+                    }
                 }
             }
-        }
 
-        // Filter out Cloudflare IPs if enabled
-        if config.reject_cloudflare_ips {
-            if let Some(cf_filter) = cf_cache
-                .get(detection_client, config.detection_timeout, ppfmt)
-                .await
-            {
-                for (ip_type, ips) in detected_ips.iter_mut() {
-                    let before_count = ips.len();
-                    ips.retain(|ip| {
-                        if cf_filter.contains(ip) {
+            // Filter out Cloudflare IPs if enabled
+            if config.reject_cloudflare_ips {
+                if let Some(cf_filter) = cf_cache
+                    .get(detection_client, config.detection_timeout, ppfmt)
+                    .await
+                {
+                    for (ip_type, ips) in detected_ips.iter_mut() {
+                        let before_count = ips.len();
+                        ips.retain(|ip| {
+                            if cf_filter.contains(ip) {
+                                ppfmt.warningf(
+                                    pp::EMOJI_WARNING,
+                                    &format!(
+                                        "Rejected {ip}: matches Cloudflare IP range ({})",
+                                        ip_type.describe()
+                                    ),
+                                );
+                                false
+                            } else {
+                                true
+                            }
+                        });
+                        if ips.is_empty() && before_count > 0 {
                             ppfmt.warningf(
-                                pp::EMOJI_WARNING,
-                                &format!(
-                                    "Rejected {ip}: matches Cloudflare IP range ({})",
-                                    ip_type.describe()
-                                ),
-                            );
-                            false
-                        } else {
-                            true
-                        }
-                    });
-                    if ips.is_empty() && before_count > 0 {
-                        ppfmt.warningf(
                             pp::EMOJI_WARNING,
                             &format!(
                                 "All detected {} addresses were Cloudflare IPs; skipping updates for this type",
                                 ip_type.describe()
                             ),
                         );
-                        messages.push(Message::new_fail(&format!(
-                            "All {} addresses rejected (Cloudflare IPs)",
-                            ip_type.describe()
-                        )));
-                        // The real IP is unknown, not absent - preserve records.
-                        detection_failed.insert(*ip_type);
+                            messages.push(Message::new_fail(&format!(
+                                "All {} addresses rejected (Cloudflare IPs)",
+                                ip_type.describe()
+                            )));
+                            // The real IP is unknown, not absent - preserve records.
+                            detection_failed.insert(*ip_type);
+                        }
                     }
-                }
-            } else if !detected_ips.is_empty() {
-                ppfmt.warningf(
+                } else if !detected_ips.is_empty() {
+                    ppfmt.warningf(
                     pp::EMOJI_WARNING,
                     "Could not fetch Cloudflare IP ranges; skipping update to avoid writing Cloudflare IPs",
                 );
-                detection_failed.extend(detected_ips.keys().copied());
-                detected_ips.clear();
+                    detection_failed.extend(detected_ips.keys().copied());
+                    detected_ips.clear();
+                }
             }
-        }
 
-        // Update DNS records (env var mode - domain-based)
-        for (ip_type, domains) in &config.domains {
-            let ips = detected_ips.get(ip_type).cloned().unwrap_or_default();
+            // Update DNS records (env var mode - domain-based)
+            for (ip_type, domains) in group.domains {
+                let ips = detected_ips.get(ip_type).cloned().unwrap_or_default();
 
-            if ips.is_empty() {
-                // Transient detection failure: the real IP is unknown, so never
-                // touch existing records - not even with delete_on_failure set.
-                if detection_failed.contains(ip_type) {
-                    ppfmt.warningf(
+                if ips.is_empty() {
+                    // Transient detection failure: the real IP is unknown, so never
+                    // touch existing records - not even with delete_on_failure set.
+                    if detection_failed.contains(ip_type) {
+                        ppfmt.warningf(
                         pp::EMOJI_WARNING,
                         &format!(
                             "Skipping {} update for {}: IP detection failed (existing records preserved)",
@@ -152,12 +178,12 @@ pub async fn update_once(
                             domains.join(", ")
                         ),
                     );
-                    continue;
-                }
-                // Definitive "no address of this family": deletion is the
-                // documented DELETE_ON_FAILURE=true behavior; otherwise skip.
-                if !config.delete_on_failure {
-                    ppfmt.warningf(
+                        continue;
+                    }
+                    // Definitive "no address of this family": deletion is the
+                    // documented DELETE_ON_FAILURE=true behavior; otherwise skip.
+                    if !config.delete_on_failure {
+                        ppfmt.warningf(
                         pp::EMOJI_WARNING,
                         &format!(
                             "Skipping {} update for {}: no {} address detected (existing records preserved)",
@@ -166,84 +192,89 @@ pub async fn update_once(
                             ip_type.describe()
                         ),
                     );
-                    continue;
-                }
-            }
-
-            let record_type = ip_type.record_type();
-
-            for domain_str in domains {
-                // Find zone ID for this domain
-                let zone_id = match handle.zone_id_of_domain(domain_str, ppfmt).await {
-                    Some(id) => id,
-                    None => {
-                        ppfmt.errorf(
-                            pp::EMOJI_ERROR,
-                            &format!("Could not find zone for domain {domain_str}"),
-                        );
-                        all_ok = false;
-                        messages.push(Message::new_fail(&format!(
-                            "Failed to find zone for {domain_str}"
-                        )));
                         continue;
                     }
-                };
+                }
 
-                let proxied = config
-                    .proxied_expression
-                    .as_ref()
-                    .map(|f| f(domain_str))
-                    .unwrap_or(false);
+                let record_type = ip_type.record_type();
 
-                let result = handle
-                    .set_ips(
-                        &zone_id,
-                        domain_str,
-                        record_type,
-                        &ips,
-                        proxied,
-                        config.ttl,
-                        config.record_comment.as_deref(),
-                        config.dry_run,
-                        ppfmt,
-                    )
-                    .await;
-
-                let noop_key = format!("{domain_str}:{record_type}");
-                match result {
-                    SetResult::Updated => {
-                        noop_reported.remove(&noop_key);
-                        notify = true;
-                        if ips.is_empty() {
-                            messages.push(Message::new_ok(&format!(
-                                "Deleted DNS records for {domain_str} (no {} address detected)",
-                                ip_type.describe()
-                            )));
-                        } else {
-                            let ip_strs: Vec<String> =
-                                ips.iter().map(|ip| ip.to_string()).collect();
-                            messages.push(Message::new_ok(&format!(
-                                "Updated {domain_str} -> {}",
-                                ip_strs.join(", ")
-                            )));
-                        }
-                    }
-                    SetResult::Failed => {
-                        noop_reported.remove(&noop_key);
-                        notify = true;
-                        all_ok = false;
-                        messages.push(Message::new_fail(&format!("Failed to update {domain_str}")));
-                    }
-                    SetResult::Noop => {
-                        if noop_reported.insert(noop_key) {
-                            ppfmt.infof(
-                                pp::EMOJI_SKIP,
-                                &format!("Record {domain_str} is up to date"),
+                for domain_str in domains {
+                    // Find zone ID for this domain
+                    let zone_id = match handle.zone_id_of_domain(domain_str, ppfmt).await {
+                        Some(id) => id,
+                        None => {
+                            ppfmt.errorf(
+                                pp::EMOJI_ERROR,
+                                &format!("Could not find zone for domain {domain_str}"),
                             );
+                            all_ok = false;
+                            messages.push(Message::new_fail(&format!(
+                                "Failed to find zone for {domain_str}"
+                            )));
+                            continue;
+                        }
+                    };
+
+                    let proxied = config
+                        .proxied_expression
+                        .as_ref()
+                        .map(|f| f(domain_str))
+                        .unwrap_or(false);
+
+                    let result = handle
+                        .set_ips(
+                            &zone_id,
+                            domain_str,
+                            record_type,
+                            &ips,
+                            proxied,
+                            config.ttl,
+                            config.record_comment.as_deref(),
+                            config.dry_run,
+                            ppfmt,
+                        )
+                        .await;
+
+                    let noop_key = format!("{domain_str}:{record_type}");
+                    match result {
+                        SetResult::Updated => {
+                            noop_reported.remove(&noop_key);
+                            notify = true;
+                            if ips.is_empty() {
+                                messages.push(Message::new_ok(&format!(
+                                    "Deleted DNS records for {domain_str} (no {} address detected)",
+                                    ip_type.describe()
+                                )));
+                            } else {
+                                let ip_strs: Vec<String> =
+                                    ips.iter().map(|ip| ip.to_string()).collect();
+                                messages.push(Message::new_ok(&format!(
+                                    "Updated {domain_str} -> {}",
+                                    ip_strs.join(", ")
+                                )));
+                            }
+                        }
+                        SetResult::Failed => {
+                            noop_reported.remove(&noop_key);
+                            notify = true;
+                            all_ok = false;
+                            messages
+                                .push(Message::new_fail(&format!("Failed to update {domain_str}")));
+                        }
+                        SetResult::Noop => {
+                            if noop_reported.insert(noop_key) {
+                                ppfmt.infof(
+                                    pp::EMOJI_SKIP,
+                                    &format!("Record {domain_str} is up to date"),
+                                );
+                            }
                         }
                     }
                 }
             }
+
+            waf_ips.extend(detected_ips.values().flatten().copied());
+            any_detection_failed |= !detection_failed.is_empty();
         }
 
         // Update WAF lists.
@@ -251,7 +282,7 @@ pub async fn update_once(
         // detection failure for any family would silently strip that family's
         // IPs from the list. Preserve the list until detection recovers.
         for waf_list in &config.waf_lists {
-            if !detection_failed.is_empty() {
+            if any_detection_failed {
                 ppfmt.warningf(
                     pp::EMOJI_WARNING,
                     &format!(
@@ -262,8 +293,9 @@ pub async fn update_once(
                 continue;
             }
 
-            // Collect all detected IPs for WAF lists
-            let all_ips: Vec<IpAddr> = detected_ips.values().flatten().copied().collect();
+            let mut all_ips = waf_ips.clone();
+            all_ips.sort();
+            all_ips.dedup();
 
             let result = handle
                 .set_waf_list(
@@ -353,7 +385,7 @@ async fn update_legacy(
     for (ip_type, provider) in &config.providers {
         ppfmt.infof(
             pp::EMOJI_DETECT,
-            &format!("Detecting {} via {}", ip_type.describe(), provider.name()),
+            &format!("Detecting {} via {}", ip_type.describe(), provider.label()),
         );
         match provider
             .detect(detection_client, *ip_type, config.detection_timeout, ppfmt)
@@ -465,7 +497,8 @@ pub async fn final_delete(
     let mut messages = Vec::new();
 
     // Delete DNS records
-    for (ip_type, domains) in &config.domains {
+    let groups = config.groups();
+    for (ip_type, domains) in groups.iter().flat_map(|g| g.domains.iter()) {
         let record_type = ip_type.record_type();
 
         for domain_str in domains {
@@ -896,6 +929,7 @@ mod tests {
             auth: Auth::Token("test-token".to_string()),
             providers,
             domains,
+            extra_groups: Vec::new(),
             waf_lists,
             update_cron: CronSchedule::Once,
             update_on_start: true,
@@ -3312,6 +3346,110 @@ mod tests {
         )
         .await;
         assert!(ok, "Should succeed with record_comment set");
+    }
+
+    // ---- Detection groups (issue #248) ----
+
+    /// Two groups with different providers write their own address to their
+    /// own domain; the WAF list receives both.
+    #[tokio::test]
+    async fn test_detection_groups_update_independently() {
+        use wiremock::matchers::body_partial_json;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/zones"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(zones_response("z1", "example.com")),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/zones/z1/dns_records"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(dns_records_empty()))
+            .mount(&server)
+            .await;
+        for (name, ip) in [
+            ("a.example.com", "198.51.100.1"),
+            ("b.example.com", "203.0.113.2"),
+        ] {
+            Mock::given(method("POST"))
+                .and(path("/zones/z1/dns_records"))
+                .and(body_partial_json(
+                    serde_json::json!({ "name": name, "content": ip }),
+                ))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(dns_record_created("r", name, ip)),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+        }
+
+        let literal = |ip: &str| ProviderType::Literal {
+            ips: vec![ip.parse().unwrap()],
+        };
+        let mut config = make_config(
+            HashMap::from([(IpType::V4, literal("198.51.100.1"))]),
+            HashMap::from([(IpType::V4, vec!["a.example.com".to_string()])]),
+            vec![],
+            false,
+        );
+        config.extra_groups = vec![crate::config::DetectionGroup {
+            label: "2".to_string(),
+            providers: HashMap::from([(IpType::V4, literal("203.0.113.2"))]),
+            domains: HashMap::from([(IpType::V4, vec!["b.example.com".to_string()])]),
+        }];
+
+        let ok = update_once(
+            &config,
+            &handle(&server.uri()),
+            &empty_notifier(),
+            &empty_heartbeat(),
+            &mut CachedCloudflareFilter::new(),
+            &pp(),
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
+        assert!(ok);
+    }
+
+    /// Groups sharing a provider detect once per cycle.
+    #[tokio::test]
+    async fn test_detection_groups_share_identical_detection() {
+        let ip_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("198.51.100.7"))
+            .expect(1)
+            .mount(&ip_server)
+            .await;
+        let provider = ProviderType::CustomURL {
+            url: ip_server.uri(),
+        };
+        // No domains: only detection runs.
+        let mut config = make_config(
+            HashMap::from([(IpType::V4, provider.clone())]),
+            HashMap::new(),
+            vec![],
+            false,
+        );
+        config.reject_cloudflare_ips = false;
+        config.extra_groups = vec![crate::config::DetectionGroup {
+            label: "2".to_string(),
+            providers: HashMap::from([(IpType::V4, provider)]),
+            domains: HashMap::new(),
+        }];
+        update_once(
+            &config,
+            &handle("http://127.0.0.1:9"),
+            &empty_notifier(),
+            &empty_heartbeat(),
+            &mut CachedCloudflareFilter::new(),
+            &pp(),
+            &mut HashSet::new(),
+            &crate::test_client(),
+        )
+        .await;
     }
 }
 

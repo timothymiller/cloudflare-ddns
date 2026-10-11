@@ -31,15 +31,31 @@ impl IpType {
 /// All supported provider types
 #[derive(Debug, Clone)]
 pub enum ProviderType {
-    CloudflareTrace { url: Option<String> },
+    CloudflareTrace {
+        url: Option<String>,
+    },
     CloudflareDOH,
     Ipify,
     Local,
-    LocalIface { interface: String },
-    StableLocalIface { interface: String },
-    CustomURL { url: String },
-    Literal { ips: Vec<IpAddr> },
+    LocalIface {
+        interface: String,
+    },
+    StableLocalIface {
+        interface: String,
+    },
+    CustomURL {
+        url: String,
+    },
+    Literal {
+        ips: Vec<IpAddr>,
+    },
     None,
+    /// An HTTP-based provider whose requests egress through a specific network
+    /// interface, written as `<provider>@<interface>` (e.g. `ipify@eth1`).
+    Bound {
+        inner: Box<ProviderType>,
+        interface: String,
+    },
 }
 
 impl ProviderType {
@@ -54,11 +70,59 @@ impl ProviderType {
             ProviderType::CustomURL { .. } => "url:",
             ProviderType::Literal { .. } => "literal:",
             ProviderType::None => "none",
+            ProviderType::Bound { inner, .. } => inner.name(),
         }
     }
 
-    /// Parse a provider string like "cloudflare.trace", "url:https://...", "literal:1.2.3.4"
+    /// Identity for caching detection results within one update cycle.
+    pub fn cache_key(&self) -> String {
+        format!("{self:?}")
+    }
+
+    /// Name plus interface binding, for logs (e.g. `cloudflare.trace@ens5`).
+    pub fn label(&self) -> String {
+        match self {
+            ProviderType::Bound { inner, interface } => format!("{}@{interface}", inner.name()),
+            other => other.name().to_string(),
+        }
+    }
+
+    /// Whether this provider queries a remote HTTP endpoint (and so can be
+    /// bound to an interface).
+    fn is_http(&self) -> bool {
+        matches!(
+            self,
+            ProviderType::CloudflareTrace { .. }
+                | ProviderType::CloudflareDOH
+                | ProviderType::Ipify
+                | ProviderType::CustomURL { .. }
+        )
+    }
+
+    /// Parse a provider string like "cloudflare.trace", "url:https://...", "literal:1.2.3.4",
+    /// optionally bound to an interface with an `@<iface>` suffix ("ipify@eth1").
     pub fn parse(input: &str) -> Result<Self, String> {
+        let input = input.trim();
+        // Split on the last '@' only when the suffix looks like an interface
+        // name, so URLs containing '@' elsewhere keep working.
+        if let Some((base, iface)) = input.rsplit_once('@') {
+            if is_interface_name(iface) {
+                let inner = Self::parse_unbound(base)?;
+                if !inner.is_http() {
+                    return Err(format!(
+                        "Interface binding (@{iface}) only applies to cloudflare.trace, cloudflare.doh, ipify and url: providers; for local addresses use local.iface:{iface}"
+                    ));
+                }
+                return Ok(ProviderType::Bound {
+                    inner: Box::new(inner),
+                    interface: iface.to_string(),
+                });
+            }
+        }
+        Self::parse_unbound(input)
+    }
+
+    fn parse_unbound(input: &str) -> Result<Self, String> {
         let input = input.trim();
         if input.is_empty() || input == "none" {
             return Ok(ProviderType::None);
@@ -146,19 +210,37 @@ impl ProviderType {
             ProviderType::CloudflareTrace { .. }
             | ProviderType::CloudflareDOH
             | ProviderType::Ipify
-            | ProviderType::CustomURL { .. } => DetectionOutcome::Failed,
+            | ProviderType::CustomURL { .. }
+            | ProviderType::Bound { .. } => DetectionOutcome::Failed,
         }
     }
 
     /// Detect IPs using this provider.
     pub async fn detect_ips(
         &self,
-        client: &Client,
+        _client: &Client,
         ip_type: IpType,
         timeout: Duration,
         ppfmt: &PP,
     ) -> Vec<IpAddr> {
-        match self {
+        let (provider, interface) = match self {
+            ProviderType::Bound { inner, interface } => (inner.as_ref(), Some(interface.as_str())),
+            other => (other, None),
+        };
+        if !provider.is_http() {
+            return provider.detect_local_ips(ip_type, ppfmt);
+        }
+        // HTTP detectors always use an address-family-pinned client so the
+        // endpoint sees the requested family, optionally bound to an interface.
+        let client = match build_detection_client(ip_type, timeout, interface) {
+            Ok(c) => c,
+            Err(e) => {
+                ppfmt.warningf(pp::EMOJI_WARNING, &e);
+                return Vec::new();
+            }
+        };
+        let client = &client;
+        match provider {
             ProviderType::CloudflareTrace { url } => {
                 detect_cloudflare_trace(client, ip_type, timeout, url.as_deref(), ppfmt).await
             }
@@ -166,18 +248,33 @@ impl ProviderType {
                 detect_cloudflare_doh(client, ip_type, timeout, ppfmt).await
             }
             ProviderType::Ipify => detect_ipify(client, ip_type, timeout, ppfmt).await,
+            ProviderType::CustomURL { url } => {
+                detect_custom_url(client, url, ip_type, timeout, ppfmt).await
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Detection for providers that don't touch the network.
+    fn detect_local_ips(&self, ip_type: IpType, ppfmt: &PP) -> Vec<IpAddr> {
+        match self {
             ProviderType::Local => detect_local(ip_type, ppfmt),
             ProviderType::LocalIface { interface } => detect_local_iface(interface, ip_type, ppfmt),
             ProviderType::StableLocalIface { interface } => {
                 detect_stable_local_iface(interface, ip_type, ppfmt)
             }
-            ProviderType::CustomURL { url } => {
-                detect_custom_url(client, url, ip_type, timeout, ppfmt).await
-            }
             ProviderType::Literal { ips } => filter_ips_by_type(ips, ip_type),
-            ProviderType::None => Vec::new(),
+            _ => Vec::new(),
         }
     }
+}
+
+/// Interface names: letters, digits, '.', '_' and '-' (e.g. eth0, ens5, wg0.1).
+fn is_interface_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
 /// Result of a provider detection attempt (see [`ProviderType::detect`]).
@@ -195,7 +292,7 @@ pub enum DetectionOutcome {
 // --- Cloudflare Trace ---
 
 /// Primary trace URL uses cloudflare.com (the CDN endpoint, not the DNS
-/// resolver).  The `build_split_client` forces the correct address family by
+/// resolver).  The `build_detection_client` forces the correct address family by
 /// filtering DNS results, so a dual-stack hostname is safe.
 /// Using literal DNS-resolver IPs (1.0.0.1 / [2606:4700:4700::1001]) caused
 /// TLS SNI mismatches and returned Cloudflare proxy IPs for some users.
@@ -262,30 +359,90 @@ impl Resolve for FilteredResolver {
     }
 }
 
-/// Build an HTTP client that only connects via the given IP family.
-/// Uses a DNS-level filter to strip addresses of the wrong family from
-/// resolution results, ensuring the client never attempts a connection
-/// over the wrong protocol.
-pub fn build_split_client(ip_type: IpType, timeout: Duration) -> Client {
-    Client::builder()
+/// Client for HTTP detection: pinned to `ip_type` and, if given, bound to a
+/// network interface so the request egresses through it (multi-homed hosts).
+fn build_detection_client(
+    ip_type: IpType,
+    timeout: Duration,
+    interface: Option<&str>,
+) -> Result<Client, String> {
+    let builder = Client::builder()
         .dns_resolver(FilteredResolver { ip_type })
-        .timeout(timeout)
+        .timeout(timeout);
+    let builder = match interface {
+        Some(iface) => bind_interface(builder, iface, ip_type)?,
+        None => builder,
+    };
+    builder
         .build()
-        .unwrap_or_default()
+        .map_err(|e| format!("Failed to build detection client: {e}"))
+}
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "illumos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "solaris",
+    target_os = "tvos",
+    target_os = "visionos",
+    target_os = "watchos",
+))]
+fn bind_interface(
+    builder: reqwest::ClientBuilder,
+    iface: &str,
+    _ip_type: IpType,
+) -> Result<reqwest::ClientBuilder, String> {
+    // SO_BINDTODEVICE on Linux/Android, IP_BOUND_IF/IPV6_BOUND_IF on Apple
+    // platforms, Solaris and illumos.
+    Ok(builder.interface(iface))
+}
+
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "illumos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "solaris",
+    target_os = "tvos",
+    target_os = "visionos",
+    target_os = "watchos",
+)))]
+fn bind_interface(
+    builder: reqwest::ClientBuilder,
+    iface: &str,
+    ip_type: IpType,
+) -> Result<reqwest::ClientBuilder, String> {
+    // No device binding on this platform (e.g. Windows): bind the source
+    // address instead. Egress only follows it with source-based routing.
+    let addr = if_addrs::get_if_addrs()
+        .map_err(|e| format!("Failed to list interfaces: {e}"))?
+        .into_iter()
+        .filter(|a| a.name == iface)
+        .map(|a| a.ip())
+        .find(|ip| matches_ip_type(ip, ip_type))
+        .ok_or_else(|| {
+            format!(
+                "Interface {iface} has no {} address to bind",
+                ip_type.describe()
+            )
+        })?;
+    Ok(builder.local_address(addr))
 }
 
 async fn detect_cloudflare_trace(
-    _client: &Client,
+    client: &Client,
     ip_type: IpType,
     timeout: Duration,
     custom_url: Option<&str>,
     ppfmt: &PP,
 ) -> Vec<IpAddr> {
-    // Use an IP-family-specific client so the trace endpoint sees the right address family.
-    let client = build_split_client(ip_type, timeout);
-
     if let Some(url) = custom_url {
-        if let Some(ip) = fetch_trace_ip(&client, url, timeout, None).await {
+        if let Some(ip) = fetch_trace_ip(client, url, timeout, None).await {
             if validate_detected_ip(&ip, ip_type, ppfmt) {
                 return vec![ip];
             }
@@ -301,7 +458,7 @@ async fn detect_cloudflare_trace(
     }
 
     // Try primary (cloudflare.com — the CDN trace endpoint)
-    if let Some(ip) = fetch_trace_ip(&client, CF_TRACE_PRIMARY, timeout, None).await {
+    if let Some(ip) = fetch_trace_ip(client, CF_TRACE_PRIMARY, timeout, None).await {
         if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
@@ -315,7 +472,7 @@ async fn detect_cloudflare_trace(
     );
 
     // Try fallback (hostname-based — works when literal IPs are intercepted by WARP/Zero Trust)
-    if let Some(ip) = fetch_trace_ip(&client, CF_TRACE_FALLBACK, timeout, None).await {
+    if let Some(ip) = fetch_trace_ip(client, CF_TRACE_FALLBACK, timeout, None).await {
         if validate_detected_ip(&ip, ip_type, ppfmt) {
             return vec![ip];
         }
@@ -334,14 +491,11 @@ async fn detect_cloudflare_trace(
 // --- Cloudflare DNS over HTTPS ---
 
 async fn detect_cloudflare_doh(
-    _client: &Client,
+    client: &Client,
     ip_type: IpType,
     timeout: Duration,
     ppfmt: &PP,
 ) -> Vec<IpAddr> {
-    // Pin the address family: a shared client may connect over the other
-    // family on dual-stack hosts and then report the wrong address type.
-    let client = build_split_client(ip_type, timeout);
     // Construct a DNS query for whoami.cloudflare. TXT CH
     let query = build_dns_query(b"\x06whoami\x0Acloudflare\x00", 16, 3); // TXT=16, CH=3
 
@@ -477,14 +631,11 @@ fn rand_u16() -> u16 {
 // --- Ipify ---
 
 async fn detect_ipify(
-    _client: &Client,
+    client: &Client,
     ip_type: IpType,
     timeout: Duration,
     ppfmt: &PP,
 ) -> Vec<IpAddr> {
-    // Pin the address family: a shared client may connect over the other
-    // family on dual-stack hosts and then report the wrong address type.
-    let client = build_split_client(ip_type, timeout);
     let url = match ip_type {
         IpType::V4 => "https://api4.ipify.org",
         IpType::V6 => "https://api6.ipify.org",
@@ -698,15 +849,12 @@ fn parse_if_inet6_line(line: &str) -> Option<IfInet6Address> {
 // --- Custom URL ---
 
 async fn detect_custom_url(
-    _client: &Client,
+    client: &Client,
     url: &str,
     ip_type: IpType,
     timeout: Duration,
     ppfmt: &PP,
 ) -> Vec<IpAddr> {
-    // Pin the address family: a shared client may connect over the other
-    // family on dual-stack hosts and then report the wrong address type.
-    let client = build_split_client(ip_type, timeout);
     match client.get(url).timeout(timeout).send().await {
         Ok(resp) => {
             if let Ok(body) = resp.text().await {
@@ -1144,7 +1292,7 @@ mod tests {
         );
     }
 
-    // ---- FilteredResolver + build_split_client ----
+    // ---- FilteredResolver + build_detection_client ----
 
     #[tokio::test]
     async fn test_filtered_resolver_v4() {
@@ -1179,15 +1327,15 @@ mod tests {
     }
 
     #[test]
-    fn test_build_split_client_v4() {
-        let client = build_split_client(IpType::V4, Duration::from_secs(5));
+    fn test_build_detection_client_v4() {
+        let client = build_detection_client(IpType::V4, Duration::from_secs(5), None).unwrap();
         // Client should build successfully with filtered resolver.
         drop(client);
     }
 
     #[test]
-    fn test_build_split_client_v6() {
-        let client = build_split_client(IpType::V6, Duration::from_secs(5));
+    fn test_build_detection_client_v6() {
+        let client = build_detection_client(IpType::V6, Duration::from_secs(5), None).unwrap();
         drop(client);
     }
 
@@ -1719,5 +1867,109 @@ fdaa149d3b9900000000000000000001 0a 40 00 82 br-990e55930a86
             let ip: IpAddr = ip.parse().unwrap();
             assert!(ip.is_global_(), "{ip} should be global");
         }
+    }
+
+    // ---- Interface-bound providers (issue #248) ----
+
+    #[test]
+    fn test_parse_bound_providers() {
+        for (input, inner, iface) in [
+            ("cloudflare.trace@ens5", "cloudflare.trace", "ens5"),
+            ("cloudflare.doh@eth0", "cloudflare.doh", "eth0"),
+            ("ipify@eth1", "ipify", "eth1"),
+            ("url:https://ip.example.com@wg0.1", "url:", "wg0.1"),
+        ] {
+            match ProviderType::parse(input).unwrap() {
+                ProviderType::Bound {
+                    inner: p,
+                    interface,
+                } => {
+                    assert_eq!(p.name(), inner, "{input}");
+                    assert_eq!(interface, iface, "{input}");
+                }
+                other => panic!("{input} parsed as {other:?}"),
+            }
+        }
+        assert_eq!(
+            ProviderType::parse("ipify@eth1").unwrap().label(),
+            "ipify@eth1"
+        );
+        assert_eq!(ProviderType::parse("ipify").unwrap().label(), "ipify");
+    }
+
+    #[test]
+    fn test_parse_url_with_at_in_path_is_not_bound() {
+        // The suffix after the last '@' contains '/', so it is not an interface.
+        match ProviderType::parse("url:https://user@ip.example.com/raw").unwrap() {
+            ProviderType::CustomURL { url } => assert_eq!(url, "https://user@ip.example.com/raw"),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_bound_non_http_provider_is_error() {
+        for input in [
+            "local@eth0",
+            "local.iface:eth0@eth1",
+            "literal:1.2.3.4@eth0",
+            "none@eth0",
+        ] {
+            let err = ProviderType::parse(input).unwrap_err();
+            assert!(err.contains("Interface binding"), "{input}: {err}");
+        }
+    }
+
+    #[test]
+    fn test_parse_bound_unknown_provider_is_error() {
+        assert!(ProviderType::parse("bogus@eth0").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_bound_provider_failure_is_transient() {
+        // Unreachable endpoint through a missing interface: the real IP is
+        // unknown, so this must be Failed (records preserved), never NoIp.
+        crate::init_crypto();
+        let p = ProviderType::parse("url:http://127.0.0.1:9/@nosuchif0").unwrap();
+        let outcome = p
+            .detect(
+                &Client::new(),
+                IpType::V4,
+                Duration::from_secs(2),
+                &PP::default_pp(),
+            )
+            .await;
+        assert_eq!(outcome, DetectionOutcome::Failed);
+    }
+
+    /// Binding to the loopback interface still reaches a loopback server;
+    /// binding to a missing interface fails. Proves the socket option is applied.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn test_detection_client_binds_interface() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        crate::init_crypto();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+            .mount(&server)
+            .await;
+        let lo = if cfg!(target_os = "macos") {
+            "lo0"
+        } else {
+            "lo"
+        };
+
+        let bound = build_detection_client(IpType::V4, Duration::from_secs(5), Some(lo)).unwrap();
+        match bound.get(server.uri()).send().await {
+            Ok(r) => assert!(r.status().is_success()),
+            // Older Linux kernels require CAP_NET_RAW for SO_BINDTODEVICE.
+            Err(e) if format!("{e:?}").contains("PermissionDenied") => return,
+            Err(e) => panic!("bound request failed: {e:?}"),
+        }
+
+        let missing =
+            build_detection_client(IpType::V4, Duration::from_secs(5), Some("nosuchif0")).unwrap();
+        assert!(missing.get(server.uri()).send().await.is_err());
     }
 }

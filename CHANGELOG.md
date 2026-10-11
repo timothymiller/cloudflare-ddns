@@ -6,6 +6,16 @@ Docker images are published as `timothyjmiller/cloudflare-ddns:<version>`
 
 ## Unreleased
 
+### New features
+
+- **Interface-bound providers (#248).** `cloudflare.trace`, `cloudflare.doh`,
+  `ipify` and `url:` accept an `@<interface>` suffix
+  (`IP4_PROVIDER=cloudflare.trace@ens5`) to send detection through a specific
+  network interface.
+- **Detection groups (#248).** `DOMAINS_N`, `IP4_DOMAINS_N`, `IP6_DOMAINS_N`,
+  `IP4_PROVIDER_N` and `IP6_PROVIDER_N` (N ≥ 2) give groups of domains their
+  own providers. See [docs/multi-interface.md](docs/multi-interface.md).
+
 ### Behavior changes
 
 - **Graceful shutdown on SIGTERM as well as SIGINT.** `docker stop`,
