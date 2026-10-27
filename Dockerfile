@@ -1,6 +1,11 @@
 # ---- Build ----
 FROM rust:alpine AS builder
 RUN apk add --no-cache musl-dev
+# Refresh the CA bundle copied into the release image and fail the build if it
+# predates the eMudhra root removal (ca-certificates 20261020-r0).
+RUN apk add --no-cache --upgrade \
+    'ca-certificates>=20261020-r0' \
+    'ca-certificates-bundle>=20261020-r0'
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
