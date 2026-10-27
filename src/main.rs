@@ -5,6 +5,8 @@ mod domain;
 mod notifier;
 mod pp;
 mod provider;
+#[cfg(all(test, unix, not(target_os = "android"), not(target_vendor = "apple")))]
+mod tls_tests;
 mod updater;
 
 use crate::cloudflare::{Auth, CloudflareHandle};
