@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: cloudflare-ddns
-          image: timothyjmiller/cloudflare-ddns:2.3.0
+          image: timothyjmiller/cloudflare-ddns:2.3.1
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -2,9 +2,9 @@
 
 All notable changes to this project are documented here, newest first.
 Docker images are published as `timothyjmiller/cloudflare-ddns:<version>`
-(for example `2.3.0`, `2.3`, `2`; there is no `v` prefix).
+(for example `2.3.1`, `2.3`, `2`; there is no `v` prefix).
 
-## Unreleased
+## 2.3.1 — Distrust compromised eMudhra CAs
 
 ### Security
 

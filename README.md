@@ -56,7 +56,7 @@ docker run -d \
   --network host \
   -e CLOUDFLARE_API_TOKEN=your-api-token \
   -e DOMAINS=example.com,www.example.com \
-  timothyjmiller/cloudflare-ddns:2.3.0
+  timothyjmiller/cloudflare-ddns:2.3.1
 ```
 
 The container detects your public IPv4 and IPv6 addresses and updates the records every 5 minutes. Check `docker logs cloudflare-ddns` to see what it did.
@@ -70,7 +70,7 @@ IPv4 only (no host networking needed):
 ```yaml
 services:
   cloudflare-ddns:
-    image: timothyjmiller/cloudflare-ddns:2.3.0
+    image: timothyjmiller/cloudflare-ddns:2.3.1
     container_name: cloudflare-ddns
     security_opt:
       - no-new-privileges:true
@@ -343,7 +343,7 @@ To keep the token out of the compose file, use a secret:
 ```yaml
 services:
   cloudflare-ddns:
-    image: timothyjmiller/cloudflare-ddns:2.3.0
+    image: timothyjmiller/cloudflare-ddns:2.3.1
     container_name: cloudflare-ddns
     security_opt:
       - no-new-privileges:true
@@ -449,7 +449,7 @@ cargo build --release          # binary: target/release/cloudflare-ddns
 
 ## 🔒 Security notes
 
-- **Pin the image tag.** Images are tagged with the full version (`2.3.0`), minor (`2.3`), major (`2`) and `latest` — there is no `v` prefix. Use `2.3.0` (or at least `2.3`) in production and upgrade deliberately after reading the [changelog](CHANGELOG.md).
+- **Pin the image tag.** Images are tagged with the full version (`2.3.1`), minor (`2.3`), major (`2`) and `latest` — there is no `v` prefix. Use `2.3.1` (or at least `2.3`) in production and upgrade deliberately after reading the [changelog](CHANGELOG.md).
 - **Scope the token** to the permissions and zones [listed above](#1-create-an-api-token). Never use the Global API Key.
 - **Keep the token out of compose files and shell history**: use `CLOUDFLARE_API_TOKEN_FILE` with a Docker or Kubernetes secret, or a mode-`600` env file for systemd. Notification and heartbeat URLs contain credentials too.
 - **Host networking** (`--network host`) gives the container the host's full network stack. Use it only for IPv6 or `local`/`local.iface` detection; IPv4-only setups don't need it.

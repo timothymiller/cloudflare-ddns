@@ -50,7 +50,7 @@ This project handles **Cloudflare API tokens** that grant DNS editing privileges
 
 - The Docker image runs as a **static binary from scratch** with zero runtime dependencies, which minimizes the attack surface.
 - Use `security_opt: no-new-privileges:true` in Docker Compose deployments.
-- Pin image tags to a specific version (e.g., `timothyjmiller/cloudflare-ddns:2.3.0`) rather than using `latest` in production. Images are tagged `2.3.0`, `2.3`, `2` and `latest` — there is no `v` prefix.
+- Pin image tags to a specific version (e.g., `timothyjmiller/cloudflare-ddns:2.3.1`) rather than using `latest` in production. Images are tagged `2.3.1`, `2.3`, `2` and `latest` — there is no `v` prefix.
 - The Helm chart and `k8s/` manifest run the container as a non-root user (65534) with a read-only root filesystem, no privilege escalation, all capabilities dropped and the `RuntimeDefault` seccomp profile.
 
 ### Network Security
