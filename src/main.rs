@@ -2,6 +2,7 @@ mod cf_ip_filter;
 mod cloudflare;
 mod config;
 mod domain;
+mod health;
 mod notifier;
 mod pp;
 mod provider;
@@ -32,7 +33,7 @@ async fn main() {
     let repeat = args.iter().any(|a| a == "--repeat");
 
     // Check for unknown args (legacy behavior)
-    let known_args = ["--dry-run", "--repeat"];
+    let known_args = ["--dry-run", "--repeat", "--health"];
     let unknown: Vec<&str> = args
         .iter()
         .skip(1)
@@ -46,6 +47,12 @@ async fn main() {
             unknown.join(", ")
         );
         return;
+    }
+
+    // Container health probe: answers from the health file and exits without
+    // loading config, so it stays cheap enough to run every few seconds.
+    if args.iter().any(|a| a == "--health") {
+        std::process::exit(health::run_check());
     }
 
     // Determine config mode and create initial PP for config loading
@@ -255,6 +262,7 @@ async fn run_legacy_mode(
         }
 
         while !shutdown.requested() {
+            health::mark_alive(Duration::ZERO, cycle_timeouts(config), ppfmt);
             updater::update_once(
                 config,
                 handle,
@@ -267,6 +275,7 @@ async fn run_legacy_mode(
             )
             .await;
 
+            health::mark_alive(interval, cycle_timeouts(config), ppfmt);
             if !shutdown.sleep(interval).await {
                 break;
             }
@@ -330,6 +339,7 @@ async fn run_env_mode(
 
             // Update on start if configured
             if config.update_on_start {
+                health::mark_alive(Duration::ZERO, cycle_timeouts(config), ppfmt);
                 updater::update_once(
                     config,
                     handle,
@@ -353,10 +363,12 @@ async fn run_env_mode(
                 // Proportional jitter spreads API calls across clients and reduces
                 // synchronized traffic spikes at Cloudflare.
                 let jitter = jitter_duration(interval.as_secs(), rand::rng().random());
+                health::mark_alive(interval + jitter, cycle_timeouts(config), ppfmt);
                 if !shutdown.sleep(interval + jitter).await {
                     break;
                 }
 
+                health::mark_alive(Duration::ZERO, cycle_timeouts(config), ppfmt);
                 updater::update_once(
                     config,
                     handle,
@@ -372,6 +384,12 @@ async fn run_env_mode(
             true
         }
     }
+}
+
+/// Extra health-check slack from the configured timeouts, so raising them
+/// never makes a slow but working cycle look hung.
+fn cycle_timeouts(config: &AppConfig) -> Duration {
+    config.detection_timeout + config.update_timeout
 }
 
 fn jitter_duration(interval_secs: u64, rand_val: u64) -> std::time::Duration {
