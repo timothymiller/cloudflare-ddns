@@ -4,6 +4,32 @@ All notable changes to this project are documented here, newest first.
 Docker images are published as `timothyjmiller/cloudflare-ddns:<version>`
 (for example `2.3.0`, `2.3`, `2`; there is no `v` prefix).
 
+## Unreleased
+
+### Security
+
+- **Compromised eMudhra CA keys are rejected (CVE-2026-111943, #311).** The
+  private keys of several emSign (eMudhra) intermediate CAs are compromised.
+  On Linux, server certificates are verified by rustls-webpki, which now
+  (0.103.16, RUSTSEC-2026-0382) refuses any chain containing one of those
+  keys, so they cannot be used to impersonate the Cloudflare API and capture
+  the API token, or to spoof IP detection and notification endpoints. macOS
+  and Windows builds verify through the OS trust store and are covered by OS
+  updates. Thanks to @arminfabritzek for the report.
+- **The image no longer trusts the affected emSign roots.** Its CA bundle
+  comes from Alpine `ca-certificates` 20261020-r0 or newer, which removes
+  emSign ECC Root CA - G3, emSign ECC Root CA - C3 and emSign Root CA - C1,
+  and the build fails instead of shipping an older bundle. The `2` and `2.3`
+  images published before this release still trust those roots.
+
+### Dependencies
+
+- rustls-webpki 0.103.16, webpki-root-certs 1.0.11 (RUSTSEC-2026-0383),
+  h2 0.4.20 (RUSTSEC-2026-0258), anyhow 1.0.104 (RUSTSEC-2026-0190),
+  rustls 0.23.46, tokio 1.54.1, serde_json 1.0.154,
+  docker/login-action 4.7.0. webpki-root-certs, h2 and anyhow are not in
+  the release binary; updating them clears `cargo audit`.
+
 ## 2.3.0 — Multi-interface support, reliability fixes & docs overhaul
 
 ### ⚠️ Upgrade notes
