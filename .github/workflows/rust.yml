@@ -1,0 +1,44 @@
+name: Rust checks
+
+on:
+  push:
+    branches: master
+  pull_request:
+  schedule:
+    # Daily, so a new RustSec advisory against Cargo.lock fails a run even
+    # when no dependency changed.
+    - cron: '17 6 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --locked
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit Cargo.lock
+        run: cargo audit
