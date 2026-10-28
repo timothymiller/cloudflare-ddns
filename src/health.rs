@@ -2,7 +2,8 @@
 //!
 //! The release image is `FROM scratch`, so a Docker `HEALTHCHECK` cannot run
 //! curl or a shell. Instead the update loop writes a deadline (Unix seconds) to
-//! a small file before each sleep and each update cycle, and `--health` exits 0
+//! a small file before each sleep, each update cycle and each domain or WAF list
+//! within a cycle, and `--health` exits 0
 //! only while that deadline is still in the future. A loop that hangs or dies
 //! stops refreshing the file and the container turns unhealthy.
 //!
@@ -15,8 +16,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// Slack for one update cycle (IP detection plus Cloudflare API calls).
-/// Generous on purpose: a false "unhealthy" is worse than a late one.
+/// Slack for one unit of work: IP detection, or the Cloudflare API calls for
+/// one domain or WAF list. Each request is bounded by its timeout and the loop
+/// refreshes the deadline between units, so a cycle over many domains never
+/// has to fit in this budget. Generous on purpose: a false "unhealthy" is
+/// worse than a late one.
 const CYCLE_BUDGET: Duration = Duration::from_secs(600);
 
 static WRITE_WARNED: AtomicBool = AtomicBool::new(false);
@@ -43,6 +47,12 @@ pub fn mark_alive(wait: Duration, timeouts: Duration, ppfmt: &PP) {
             );
         }
     }
+}
+
+/// Refreshes the deadline from inside an update cycle, between units of work.
+/// Silent on failure: the loop-level `mark_alive` already warned once.
+pub fn mark_progress(timeouts: Duration) {
+    let _ = write_deadline(&path(), unix_now() + CYCLE_BUDGET + timeouts);
 }
 
 /// Runs the `--health` check. Returns the process exit code.
