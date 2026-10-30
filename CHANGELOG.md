@@ -2,7 +2,32 @@
 
 All notable changes to this project are documented here, newest first.
 Docker images are published as `timothyjmiller/cloudflare-ddns:<version>`
+and `ghcr.io/timothymiller/cloudflare-ddns:<version>`
 (for example `2.3.1`, `2.3`, `2`; there is no `v` prefix).
+
+## Unreleased
+
+### Added
+
+- **32-bit ARM images.** `linux/arm/v7` and `linux/arm/v6` join amd64, arm64
+  and ppc64le, so the image runs on 32-bit Raspberry Pi OS and older ARM NAS
+  boxes. The Dockerfile now cross-compiles with cargo-zigbuild instead of
+  building each architecture under QEMU.
+- **GHCR mirror.** Every tag is also published as
+  `ghcr.io/timothymiller/cloudflare-ddns:<version>`.
+- **Release binaries.** Each GitHub release gets static Linux binaries (x86_64,
+  aarch64, armv7, armv6, ppc64le) and a universal macOS binary, plus
+  `SHA256SUMS`.
+- **`--health` and a Docker `HEALTHCHECK`.** The update loop refreshes a
+  liveness file (`HEALTH_FILE`, default `/tmp/cloudflare-ddns.health`);
+  `--health` reports unhealthy only when the loop stops checking in, not when
+  an update fails.
+
+### Changed
+
+- **The image runs as a non-root user (UID/GID 65534).** A mounted
+  `config.json` or token file must be readable by that user: `chmod 644` it or
+  run with `--user` set to the file's owner. The error message now says so.
 
 ## 2.3.1 — Distrust compromised eMudhra CAs
 

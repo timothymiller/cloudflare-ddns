@@ -20,7 +20,7 @@ A dynamic DNS client for Cloudflare, written in Rust: a ~1.1 MB static Docker im
 - **Heartbeats** to Healthchecks.io and Uptime Kuma
 - **Simple scheduling** (`@every 5m`, `@once`) with jitter, dry-run mode, and graceful shutdown with optional record cleanup
 - **Record comments and comment regexes** to share a zone safely with other tools
-- **Runs anywhere**: Docker (amd64, arm64, ppc64le), Kubernetes/Helm, systemd, or any platform Rust targets
+- **Runs anywhere**: Docker (amd64, arm64, arm/v7, arm/v6, ppc64le) on Docker Hub and GHCR, Kubernetes/Helm, systemd, or a static binary from [releases](https://github.com/timothymiller/cloudflare-ddns/releases)
 
 ## Contents
 
@@ -284,6 +284,7 @@ A heartbeat is sent at startup, after every update cycle (success or fail), and 
 |------|-------------|
 | `--dry-run` | Log what would change without writing to Cloudflare |
 | `--repeat` | Legacy mode only: keep running (environment-variable mode uses `UPDATE_CRON`). The Docker image always passes it |
+| `--health` | Exit 0 if the running update loop has checked in on schedule, 1 otherwise. Used by the image's `HEALTHCHECK`; a failed update does not make it unhealthy, only a stalled loop |
 
 ## 📋 Environment variable reference
 
@@ -317,6 +318,7 @@ A heartbeat is sent at startup, after every update cycle (success or fail), and 
 | `UPDATE_TIMEOUT` | `30s` | Cloudflare API timeout |
 | `EMOJI` | `true` | Emoji in output |
 | `QUIET` | `false` | Only warnings and errors |
+| `HEALTH_FILE` | `/tmp/cloudflare-ddns.health` | Liveness file written by the update loop and read by `--health` |
 
 Legacy mode additionally reads `CONFIG_PATH` and `CF_DDNS_*` — see [docs/legacy-config.md](docs/legacy-config.md).
 
@@ -444,7 +446,7 @@ The service sets `UPDATE_CRON=@once`; don't set `UPDATE_CRON` or `DELETE_ON_STOP
 ```bash
 cargo build --release          # binary: target/release/cloudflare-ddns
 ./scripts/docker-build.sh      # Docker image, linux/amd64
-./scripts/docker-build-all.sh  # linux/amd64, linux/arm64, linux/ppc64le
+./scripts/docker-build-all.sh  # linux/amd64, linux/arm64, linux/arm/v7, linux/arm/v6, linux/ppc64le
 ```
 
 ## 🔒 Security notes
@@ -453,11 +455,15 @@ cargo build --release          # binary: target/release/cloudflare-ddns
 - **Scope the token** to the permissions and zones [listed above](#1-create-an-api-token). Never use the Global API Key.
 - **Keep the token out of compose files and shell history**: use `CLOUDFLARE_API_TOKEN_FILE` with a Docker or Kubernetes secret, or a mode-`600` env file for systemd. Notification and heartbeat URLs contain credentials too.
 - **Host networking** (`--network host`) gives the container the host's full network stack. Use it only for IPv6 or `local`/`local.iface` detection; IPv4-only setups don't need it.
-- `security_opt: no-new-privileges:true` is recommended. The Helm chart and `k8s/` manifest run as a non-root user with a read-only root filesystem and no capabilities.
+- **The image runs as a non-root user** (UID/GID 65534). Mounted files (`config.json`, the token file) must be readable by that user, or pass `--user` with the file owner's UID. `security_opt: no-new-privileges:true` is recommended. The Helm chart and `k8s/` manifest also use a read-only root filesystem and no capabilities.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## 🩺 Troubleshooting
+
+### "Permission denied" reading config.json or the token file
+
+The image runs as UID 65534, which can't read a file with mode `600` owned by another user. Run `chmod 644` on the file, or start the container with `--user <uid>:<gid>` of the file's owner (Compose: `user: "1000:1000"`).
 
 ### IPv6 is not detected in Docker
 

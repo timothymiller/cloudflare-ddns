@@ -2,12 +2,14 @@ use crate::cf_ip_filter::CachedCloudflareFilter;
 use crate::cloudflare::{CloudflareHandle, SetResult};
 use crate::config::{AppConfig, LegacyCloudflareEntry, LegacySubdomainEntry};
 use crate::domain::make_fqdn;
+use crate::health;
 use crate::notifier::{CompositeNotifier, Heartbeat, Message};
 use crate::pp::{self, PP};
 use crate::provider::{DetectionOutcome, IpType};
 use reqwest::Client;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
+use std::time::Duration;
 
 /// Run a single update cycle.
 pub async fn update_once(
@@ -199,6 +201,7 @@ pub async fn update_once(
                 let record_type = ip_type.record_type();
 
                 for domain_str in domains {
+                    health::mark_progress(config.detection_timeout + config.update_timeout);
                     // Find zone ID for this domain
                     let zone_id = match handle.zone_id_of_domain(domain_str, ppfmt).await {
                         Some(id) => id,
@@ -282,6 +285,7 @@ pub async fn update_once(
         // detection failure for any family would silently strip that family's
         // IPs from the list. Preserve the list until detection recovers.
         for waf_list in &config.waf_lists {
+            health::mark_progress(config.detection_timeout + config.update_timeout);
             if any_detection_failed {
                 ppfmt.warningf(
                     pp::EMOJI_WARNING,
@@ -686,6 +690,9 @@ impl LegacyDdnsClient {
                 continue;
             };
             for (fqdn, _) in Self::subdomains(entry, &base_domain) {
+                // A few requests per name, each bounded by UPDATE_TIMEOUT:
+                // well inside the health budget without adding the timeouts.
+                health::mark_progress(Duration::ZERO);
                 let Some(records) = self.list_records_by_name(entry, record_type, &fqdn).await
                 else {
                     ok = false;
@@ -762,6 +769,7 @@ impl LegacyDdnsClient {
             };
 
             for (fqdn, proxied) in Self::subdomains(entry, &base_domain) {
+                health::mark_progress(Duration::ZERO);
                 let record = LegacyDnsRecordPayload {
                     record_type: ip.record_type.clone(),
                     name: fqdn.clone(),

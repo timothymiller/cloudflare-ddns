@@ -333,7 +333,10 @@ fn read_auth_from_env(ppfmt: &PP) -> Option<Auth> {
             Err(e) => {
                 ppfmt.errorf(
                     pp::EMOJI_ERROR,
-                    &format!("Failed to read API token file '{path}': {e}"),
+                    &format!(
+                        "Failed to read API token file '{path}': {e}{}",
+                        permission_hint(&e)
+                    ),
                 );
             }
         }
@@ -608,12 +611,24 @@ fn substitute_env_vars(input: &str) -> String {
     result
 }
 
+/// The Docker image runs as UID 65534, so a mounted file that only its
+/// owner can read (mode 600) fails with "permission denied". Say how to fix it.
+fn permission_hint(e: &std::io::Error) -> &'static str {
+    if e.kind() == std::io::ErrorKind::PermissionDenied {
+        ". The Docker image runs as an unprivileged user (UID 65534): make the file \
+         readable by that user (e.g. chmod 644), or run the container with --user \
+         set to the file's owner"
+    } else {
+        ""
+    }
+}
+
 pub fn load_legacy_config() -> Result<LegacyConfig, String> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| ".".to_string());
     let path = PathBuf::from(&config_path).join("config.json");
 
-    let content =
-        std::fs::read_to_string(&path).map_err(|e| format!("Error reading config.json: {e}"))?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Error reading config.json: {e}{}", permission_hint(&e)))?;
 
     let content = substitute_env_vars(&content);
 

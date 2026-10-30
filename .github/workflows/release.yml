@@ -1,0 +1,77 @@
+name: Attach release binaries
+
+# Builds static binaries for every published GitHub release and attaches them,
+# with checksums, so package managers (AUR, Homebrew, nixpkgs, Proxmox LXC
+# scripts) can install without Docker.
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - Dockerfile
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Same toolchain image the Dockerfile cross-compiles with.
+    container: ghcr.io/rust-cross/cargo-zigbuild:0.23.4
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+          - armv7-unknown-linux-musleabihf
+          - arm-unknown-linux-musleabihf
+          - powerpc64le-unknown-linux-musl
+          - universal2-apple-darwin
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Add Rust target
+        if: matrix.target != 'universal2-apple-darwin'
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: cargo zigbuild --release --locked --target ${{ matrix.target }}
+
+      - name: Package
+        run: |
+          name="cloudflare-ddns-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.target }}/release/cloudflare-ddns" README.md LICENSE "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*.tar.gz
+
+  publish:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz > SHA256SUMS
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
