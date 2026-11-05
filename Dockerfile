@@ -11,7 +11,7 @@ RUN apk add --no-cache --upgrade \
 # Cross-compile on the build host instead of emulating each target under QEMU.
 # zig supplies the musl C toolchain that ring needs for every target, which is
 # what makes 32-bit ARM possible (rust:alpine has no arm/v6 or arm/v7 image).
-FROM --platform=$BUILDPLATFORM ghcr.io/rust-cross/cargo-zigbuild:0.23.4 AS builder
+FROM --platform=$BUILDPLATFORM ghcr.io/rust-cross/cargo-zigbuild:0.24.1 AS builder
 ARG TARGETPLATFORM
 RUN apt-get update \
     && apt-get install -y --no-install-recommends upx-ucl \
